@@ -1,0 +1,10 @@
+import client/browser/element.{type Element}
+
+@external(javascript, "../../document_ffi.mjs", "getElementById")
+pub fn get_element_by_id(id: String) -> Result(Element, Nil)
+
+@external(javascript, "../../document_ffi.mjs", "querySelector")
+pub fn query_selector(selector: String) -> Result(Element, Nil)
+
+@external(javascript, "../../document_ffi.mjs", "getDocumentUrl")
+pub fn get_document_url() -> String

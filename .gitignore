@@ -1,0 +1,9 @@
+*.beam
+*.ez
+*/build
+erl_crash.dump
+.env
+.DS_STORE
+*/priv/static/client*
+node_modules
+notes.txt

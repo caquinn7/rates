@@ -1,0 +1,7 @@
+---
+version: 1.2.7
+title: encode_crypto_currency_with_no_rank_to_json_test
+file: ./test/server/routes/home/currency_test.gleam
+test_name: encode_crypto_currency_with_no_rank_to_json_test
+---
+{"type":"crypto","id":1,"name":"Bitcoin","symbol":"BTC","rank":null}
