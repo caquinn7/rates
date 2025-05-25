@@ -8,12 +8,10 @@ import client/socket.{
   OnTextMessage,
 }
 import client/start_data.{type StartData}
-
-// import client/ui/components/auto_resize_input
-// import client/ui/components/button_dropdown.{type DropdownOption, DropdownOption}
-// import gleam/dict.{type Dict}
-
-// import gleam/dynamic
+import client/ui/components/auto_resize_input
+import client/ui/components/button_dropdown.{type DropdownOption, DropdownOption}
+import gleam/dict.{type Dict}
+import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/json
@@ -22,13 +20,11 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import lustre
-
-// import lustre/attribute
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
-
-// import lustre/event
+import lustre/event
 import shared/currency.{type Currency, Crypto, Fiat}
 import shared/rates/rate_request.{type RateRequest, RateRequest} as _shared_rate_request
 import shared/rates/rate_response.{RateResponse} as _shared_rate_response
@@ -74,8 +70,8 @@ pub fn main() {
     _ -> panic as "failed to decode start_data"
   }
 
-  // let assert Ok(_) = auto_resize_input.register("auto-resize-input")
-  // let assert Ok(_) = button_dropdown.register("button-dropdown")
+  let assert Ok(_) = auto_resize_input.register("auto-resize-input")
+  let assert Ok(_) = button_dropdown.register("button-dropdown")
 
   let app = lustre.application(init, update, view)
   let assert Ok(_to_runtime) = lustre.start(app, "#app", start_data)
@@ -154,7 +150,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                   Conversion(..model.conversion, right_input:, rate: Some(rate))
                 }
 
-                _ -> Conversion(..model.conversion, rate: Some(rate))
+                None -> Conversion(..model.conversion, rate: Some(rate))
               }
             }
 
@@ -171,11 +167,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                   Conversion(..model.conversion, left_input:, rate: Some(rate))
                 }
 
-                _ -> Conversion(..model.conversion, rate: Some(rate))
+                None -> Conversion(..model.conversion, rate: Some(rate))
               }
             }
           }
 
+          // todo: resize input
           #(Model(..model, conversion:), effect.none())
         }
       }
@@ -369,131 +366,130 @@ fn build_rate_request(model: Model) -> RateRequest {
 }
 
 pub fn view(model: Model) -> Element(Msg) {
-  // element.fragment([header(), main_content(model)])
-  // element.fragment([main_content(model)])
-  html.h1([], [html.text("todo")])
+  element.fragment([header(), main_content(model)])
 }
-// fn header() -> Element(Msg) {
-//   html.header([attribute.class("p-4 border-b border-base-content")], [
-//     html.h1(
-//       [
-//         attribute.class(
-//           "w-full mx-auto max-w-screen-xl text-5xl text-base-content",
-//         ),
-//       ],
-//       [html.text("RateRadar")],
-//     ),
-//   ])
-// }
 
-// fn main_content(model: Model) -> Element(Msg) {
-//   let dropdown_options =
-//     model.currencies
-//     |> list.group(fn(currency) {
-//       case currency {
-//         Crypto(..) -> "Crypto"
-//         Fiat(..) -> "Fiat"
-//       }
-//     })
-//     |> dict.map_values(fn(key, currencies) {
-//       currencies
-//       |> list.sort(fn(c1, c2) {
-//         case key {
-//           "Crypto" -> {
-//             let get_rank = fn(currency) {
-//               let assert Crypto(_, _, _, maybe_rank) = currency
-//               option.unwrap(maybe_rank, or: 0)
-//             }
-//             int.compare(get_rank(c1), get_rank(c2))
-//           }
-//           _ -> string.compare(c1.symbol, c2.symbol)
-//         }
-//       })
-//       |> list.map(fn(currency) {
-//         DropdownOption(value: int.to_string(currency.id), label: currency.name)
-//       })
-//     })
+fn header() -> Element(Msg) {
+  html.header([attribute.class("p-4 border-b border-base-content")], [
+    html.h1(
+      [
+        attribute.class(
+          "w-full mx-auto max-w-screen-xl text-5xl text-base-content",
+        ),
+      ],
+      [html.text("RateRadar")],
+    ),
+  ])
+}
 
-//   let equal_sign =
-//     html.p([attribute.class("text-3xl font-bold")], [element.text("=")])
+fn main_content(model: Model) -> Element(Msg) {
+  let dropdown_options =
+    model.currencies
+    |> list.group(fn(currency) {
+      case currency {
+        Crypto(..) -> "Crypto"
+        Fiat(..) -> "Fiat"
+      }
+    })
+    |> dict.map_values(fn(key, currencies) {
+      currencies
+      |> list.sort(fn(c1, c2) {
+        case key {
+          "Crypto" -> {
+            let get_rank = fn(currency) {
+              let assert Crypto(_, _, _, maybe_rank) = currency
+              option.unwrap(maybe_rank, or: 0)
+            }
+            int.compare(get_rank(c1), get_rank(c2))
+          }
+          _ -> string.compare(c1.symbol, c2.symbol)
+        }
+      })
+      |> list.map(fn(currency) {
+        DropdownOption(value: int.to_string(currency.id), label: currency.name)
+      })
+    })
 
-//   let left_conversion_input = model.conversion.left_input
-//   let right_conversion_input = model.conversion.right_input
+  let equal_sign =
+    html.p([attribute.class("text-3xl font-bold")], [element.text("=")])
 
-//   html.div(
-//     [
-//       attribute.class(
-//         "flex flex-col md:flex-row "
-//         <> "items-center justify-center p-4 "
-//         <> "space-y-4 md:space-y-0 md:space-x-4",
-//       ),
-//     ],
-//     [
-//       conversion_input(
-//         amount_input(Left, left_conversion_input.amount_input),
-//         currency_selector(
-//           Left,
-//           dropdown_options,
-//           left_conversion_input.currency_id,
-//         ),
-//       ),
-//       equal_sign,
-//       conversion_input(
-//         amount_input(Right, right_conversion_input.amount_input),
-//         currency_selector(
-//           Right,
-//           dropdown_options,
-//           right_conversion_input.currency_id,
-//         ),
-//       ),
-//     ],
-//   )
-// }
+  let left_conversion_input = model.conversion.left_input
+  let right_conversion_input = model.conversion.right_input
 
-// fn conversion_input(
-//   amount_input: Element(Msg),
-//   currency_selector: Element(Msg),
-// ) -> Element(Msg) {
-//   html.span([attribute.class("flex flex-row items-center space-x-2")], [
-//     amount_input,
-//     currency_selector,
-//   ])
-// }
+  html.div(
+    [
+      attribute.class(
+        "flex flex-col md:flex-row "
+        <> "items-center justify-center p-4 "
+        <> "space-y-4 md:space-y-0 md:space-x-4",
+      ),
+    ],
+    [
+      conversion_input(
+        amount_input(Left, left_conversion_input.amount_input),
+        currency_selector(
+          Left,
+          dropdown_options,
+          left_conversion_input.currency_id,
+        ),
+      ),
+      equal_sign,
+      conversion_input(
+        amount_input(Right, right_conversion_input.amount_input),
+        currency_selector(
+          Right,
+          dropdown_options,
+          right_conversion_input.currency_id,
+        ),
+      ),
+    ],
+  )
+}
 
-// fn amount_input(side: Side, value: String) -> Element(Msg) {
-//   element.element(
-//     "auto-resize-input",
-//     [
-//       auto_resize_input.id("amount-input-" <> side.to_string(side)),
-//       auto_resize_input.value(value),
-//       // auto_resize_input.min_width(4),
-//       event.on("value-changed", fn(data) {
-//         data
-//         |> dynamic.field("detail", dynamic.string)
-//         |> result.map(UserEnteredAmount(side, _))
-//       }),
-//     ],
-//     [],
-//   )
-// }
+fn conversion_input(
+  amount_input: Element(Msg),
+  currency_selector: Element(Msg),
+) -> Element(Msg) {
+  html.span([attribute.class("flex flex-row items-center space-x-2")], [
+    amount_input,
+    currency_selector,
+  ])
+}
 
-// fn currency_selector(
-//   side: Side,
-//   dropdown_options: Dict(String, List(DropdownOption)),
-//   selected_currency_id: Int,
-// ) -> Element(Msg) {
-//   element.element(
-//     "button-dropdown",
-//     [
-//       button_dropdown.id("currency-selector-" <> side.to_string(side)),
-//       button_dropdown.options(dropdown_options),
-//       button_dropdown.value(int.to_string(selected_currency_id)),
-//       event.on("option-selected", fn(data) {
-//         data
-//         |> dynamic.field("detail", dynamic.string)
-//         |> result.map(UserSelectedCurrency(side, _))
-//       }),
-//     ],
-//     [],
-//   )
-// }
+fn amount_input(side: Side, value: String) -> Element(Msg) {
+  element.element(
+    "auto-resize-input",
+    [
+      auto_resize_input.id("amount-input-" <> side.to_string(side)),
+      auto_resize_input.value(value),
+      // auto_resize_input.min_width(4),
+      event.on(
+        "value-changed",
+        decode.at(["detail"], decode.string)
+          |> decode.map(UserEnteredAmount(side, _)),
+      ),
+    ],
+    [],
+  )
+}
+
+fn currency_selector(
+  side: Side,
+  dropdown_options: Dict(String, List(DropdownOption)),
+  selected_currency_id: Int,
+) -> Element(Msg) {
+  element.element(
+    "button-dropdown",
+    [
+      button_dropdown.id("currency-selector-" <> side.to_string(side)),
+      button_dropdown.options(dropdown_options),
+      button_dropdown.value(int.to_string(selected_currency_id)),
+      event.on(
+        "option-selected",
+        decode.at(["detail"], decode.string)
+          |> decode.map(UserSelectedCurrency(side, _)),
+      ),
+    ],
+    [],
+  )
+}
