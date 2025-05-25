@@ -165,7 +165,12 @@ fn handle_msg(
 
                 Ok(rate) -> {
                   let rate_response =
-                    RateResponse(rate_req.from, rate_req.to, rate)
+                    RateResponse(
+                      rate_req.from,
+                      rate_req.to,
+                      rate,
+                      rate_response.Kraken,
+                    )
 
                   process.send(state.reply_to, Ok(rate_response))
 
@@ -199,7 +204,13 @@ fn handle_msg(
                   handle_cmc_fallback(state, rate_req, request_cmc_conversion)
 
                 Ok(rate) -> {
-                  let rate_resp = RateResponse(rate_req.from, rate_req.to, rate)
+                  let rate_resp =
+                    RateResponse(
+                      rate_req.from,
+                      rate_req.to,
+                      rate,
+                      rate_response.Kraken,
+                    )
                   process.send(reply_to, Ok(rate_resp))
                   actor.continue(state)
                 }

@@ -7,7 +7,9 @@ import server/coin_market_cap/client.{
   type CmcResponse, CmcConversionParameters, CmcResponse, CmcStatus,
 }
 import shared/rates/rate_request.{type RateRequest}
-import shared/rates/rate_response.{type RateResponse, RateResponse}
+import shared/rates/rate_response.{
+  type RateResponse, CoinMarketCap, RateResponse,
+}
 
 pub type RequestCmcConversion =
   fn(CmcConversionParameters) ->
@@ -67,6 +69,7 @@ fn map_cmc_response(
           from: conversion.id,
           to: rate_request.to,
           rate: quote_item.price,
+          source: CoinMarketCap,
         )
       })
       |> result.map_error(fn(_) { UnexpectedResponse(cmc_response) })

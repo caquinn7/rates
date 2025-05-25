@@ -1,7 +1,7 @@
 import client/browser/document
 import gleam/option.{None, Some}
 import gleam/result
-import gleam/uri.{type Uri, Uri}
+import gleam/uri.{Uri}
 import lustre/effect.{type Effect}
 
 pub type WebSocketEvent {

@@ -26,7 +26,7 @@ import server/rates/cmc_rate_handler.{
 }
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
-import shared/rates/rate_response.{type RateResponse, RateResponse}
+import shared/rates/rate_response.{type RateResponse, Kraken, RateResponse}
 
 pub opaque type RateResolver {
   RateResolver(Subject(Msg))
@@ -118,7 +118,7 @@ fn handle_msg(
 
                 process.send(
                   reply_to,
-                  Ok(RateResponse(rate_req.from, rate_req.to, rate)),
+                  Ok(RateResponse(rate_req.from, rate_req.to, rate, Kraken)),
                 )
 
                 Stop(Normal)

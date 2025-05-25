@@ -82,7 +82,7 @@ pub fn init(flags: StartData) -> #(Model, Effect(Msg)) {
 }
 
 pub fn model_from_start_data(start_data: StartData) {
-  let RateResponse(from, to, rate) = start_data.rate
+  let RateResponse(from, to, rate, _source) = start_data.rate
 
   let left_input = ConversionInput(float.to_string(1.0), Some(1.0), from)
   let right_input = ConversionInput(float.to_string(rate), Some(rate), to)
@@ -122,7 +122,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
 
         Ok(rate_resp) -> {
-          let RateResponse(from, to, rate) = rate_resp
+          let RateResponse(from, to, rate, _source) = rate_resp
 
           let assert Ok(_from_currency) =
             model.currencies

@@ -10,7 +10,7 @@ import server/rates/cmc_rate_handler.{
   CurrencyNotFound, RequestFailed, UnexpectedResponse, ValidationError,
 }
 import shared/rates/rate_request.{RateRequest}
-import shared/rates/rate_response.{RateResponse}
+import shared/rates/rate_response.{CoinMarketCap, RateResponse}
 
 pub fn get_rate_invalid_base_id_test() {
   let request_conversion = fn(_) { panic }
@@ -81,7 +81,7 @@ pub fn get_rate_returns_rate_test() {
   RateRequest(1, 2781)
   |> cmc_rate_handler.get_rate(request_conversion)
   |> should.be_ok
-  |> should.equal(RateResponse(1, 2781, 100_000.0))
+  |> should.equal(RateResponse(1, 2781, 100_000.0, CoinMarketCap))
 }
 
 pub fn get_rate_unexpected_response_test() {
