@@ -1,6 +1,5 @@
-import decode/zero.{type Decoder}
 import gleam/dict.{type Dict}
-import gleam/dynamic.{type Dynamic}
+import gleam/dynamic/decode.{type Decoder}
 import gleam/float
 import gleam/http/request.{type Request}
 import gleam/httpc
@@ -76,7 +75,7 @@ pub fn get_crypto_currencies(
   )
 
   resp.body
-  |> json.decode(decode_cmc_list_response(_, crypto_currency_decoder()))
+  |> json.parse(cmc_list_response_decoder(crypto_currency_decoder()))
   |> result.map_error(JsonDecodeError)
 }
 
@@ -96,7 +95,7 @@ pub fn get_fiat_currencies(
   )
 
   resp.body
-  |> json.decode(decode_cmc_list_response(_, fiat_currency_decoder()))
+  |> json.parse(cmc_list_response_decoder(fiat_currency_decoder()))
   |> result.map_error(JsonDecodeError)
 }
 
@@ -122,7 +121,7 @@ pub fn get_conversion(
   )
 
   resp.body
-  |> json.decode(decode_cmc_response(_, conversion_decoder()))
+  |> json.parse(cmc_response_decoder(conversion_decoder()))
   |> result.map_error(JsonDecodeError)
 }
 
@@ -133,19 +132,19 @@ fn set_headers(req: Request(a), api_key: String) -> Request(a) {
 }
 
 fn crypto_currency_decoder() -> Decoder(CmcCryptoCurrency) {
-  use id <- zero.field("id", zero.int)
-  use rank <- zero.optional_field("rank", None, zero.optional(zero.int))
-  use name <- zero.field("name", zero.string)
-  use symbol <- zero.field("symbol", zero.string)
-  zero.success(CmcCryptoCurrency(id, rank, name, symbol))
+  use id <- decode.field("id", decode.int)
+  use rank <- decode.optional_field("rank", None, decode.optional(decode.int))
+  use name <- decode.field("name", decode.string)
+  use symbol <- decode.field("symbol", decode.string)
+  decode.success(CmcCryptoCurrency(id, rank, name, symbol))
 }
 
 fn fiat_currency_decoder() -> Decoder(CmcFiatCurrency) {
-  use id <- zero.field("id", zero.int)
-  use name <- zero.field("name", zero.string)
-  use sign <- zero.field("sign", zero.string)
-  use symbol <- zero.field("symbol", zero.string)
-  zero.success(CmcFiatCurrency(id, name, sign, symbol))
+  use id <- decode.field("id", decode.int)
+  use name <- decode.field("name", decode.string)
+  use sign <- decode.field("sign", decode.string)
+  use symbol <- decode.field("symbol", decode.string)
+  decode.success(CmcFiatCurrency(id, name, sign, symbol))
 }
 
 fn conversion_decoder() -> Decoder(CmcConversion) {
@@ -163,49 +162,45 @@ fn conversion_decoder() -> Decoder(CmcConversion) {
   //     }
   // }
   let int_or_float_decoder =
-    zero.one_of(zero.float, [zero.int |> zero.map(int.to_float)])
+    decode.one_of(decode.float, [decode.int |> decode.map(int.to_float)])
 
   let quote_decoder = {
-    use price <- zero.field("price", int_or_float_decoder)
-    zero.success(QuoteItem(price))
+    use price <- decode.field("price", int_or_float_decoder)
+    decode.success(QuoteItem(price))
   }
 
-  use id <- zero.field("id", zero.int)
-  use symbol <- zero.field("symbol", zero.string)
-  use name <- zero.field("name", zero.string)
-  use amount <- zero.field("amount", int_or_float_decoder)
-  use quote <- zero.field("quote", zero.dict(zero.string, quote_decoder))
-  zero.success(CmcConversion(id, symbol, name, amount, quote))
+  use id <- decode.field("id", decode.int)
+  use symbol <- decode.field("symbol", decode.string)
+  use name <- decode.field("name", decode.string)
+  use amount <- decode.field("amount", int_or_float_decoder)
+  use quote <- decode.field("quote", decode.dict(decode.string, quote_decoder))
+  decode.success(CmcConversion(id, symbol, name, amount, quote))
 }
 
-fn decode_cmc_list_response(json: Dynamic, data_decoder: Decoder(a)) {
-  let decoder = {
-    use status <- zero.field("status", status_decoder())
-    use data <- zero.optional_field(
-      "data",
-      None,
-      zero.optional(zero.list(data_decoder)),
-    )
-    zero.success(CmcListResponse(status, data))
-  }
-  zero.run(json, decoder)
+fn cmc_list_response_decoder(
+  data_decoder: Decoder(a),
+) -> Decoder(CmcListResponse(a)) {
+  use status <- decode.field("status", status_decoder())
+  use data <- decode.optional_field(
+    "data",
+    None,
+    decode.optional(decode.list(data_decoder)),
+  )
+  decode.success(CmcListResponse(status, data))
 }
 
-fn decode_cmc_response(json: Dynamic, data_decoder: Decoder(a)) {
-  let decoder = {
-    use status <- zero.field("status", status_decoder())
-    use data <- zero.optional_field("data", None, zero.optional(data_decoder))
-    zero.success(CmcResponse(status, data))
-  }
-  zero.run(json, decoder)
+fn cmc_response_decoder(data_decoder: Decoder(a)) -> Decoder(CmcResponse(a)) {
+  use status <- decode.field("status", status_decoder())
+  use data <- decode.optional_field("data", None, decode.optional(data_decoder))
+  decode.success(CmcResponse(status, data))
 }
 
 fn status_decoder() -> Decoder(CmcStatus) {
-  use error_code <- zero.field("error_code", zero.int)
-  use error_message <- zero.optional_field(
+  use error_code <- decode.field("error_code", decode.int)
+  use error_message <- decode.optional_field(
     "error_message",
     None,
-    zero.optional(zero.string),
+    decode.optional(decode.string),
   )
-  zero.success(CmcStatus(error_code, error_message))
+  decode.success(CmcStatus(error_code, error_message))
 }

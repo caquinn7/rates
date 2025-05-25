@@ -32,7 +32,7 @@ pub fn get(
       |> page_scaffold(start_data_json)
 
     content
-    |> element.to_document_string_builder
+    |> element.to_document_string_tree
     |> wisp.html_body(wisp.response(200), _)
   })
   |> result.unwrap_both
