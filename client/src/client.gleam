@@ -172,7 +172,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             }
           }
 
-          // todo: resize input
           #(Model(..model, conversion:), effect.none())
         }
       }
@@ -462,7 +461,7 @@ fn amount_input(side: Side, value: String) -> Element(Msg) {
     [
       auto_resize_input.id("amount-input-" <> side.to_string(side)),
       auto_resize_input.value(value),
-      // auto_resize_input.min_width(4),
+      auto_resize_input.min_width(4),
       event.on(
         "value-changed",
         decode.at(["detail"], decode.string)

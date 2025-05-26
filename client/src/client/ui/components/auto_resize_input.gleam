@@ -1,7 +1,6 @@
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/shadow_root
-import client/browser/window
 import gleam/float
 import gleam/int
 import gleam/json
@@ -104,69 +103,64 @@ fn view(model: Model) -> Element(Msg) {
 
   let mirror_input =
     html.span(
-      [attribute.class("amount-input-mirror absolute invisible whitespace-pre")],
+      [attribute.class("input-mirror absolute invisible whitespace-pre")],
       [element.text(model.value)],
     )
 
   html.div([], [input, mirror_input])
 }
 
-fn resize_input(elem_id: String, min_width: Int) -> Effect(Msg) {
-  use dispatch <- effect.from
+fn resize_input(component_elem_id: String, min_width: Int) -> Effect(Msg) {
+  use dispatch, _root_element <- effect.before_paint
 
-  window.request_animation_frame(fn(_) {
-    let assert Ok(input_elem) = document.get_element_by_id(elem_id)
-    let shadow_root = shadow_root.shadow_root(input_elem)
+  let assert Ok(component_elem) = document.get_element_by_id(component_elem_id)
+  let shadow_root = shadow_root.shadow_root(component_elem)
 
-    let assert Ok(shadow_input_elem) =
-      shadow_root.query_selector(shadow_root, "input")
+  let assert Ok(shadow_input_elem) =
+    shadow_root.query_selector(shadow_root, "input")
 
-    let assert Ok(mirror_elem) =
-      shadow_root.query_selector(shadow_root, ".amount-input-mirror")
+  let assert Ok(shadow_input_mirror_elem) =
+    shadow_root.query_selector(shadow_root, ".input-mirror")
 
-    browser_element.copy_input_styles(shadow_input_elem, mirror_elem)
+  browser_element.copy_input_styles(shadow_input_elem, shadow_input_mirror_elem)
 
-    let parse_pixel_count = fn(property_name) {
-      let val =
-        browser_element.get_computed_style_property(
-          shadow_input_elem,
-          property_name,
-        )
-
-      let assert True = string.ends_with(val, "px")
-
-      let pixel_count_str = string.replace(val, "px", "")
-
-      let assert Ok(parsed) =
-        pixel_count_str
-        |> float.parse
-        |> result.lazy_or(fn() {
-          int.parse(pixel_count_str)
-          |> result.map(int.to_float)
-        })
-
-      parsed
+  let new_width =
+    shadow_input_mirror_elem
+    |> browser_element.offset_width
+    |> int.to_float
+    |> fn(mirror_offset_width) {
+      ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"]
+      |> list.map(parse_pixel_count(shadow_input_elem, _))
+      |> float.sum
+      |> fn(x) { x +. mirror_offset_width +. 2.0 }
     }
+    |> float.truncate
+    |> int.max(min_width)
 
-    let new_width =
-      mirror_elem
-      |> browser_element.offset_width
-      |> int.to_float
-      |> fn(mirror_offset_width) {
-        ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"]
-        |> list.map(parse_pixel_count)
-        |> float.sum
-        |> fn(x) { x +. mirror_offset_width +. 2.0 }
-      }
-      |> float.truncate
-      |> int.max(min_width)
-
-    new_width
-    |> UserResizedInput
-    |> dispatch
-
-    Nil
-  })
+  new_width
+  |> UserResizedInput
+  |> dispatch
 
   Nil
+}
+
+fn parse_pixel_count(
+  from_elem: browser_element.Element,
+  property_name: String,
+) -> Float {
+  let val =
+    browser_element.get_computed_style_property(from_elem, property_name)
+
+  let assert True = string.ends_with(val, "px")
+  let pixel_count_str = string.replace(val, "px", "")
+
+  let assert Ok(parsed) =
+    pixel_count_str
+    |> float.parse
+    |> result.lazy_or(fn() {
+      int.parse(pixel_count_str)
+      |> result.map(int.to_float)
+    })
+
+  parsed
 }
