@@ -195,22 +195,22 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         to_float(str)
       }
 
+      // Build a new Conversion when the user has entered a valid number
       let update_conversion = fn(
-        side: Side,
+        edited_side: Side,
+        // the input they just typed into
         source_input: ConversionInput,
         target_input: ConversionInput,
         amount: Float,
         rate: Option(Float),
       ) {
-        let maybe_converted_amount = case side {
-          Left ->
-            rate
-            |> option.map(fn(rate) { amount *. rate })
-          Right ->
-            rate
-            |> option.map(fn(rate) { amount /. rate })
+        // Compute the amount for the side opposite the edited one
+        let maybe_converted_amount = case edited_side {
+          Left -> rate |> option.map(fn(r) { amount *. r })
+          Right -> rate |> option.map(fn(r) { amount /. r })
         }
 
+        // Update the field the user just typed into
         let updated_source =
           ConversionInput(
             ..source_input,
@@ -218,6 +218,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             parsed_amount: Some(amount),
           )
 
+        // Update the other field with the converted value (or blank if no rate)
         let updated_target =
           ConversionInput(
             ..target_input,
@@ -229,42 +230,41 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
         Conversion(
           ..model.conversion,
-          last_edited: side,
-          left_input: case side {
+          last_edited: edited_side,
+          left_input: case edited_side {
             Left -> updated_source
             _ -> updated_target
           },
-          right_input: case side {
+          right_input: case edited_side {
             Left -> updated_target
             _ -> updated_source
           },
         )
       }
 
-      let update_failed_parse = fn(side: Side) {
+      // Build a new Conversion when the user typed something non-numeric
+      let update_failed_parse = fn(edited_side: Side) {
+        // Helper to clear parsed_amount on both fields,
+        // keep amount_str only in the field the user was editing
+        let clear_amount_str = fn(input: ConversionInput, field_side: Side) {
+          ConversionInput(
+            ..input,
+            amount_input: case field_side == edited_side {
+              True -> amount_str
+              False -> ""
+            },
+            parsed_amount: None,
+          )
+        }
+
+        let left_input = clear_amount_str(model.conversion.left_input, Left)
+        let right_input = clear_amount_str(model.conversion.right_input, Right)
+
         Conversion(
           ..model.conversion,
-          last_edited: side,
-          left_input: case side {
-            Left ->
-              ConversionInput(
-                ..model.conversion.left_input,
-                amount_input: amount_str,
-                parsed_amount: None,
-              )
-            _ ->
-              ConversionInput(..model.conversion.left_input, amount_input: "")
-          },
-          right_input: case side {
-            Left ->
-              ConversionInput(
-                ..model.conversion.right_input,
-                amount_input: amount_str,
-                parsed_amount: None,
-              )
-            Right ->
-              ConversionInput(..model.conversion.right_input, amount_input: "")
-          },
+          last_edited: edited_side,
+          left_input: left_input,
+          right_input: right_input,
         )
       }
 
