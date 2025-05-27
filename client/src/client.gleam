@@ -1,5 +1,6 @@
 import client/browser/document
 import client/browser/element as browser_element
+import client/currency
 import client/rates/rate_request
 import client/rates/rate_response
 import client/side.{type Side, Left, Right}
@@ -25,7 +26,7 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import shared/currency.{type Currency, Crypto, Fiat}
+import shared/currency.{type Currency, Crypto, Fiat} as _shared_currency
 import shared/rates/rate_request.{type RateRequest, RateRequest} as _shared_rate_request
 import shared/rates/rate_response.{RateResponse} as _shared_rate_response
 
@@ -50,7 +51,7 @@ pub type ConversionInput {
   ConversionInput(
     amount_input: String,
     parsed_amount: Option(Float),
-    currency_id: Int,
+    currency: Currency,
   )
 }
 
@@ -84,8 +85,26 @@ pub fn init(flags: StartData) -> #(Model, Effect(Msg)) {
 pub fn model_from_start_data(start_data: StartData) {
   let RateResponse(from, to, rate, _source) = start_data.rate
 
-  let left_input = ConversionInput(float.to_string(1.0), Some(1.0), from)
-  let right_input = ConversionInput(float.to_string(rate), Some(rate), to)
+  let assert Ok(from_currency) =
+    start_data.currencies
+    |> list.find(fn(c) { c.id == from })
+
+  let assert Ok(to_currency) =
+    start_data.currencies
+    |> list.find(fn(c) { c.id == to })
+
+  let left_input =
+    ConversionInput(
+      currency.format_amount_str(from_currency, 1.0),
+      Some(1.0),
+      from_currency,
+    )
+  let right_input =
+    ConversionInput(
+      currency.format_amount_str(to_currency, rate),
+      Some(rate),
+      to_currency,
+    )
 
   Model(
     start_data.currencies,
@@ -116,19 +135,18 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     WsWrapper(OnTextMessage(msg)) -> {
       case json.parse(msg, rate_response.decoder()) {
         Error(_) -> {
-          echo "failed to decode conversion response from server:"
-          echo msg
+          echo "failed to decode conversion response from server: " <> msg
           #(model, effect.none())
         }
 
         Ok(rate_resp) -> {
           let RateResponse(from, to, rate, _source) = rate_resp
 
-          let assert Ok(_from_currency) =
+          let assert Ok(from_currency) =
             model.currencies
             |> list.find(fn(currency) { currency.id == from })
 
-          let assert Ok(_to_currency) =
+          let assert Ok(to_currency) =
             model.currencies
             |> list.find(fn(currency) { currency.id == to })
 
@@ -144,7 +162,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                   let right_input =
                     ConversionInput(
                       ..model.conversion.right_input,
-                      amount_input: float.to_string(right_amount),
+                      amount_input: currency.format_amount_str(
+                        to_currency,
+                        right_amount,
+                      ),
                       parsed_amount: Some(right_amount),
                     )
                   Conversion(..model.conversion, right_input:, rate: Some(rate))
@@ -161,7 +182,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                   let left_input =
                     ConversionInput(
                       ..model.conversion.left_input,
-                      amount_input: float.to_string(left_amount),
+                      amount_input: currency.format_amount_str(
+                        from_currency,
+                        left_amount,
+                      ),
                       parsed_amount: Some(left_amount),
                     )
                   Conversion(..model.conversion, left_input:, rate: Some(rate))
@@ -223,7 +247,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           ConversionInput(
             ..target_input,
             amount_input: maybe_converted_amount
-              |> option.map(float.to_string)
+              |> option.map(currency.format_amount_str(target_input.currency, _))
               |> option.unwrap(""),
             parsed_amount: maybe_converted_amount,
           )
@@ -302,7 +326,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     UserSelectedCurrency(side, currency_id_str) -> {
-      let assert Ok(currency_id) = int.parse(currency_id_str)
+      let assert Ok(currency) =
+        currency_id_str
+        |> int.parse
+        |> result.try(fn(id) {
+          list.find(model.currencies, fn(c) { c.id == id })
+        })
 
       let model = case side {
         Left ->
@@ -312,7 +341,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               ..model.conversion,
               left_input: ConversionInput(
                 ..model.conversion.left_input,
-                currency_id:,
+                currency:,
               ),
             ),
           )
@@ -324,7 +353,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               ..model.conversion,
               right_input: ConversionInput(
                 ..model.conversion.right_input,
-                currency_id:,
+                currency:,
               ),
             ),
           )
@@ -359,9 +388,11 @@ fn subscribe_to_rate_updates(
 }
 
 fn build_rate_request(model: Model) -> RateRequest {
-  let left_currency = model.conversion.left_input.currency_id
-  let right_currency = model.conversion.right_input.currency_id
-  RateRequest(left_currency, right_currency)
+  let conversion = model.conversion
+  RateRequest(
+    conversion.left_input.currency.id,
+    conversion.right_input.currency.id,
+  )
 }
 
 pub fn view(model: Model) -> Element(Msg) {
@@ -429,7 +460,7 @@ fn main_content(model: Model) -> Element(Msg) {
         currency_selector(
           Left,
           dropdown_options,
-          left_conversion_input.currency_id,
+          left_conversion_input.currency.id,
         ),
       ),
       equal_sign,
@@ -438,7 +469,7 @@ fn main_content(model: Model) -> Element(Msg) {
         currency_selector(
           Right,
           dropdown_options,
-          right_conversion_input.currency_id,
+          right_conversion_input.currency.id,
         ),
       ),
     ],

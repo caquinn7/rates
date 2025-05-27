@@ -1,0 +1,80 @@
+import client/currency
+import gleam/option.{Some}
+import gleeunit/should
+import shared/currency.{Crypto, Fiat} as _shared_currency
+
+const fiat = Fiat(2781, "United States Dollar", "USD", "$")
+
+const crypto = Crypto(1, "Bitcoin", "BTC", Some(1))
+
+pub fn determine_precision_fiat_any_amount_test() {
+  fiat
+  |> currency.determine_precision(1000.1234)
+  |> should.equal(2)
+}
+
+pub fn determine_precision_fiat_amount_tiny_test() {
+  fiat
+  |> currency.determine_precision(0.005)
+  |> should.equal(2)
+}
+
+pub fn determine_precision_crypto_amount_above_one_test() {
+  crypto
+  |> currency.determine_precision(1.1)
+  |> should.equal(4)
+}
+
+pub fn determine_precision_crypto_amount_below_one_but_above_point_zero_one_test() {
+  crypto
+  |> currency.determine_precision(0.9999)
+  |> should.equal(6)
+}
+
+pub fn determine_precision_crypto_amount_equal_point_zero_one_test() {
+  crypto
+  |> currency.determine_precision(0.01)
+  |> should.equal(6)
+}
+
+pub fn determine_precision_crypto_amount_below_point_zero_one_test() {
+  crypto
+  |> currency.determine_precision(0.0099)
+  |> should.equal(8)
+}
+
+pub fn determine_precision_crypto_amount_zero_test() {
+  crypto
+  |> currency.determine_precision(0.0)
+  |> should.equal(0)
+}
+
+pub fn format_amount_str_fiat_trailing_zeros_stripped_test() {
+  fiat
+  |> currency.format_amount_str(50.0)
+  |> should.equal("50")
+}
+
+pub fn format_amount_str_crypto_above_one_pad_trailing_zeros_test() {
+  crypto
+  |> currency.format_amount_str(2.3)
+  |> should.equal("2.3000")
+}
+
+pub fn format_amount_str_crypto_below_point_zero_one_pad_test() {
+  crypto
+  |> currency.format_amount_str(0.0099)
+  |> should.equal("0.00990000")
+}
+
+pub fn format_amount_str_crypto_zero_amount_returns_zero_test() {
+  crypto
+  |> currency.format_amount_str(0.0)
+  |> should.equal("0")
+}
+
+pub fn format_amount_str_negative_amounts_treated_as_positive_test() {
+  fiat
+  |> currency.format_amount_str(-123.456)
+  |> should.equal("123.46")
+}
