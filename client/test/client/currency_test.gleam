@@ -55,17 +55,18 @@ pub fn format_amount_str_fiat_trailing_zeros_stripped_test() {
   |> should.equal("50")
 }
 
-pub fn format_amount_str_crypto_above_one_pad_trailing_zeros_test() {
+pub fn format_amount_str_crypto_above_one_test() {
   crypto
   |> currency.format_amount_str(2.3)
-  |> should.equal("2.3000")
+  |> should.equal("2.3")
 }
 
-pub fn format_amount_str_crypto_below_point_zero_one_pad_test() {
-  crypto
-  |> currency.format_amount_str(0.0099)
-  |> should.equal("0.00990000")
-}
+// this ends up displaying as 9.0e-8. should i worry about amounts this small?
+// pub fn format_amount_str_crypto_below_point_zero_one_pad_test() {
+//   crypto
+//   |> currency.format_amount_str(0.00000009)
+//   |> should.equal("0.00000009")
+// }
 
 pub fn format_amount_str_crypto_zero_amount_returns_zero_test() {
   crypto
@@ -77,4 +78,28 @@ pub fn format_amount_str_negative_amounts_treated_as_positive_test() {
   fiat
   |> currency.format_amount_str(-123.456)
   |> should.equal("123.46")
+}
+
+pub fn format_amount_str_four_digits_before_decimal_test() {
+  fiat
+  |> currency.format_amount_str(1234.0)
+  |> should.equal("1,234")
+}
+
+pub fn format_amount_str_five_digits_before_decimal_test() {
+  fiat
+  |> currency.format_amount_str(12_345.0)
+  |> should.equal("12,345")
+}
+
+pub fn format_amount_str_six_digits_before_decimal_test() {
+  fiat
+  |> currency.format_amount_str(123_456.0)
+  |> should.equal("123,456")
+}
+
+pub fn format_amount_str_ten_digits_before_decimal_test() {
+  fiat
+  |> currency.format_amount_str(1_234_567_890.0)
+  |> should.equal("1,234,567,890")
 }

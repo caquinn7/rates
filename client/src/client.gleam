@@ -212,11 +212,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
       let parse_amount = fn(str) {
-        let str = case string.ends_with(str, ".") {
+        case string.ends_with(str, ".") {
           False -> str
           True -> string.drop_end(str, 1)
         }
-        to_float(str)
+        |> string.replace(",", "")
+        |> to_float
       }
 
       // Build a new Conversion when the user has entered a valid number
@@ -238,7 +239,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         let updated_source =
           ConversionInput(
             ..source_input,
-            amount_input: amount_str,
+            amount_input: currency.format_amount_str(
+              source_input.currency,
+              amount,
+            ),
             parsed_amount: Some(amount),
           )
 
@@ -487,17 +491,18 @@ fn conversion_input(
 }
 
 fn amount_input(side: Side, value: String) -> Element(Msg) {
+  let on_change =
+    UserEnteredAmount(side, _)
+    |> auto_resize_input.on_change
+    |> event.debounce(300)
+
   element.element(
     "auto-resize-input",
     [
       auto_resize_input.id("amount-input-" <> side.to_string(side)),
       auto_resize_input.value(value),
       auto_resize_input.min_width(4),
-      event.on(
-        "value-changed",
-        decode.at(["detail"], decode.string)
-          |> decode.map(UserEnteredAmount(side, _)),
-      ),
+      on_change,
     ],
     [],
   )

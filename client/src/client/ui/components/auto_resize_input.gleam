@@ -1,6 +1,7 @@
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/shadow_root
+import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/json
@@ -49,8 +50,20 @@ pub fn min_width(value: Int) -> Attribute(msg) {
   attribute.attribute("min-width", int.to_string(value))
 }
 
+pub fn on_change(handler) {
+  let decoder =
+    decode.at(["detail"], decode.string)
+    |> decode.map(handler)
+
+  event.on("change", decoder)
+}
+
 pub type Model {
   Model(id: String, value: String, width: Int, min_width: Int)
+}
+
+fn init(_) -> #(Model, Effect(Msg)) {
+  #(Model("", "", 0, 0), effect.none())
 }
 
 pub type Msg {
@@ -59,10 +72,6 @@ pub type Msg {
   ParentSetMinWidth(Int)
   UserTypedValue(String)
   UserResizedInput(Int)
-}
-
-fn init(_) -> #(Model, Effect(Msg)) {
-  #(Model("", "", 0, 0), effect.none())
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -81,7 +90,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Model(..model, value:),
         effect.batch([
           resize_input(model.id, model.min_width),
-          event.emit("value-changed", json.string(value)),
+          event.emit("change", json.string(value)),
         ]),
       )
     }
