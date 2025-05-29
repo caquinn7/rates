@@ -37,7 +37,7 @@ pub fn register(name: String) -> Result(Nil, lustre.Error) {
   |> lustre.register(name)
 }
 
-pub fn button_dropdown(attrs: List(Attribute(msg))) -> Element(msg) {
+pub fn element(attrs: List(Attribute(msg))) -> Element(msg) {
   element.element("button-dropdown", attrs, [])
 }
 
@@ -61,12 +61,27 @@ pub fn options(options: Dict(String, List(DropdownOption))) -> Attribute(msg) {
   )
 }
 
+pub fn on_option_selected(handler: fn(String) -> msg) {
+  let decoder =
+    decode.at(["detail"], decode.string)
+    |> decode.map(handler)
+
+  event.on("option-selected", decoder)
+}
+
 pub type Model {
   Model(
     id: String,
     options: Dict(String, List(DropdownOption)),
     selected: Option(String),
     dropdown_visible: Bool,
+  )
+}
+
+fn init(_) -> #(Model, Effect(Msg)) {
+  #(
+    Model(id: "", options: dict.new(), selected: None, dropdown_visible: False),
+    effect.none(),
   )
 }
 
@@ -80,13 +95,6 @@ pub type Msg {
   ParentSetOptions(Dict(String, List(DropdownOption)))
   UserClickedButton
   UserSelectedOption(DropdownOption)
-}
-
-fn init(_) -> #(Model, Effect(Msg)) {
-  #(
-    Model(id: "", options: dict.new(), selected: None, dropdown_visible: False),
-    effect.none(),
-  )
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {

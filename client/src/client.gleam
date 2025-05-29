@@ -496,7 +496,7 @@ fn amount_input(side: Side, value: String) -> Element(Msg) {
     auto_resize_input.value(value),
     auto_resize_input.min_width(4),
     UserEnteredAmount(side, _)
-    |> auto_resize_input.on_change
+      |> auto_resize_input.on_change
       |> event.debounce(300),
   ])
 }
@@ -506,18 +506,11 @@ fn currency_selector(
   dropdown_options: Dict(String, List(DropdownOption)),
   selected_currency_id: Int,
 ) -> Element(Msg) {
-  element.element(
-    "button-dropdown",
-    [
-      button_dropdown.id("currency-selector-" <> side.to_string(side)),
-      button_dropdown.options(dropdown_options),
-      button_dropdown.value(int.to_string(selected_currency_id)),
-      event.on(
-        "option-selected",
-        decode.at(["detail"], decode.string)
-          |> decode.map(UserSelectedCurrency(side, _)),
-      ),
-    ],
-    [],
-  )
+  button_dropdown.element([
+    button_dropdown.id("currency-selector-" <> side.to_string(side)),
+    button_dropdown.options(dropdown_options),
+    button_dropdown.value(int.to_string(selected_currency_id)),
+    UserSelectedCurrency(side, _)
+      |> button_dropdown.on_option_selected,
+  ])
 }

@@ -50,7 +50,7 @@ pub fn min_width(value: Int) -> Attribute(msg) {
   attribute.attribute("min-width", int.to_string(value))
 }
 
-pub fn on_change(handler) {
+pub fn on_change(handler: fn(String) -> msg) -> Attribute(msg) {
   let decoder =
     decode.at(["detail"], decode.string)
     |> decode.map(handler)
