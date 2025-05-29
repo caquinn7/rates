@@ -6,7 +6,7 @@ import shared/currency.{type Currency, Crypto, Fiat}
 pub fn format_amount_str(currency: Currency, amount: Float) -> String {
   let amount = float.absolute_value(amount)
 
-  let precision = determine_precision(currency, amount)
+  let precision = determine_max_precision(currency, amount)
   let rounded = float.to_precision(amount, precision)
   let rounded_str = float.to_string(rounded)
 
@@ -25,7 +25,7 @@ pub fn format_amount_str(currency: Currency, amount: Float) -> String {
   }
 }
 
-pub fn determine_precision(currency: Currency, amount: Float) -> Int {
+pub fn determine_max_precision(currency: Currency, amount: Float) -> Int {
   case currency {
     Crypto(..) -> {
       case amount {

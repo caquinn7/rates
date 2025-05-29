@@ -7,45 +7,45 @@ const fiat = Fiat(2781, "United States Dollar", "USD", "$")
 
 const crypto = Crypto(1, "Bitcoin", "BTC", Some(1))
 
-pub fn determine_precision_fiat_any_amount_test() {
+pub fn determine_max_precision_fiat_any_amount_test() {
   fiat
-  |> currency.determine_precision(1000.1234)
+  |> currency.determine_max_precision(1000.1234)
   |> should.equal(2)
 }
 
-pub fn determine_precision_fiat_amount_tiny_test() {
+pub fn determine_max_precision_fiat_amount_tiny_test() {
   fiat
-  |> currency.determine_precision(0.005)
+  |> currency.determine_max_precision(0.005)
   |> should.equal(2)
 }
 
-pub fn determine_precision_crypto_amount_above_one_test() {
+pub fn determine_max_precision_crypto_amount_above_one_test() {
   crypto
-  |> currency.determine_precision(1.1)
+  |> currency.determine_max_precision(1.1)
   |> should.equal(4)
 }
 
-pub fn determine_precision_crypto_amount_below_one_but_above_point_zero_one_test() {
+pub fn determine_max_precision_crypto_amount_below_one_but_above_point_zero_one_test() {
   crypto
-  |> currency.determine_precision(0.9999)
+  |> currency.determine_max_precision(0.9999)
   |> should.equal(6)
 }
 
-pub fn determine_precision_crypto_amount_equal_point_zero_one_test() {
+pub fn determine_max_precision_crypto_amount_equal_point_zero_one_test() {
   crypto
-  |> currency.determine_precision(0.01)
+  |> currency.determine_max_precision(0.01)
   |> should.equal(6)
 }
 
-pub fn determine_precision_crypto_amount_below_point_zero_one_test() {
+pub fn determine_max_precision_crypto_amount_below_point_zero_one_test() {
   crypto
-  |> currency.determine_precision(0.0099)
+  |> currency.determine_max_precision(0.0099)
   |> should.equal(8)
 }
 
-pub fn determine_precision_crypto_amount_zero_test() {
+pub fn determine_max_precision_crypto_amount_zero_test() {
   crypto
-  |> currency.determine_precision(0.0)
+  |> currency.determine_max_precision(0.0)
   |> should.equal(0)
 }
 
