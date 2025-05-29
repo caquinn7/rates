@@ -34,7 +34,7 @@ pub fn register(name: String) -> Result(Nil, lustre.Error) {
   |> lustre.register(name)
 }
 
-pub fn auto_resize_input(attrs: List(Attribute(msg))) -> Element(msg) {
+pub fn element(attrs: List(Attribute(msg))) -> Element(msg) {
   element.element("auto-resize-input", attrs, [])
 }
 

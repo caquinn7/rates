@@ -491,21 +491,14 @@ fn conversion_input(
 }
 
 fn amount_input(side: Side, value: String) -> Element(Msg) {
-  let on_change =
+  auto_resize_input.element([
+    auto_resize_input.id("amount-input-" <> side.to_string(side)),
+    auto_resize_input.value(value),
+    auto_resize_input.min_width(4),
     UserEnteredAmount(side, _)
     |> auto_resize_input.on_change
-    |> event.debounce(300)
-
-  element.element(
-    "auto-resize-input",
-    [
-      auto_resize_input.id("amount-input-" <> side.to_string(side)),
-      auto_resize_input.value(value),
-      auto_resize_input.min_width(4),
-      on_change,
-    ],
-    [],
-  )
+      |> event.debounce(300),
+  ])
 }
 
 fn currency_selector(
