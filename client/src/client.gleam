@@ -1,6 +1,6 @@
 import client/browser/document
 import client/browser/element as browser_element
-import client/currency
+import client/currency.{type CurrencyType, CryptoCurrency, FiatCurrency}
 import client/rates/rate_request
 import client/rates/rate_response
 import client/side.{type Side, Left, Right}
@@ -10,9 +10,8 @@ import client/socket.{
 }
 import client/start_data.{type StartData}
 import client/ui/components/auto_resize_input
-import client/ui/components/button_dropdown.{type DropdownOption, DropdownOption}
+import client/ui/components/button_dropdown
 import gleam/dict.{type Dict}
-import gleam/dynamic/decode
 import gleam/float
 import gleam/int
 import gleam/json
@@ -22,11 +21,13 @@ import gleam/result
 import gleam/string
 import lustre
 import lustre/attribute
+import lustre/component
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/element/keyed
 import lustre/event
-import shared/currency.{type Currency, Crypto, Fiat} as _shared_currency
+import shared/currency.{type Currency, Crypto} as _shared_currency
 import shared/rates/rate_request.{type RateRequest, RateRequest} as _shared_rate_request
 import shared/rates/rate_response.{RateResponse} as _shared_rate_response
 
@@ -53,12 +54,6 @@ pub type ConversionInput {
     parsed_amount: Option(Float),
     currency: Currency,
   )
-}
-
-pub type Msg {
-  WsWrapper(WebSocketEvent)
-  UserEnteredAmount(Side, String)
-  UserSelectedCurrency(Side, String)
 }
 
 pub fn main() {
@@ -111,6 +106,12 @@ pub fn model_from_start_data(start_data: StartData) {
     Conversion(left_input:, right_input:, rate: Some(rate), last_edited: Left),
     socket: None,
   )
+}
+
+pub type Msg {
+  WsWrapper(WebSocketEvent)
+  UserEnteredAmount(Side, String)
+  UserSelectedCurrency(Side, String)
 }
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -417,30 +418,23 @@ fn header() -> Element(Msg) {
 }
 
 fn main_content(model: Model) -> Element(Msg) {
-  let dropdown_options =
+  let currency_groups =
     model.currencies
-    |> list.group(fn(currency) {
-      case currency {
-        Crypto(..) -> "Crypto"
-        Fiat(..) -> "Fiat"
-      }
-    })
-    |> dict.map_values(fn(key, currencies) {
+    |> currency.group_by_type
+    |> dict.map_values(fn(currency_type, currencies) {
       currencies
       |> list.sort(fn(c1, c2) {
-        case key {
-          "Crypto" -> {
+        case currency_type {
+          CryptoCurrency -> {
             let get_rank = fn(currency) {
               let assert Crypto(_, _, _, maybe_rank) = currency
               option.unwrap(maybe_rank, or: 0)
             }
             int.compare(get_rank(c1), get_rank(c2))
           }
+
           _ -> string.compare(c1.symbol, c2.symbol)
         }
-      })
-      |> list.map(fn(currency) {
-        DropdownOption(value: int.to_string(currency.id), label: currency.name)
       })
     })
 
@@ -461,19 +455,15 @@ fn main_content(model: Model) -> Element(Msg) {
     [
       conversion_input(
         amount_input(Left, left_conversion_input.amount_input),
-        currency_selector(
-          Left,
-          dropdown_options,
-          left_conversion_input.currency.id,
-        ),
+        currency_selector(Left, currency_groups, left_conversion_input.currency),
       ),
       equal_sign,
       conversion_input(
         amount_input(Right, right_conversion_input.amount_input),
         currency_selector(
           Right,
-          dropdown_options,
-          right_conversion_input.currency.id,
+          currency_groups,
+          right_conversion_input.currency,
         ),
       ),
     ],
@@ -503,14 +493,66 @@ fn amount_input(side: Side, value: String) -> Element(Msg) {
 
 fn currency_selector(
   side: Side,
-  dropdown_options: Dict(String, List(DropdownOption)),
-  selected_currency_id: Int,
+  currency_groups: Dict(CurrencyType, List(Currency)),
+  selected_currency: Currency,
 ) -> Element(Msg) {
-  button_dropdown.element([
-    button_dropdown.id("currency-selector-" <> side.to_string(side)),
-    button_dropdown.options(dropdown_options),
-    button_dropdown.value(int.to_string(selected_currency_id)),
-    UserSelectedCurrency(side, _)
-      |> button_dropdown.on_option_selected,
+  let currency_option_group_elems =
+    currency_groups
+    |> dict.to_list
+    |> list.map(currency_option_group(_, UserSelectedCurrency(side, _)))
+
+  button_dropdown.element(
+    [
+      button_dropdown.id("currency-selector-" <> side.to_string(side)),
+      button_dropdown.value(int.to_string(selected_currency.id)),
+      button_dropdown.btn_text(selected_currency.symbol),
+    ],
+    [html.div([component.slot("options")], currency_option_group_elems)],
+  )
+}
+
+fn currency_option_group(
+  currency_group: #(CurrencyType, List(Currency)),
+  on_option_selected: fn(String) -> Msg,
+) -> Element(Msg) {
+  let group_title_div =
+    html.div(
+      [attribute.class("px-2 py-1 font-bold text-lg text-base-content")],
+      [
+        html.text(case currency_group.0 {
+          CryptoCurrency -> "Crypto"
+          FiatCurrency -> "Fiat"
+        }),
+      ],
+    )
+
+  html.div([], [
+    group_title_div,
+    currency_options_container(currency_group.1, on_option_selected),
   ])
+}
+
+fn currency_options_container(
+  currencies: List(Currency),
+  on_option_selected: fn(String) -> Msg,
+) -> Element(Msg) {
+  let dd_option = fn(currency: Currency) {
+    html.div(
+      [
+        attribute.attribute("data-value", int.to_string(currency.id)),
+        attribute.class("px-6 py-1 cursor-pointer text-base-content"),
+        attribute.class("hover:bg-base-content hover:text-base-100"),
+        event.on_click(on_option_selected(int.to_string(currency.id))),
+      ],
+      [html.text(currency.name)],
+    )
+  }
+
+  keyed.div(
+    [attribute.class("options-container")],
+    list.map(currencies, fn(currency) {
+      let child = dd_option(currency)
+      #(int.to_string(currency.id), child)
+    }),
+  )
 }

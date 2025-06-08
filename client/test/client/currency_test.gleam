@@ -1,4 +1,5 @@
-import client/currency
+import client/currency.{CryptoCurrency, FiatCurrency}
+import gleam/dict
 import gleam/option.{Some}
 import gleeunit/should
 import shared/currency.{Crypto, Fiat} as _shared_currency
@@ -6,6 +7,28 @@ import shared/currency.{Crypto, Fiat} as _shared_currency
 const fiat = Fiat(2781, "United States Dollar", "USD", "$")
 
 const crypto = Crypto(1, "Bitcoin", "BTC", Some(1))
+
+pub fn group_by_type_test() {
+  let result =
+    [crypto, fiat]
+    |> currency.group_by_type
+
+  result
+  |> dict.get(CryptoCurrency)
+  |> should.be_ok
+  |> should.equal([crypto])
+
+  result
+  |> dict.get(FiatCurrency)
+  |> should.be_ok
+  |> should.equal([fiat])
+}
+
+pub fn group_by_type_empty_list_test() {
+  []
+  |> currency.group_by_type
+  |> should.equal(dict.new())
+}
 
 pub fn determine_max_precision_fiat_any_amount_test() {
   fiat

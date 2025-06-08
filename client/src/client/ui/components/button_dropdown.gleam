@@ -1,44 +1,28 @@
-import client/ui/button
-import gleam/dict.{type Dict}
-import gleam/dynamic/decode
-import gleam/function
+import client/ui/button.{Button}
 import gleam/json
-import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/result
 import lustre
 import lustre/attribute.{type Attribute}
 import lustre/component
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
-import lustre/element/keyed
-import lustre/event
 
 pub fn register(name: String) -> Result(Nil, lustre.Error) {
   lustre.component(init, update, view, [
-    component.on_attribute_change("id", fn(new_value) {
-      Ok(ParentSetId(new_value))
-    }),
+    component.on_attribute_change("id", fn(new_id) { Ok(ParentSetId(new_id)) }),
     component.on_attribute_change("value", fn(new_value) {
       Ok(ParentSetValue(new_value))
     }),
-    component.on_property_change("options", {
-      let dropdown_option_decoder = {
-        use value <- decode.field("value", decode.string)
-        use label <- decode.field("label", decode.string)
-        decode.success(DropdownOption(value:, label:))
-      }
-
-      decode.dict(decode.string, decode.list(dropdown_option_decoder))
-      |> decode.map(ParentSetOptions)
+    component.on_attribute_change("btn_text", fn(new_btn_text) {
+      Ok(ParentSetBtnText(new_btn_text))
     }),
   ])
   |> lustre.register(name)
 }
 
-pub fn element(attrs: List(Attribute(msg))) -> Element(msg) {
-  element.element("button-dropdown", attrs, [])
+pub fn element(attrs: List(Attribute(msg)), children) -> Element(msg) {
+  element.element("button-dropdown", attrs, children)
 }
 
 pub fn id(id: String) -> Attribute(msg) {
@@ -49,52 +33,35 @@ pub fn value(value: String) -> Attribute(msg) {
   attribute.value(value)
 }
 
-pub fn options(options: Dict(String, List(DropdownOption))) -> Attribute(msg) {
-  let encode_dropdown_option = fn(dropdown_option) {
-    let DropdownOption(value, label) = dropdown_option
-    json.object([#("value", json.string(value)), #("label", json.string(label))])
-  }
-
-  attribute.property(
-    "options",
-    json.dict(options, function.identity, json.array(_, encode_dropdown_option)),
-  )
+pub fn btn_text(btn_text: String) -> Attribute(msg) {
+  attribute.attribute("btn_text", btn_text)
 }
 
-pub fn on_option_selected(handler: fn(String) -> msg) {
-  let decoder =
-    decode.at(["detail"], decode.string)
-    |> decode.map(handler)
-
-  event.on("option-selected", decoder)
+pub fn dropdown_visible(value: Bool) -> Attribute(msg) {
+  attribute.property("dropdown-hidden", json.bool(value))
 }
 
 pub type Model {
   Model(
     id: String,
-    options: Dict(String, List(DropdownOption)),
     selected: Option(String),
+    btn_text: String,
     dropdown_visible: Bool,
   )
 }
 
 fn init(_) -> #(Model, Effect(Msg)) {
   #(
-    Model(id: "", options: dict.new(), selected: None, dropdown_visible: False),
+    Model(id: "", selected: None, btn_text: "", dropdown_visible: False),
     effect.none(),
   )
-}
-
-pub type DropdownOption {
-  DropdownOption(value: String, label: String)
 }
 
 pub type Msg {
   ParentSetId(String)
   ParentSetValue(String)
-  ParentSetOptions(Dict(String, List(DropdownOption)))
-  UserClickedButton
-  UserSelectedOption(DropdownOption)
+  ParentSetBtnText(String)
+  UserClickedBtn
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -106,48 +73,23 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    ParentSetOptions(options) -> #(Model(..model, options:), effect.none())
+    ParentSetBtnText(btn_text) -> #(Model(..model, btn_text:), effect.none())
 
-    UserClickedButton -> #(
+    UserClickedBtn -> #(
       Model(..model, dropdown_visible: !model.dropdown_visible),
       effect.none(),
-    )
-
-    UserSelectedOption(dd_option) -> #(
-      Model(..model, selected: Some(dd_option.value), dropdown_visible: False),
-      event.emit("option-selected", json.string(dd_option.value)),
     )
   }
 }
 
 fn view(model: Model) -> Element(Msg) {
-  let btn_text = case model.selected {
-    None -> "Select one"
-
-    Some(val) -> {
-      model.options
-      |> dict.values
-      |> list.flatten
-      |> list.find_map(fn(dd_option) {
-        case dd_option.value == val {
-          False -> Error(Nil)
-          True -> Ok(dd_option.label)
-        }
-      })
-      |> result.unwrap("")
-    }
-  }
-
   html.div([attribute.class("relative"), attribute.id(model.id)], [
-    button.view(button.Button(btn_text, UserClickedButton)),
-    dropdown(model.dropdown_visible, model.options),
+    button.view(Button(model.btn_text, UserClickedBtn)),
+    dropdown(model.dropdown_visible),
   ])
 }
 
-fn dropdown(
-  visible: Bool,
-  dd_options: Dict(String, List(DropdownOption)),
-) -> Element(Msg) {
+fn dropdown(visible: Bool) -> Element(Msg) {
   html.div(
     [
       attribute.class(
@@ -162,59 +104,6 @@ fn dropdown(
       },
     ],
     // [search_input(filter), html.div([], [todo])],
-    [
-      html.div(
-        [],
-        dd_options
-          |> dict.to_list
-          |> list.map(option_group),
-      ),
-    ],
-  )
-}
-
-// fn search_input(value: String) -> Element(Msg) {
-//   html.div([attribute.class("sticky top-0 z-10")], [
-//     html.input([
-//       attribute.class(
-//         "w-full p-2 border-b focus:outline-none bg-neutral text-neutral-content caret-info",
-//       ),
-//       attribute.placeholder("Search"),
-//       attribute.type_("text"),
-//       attribute.value(value),
-//       event.on_input(UserFilteredOptions),
-//     ]),
-//   ])
-// }
-
-fn option_group(group: #(String, List(DropdownOption))) -> Element(Msg) {
-  let group_title_div =
-    html.div(
-      [attribute.class("px-2 py-1 font-bold text-lg text-base-content")],
-      [html.text(group.0)],
-    )
-
-  html.div([], [group_title_div, options_container(group.1)])
-}
-
-fn options_container(dd_options: List(DropdownOption)) {
-  let dd_option = fn(item: DropdownOption) {
-    html.div(
-      [
-        attribute.attribute("data-value", item.value),
-        attribute.class("px-6 py-1 cursor-pointer text-base-content"),
-        attribute.class("hover:bg-base-content hover:text-base-100"),
-        event.on_click(UserSelectedOption(item)),
-      ],
-      [html.text(item.label)],
-    )
-  }
-
-  keyed.div(
-    [attribute.class("options-container")],
-    list.map(dd_options, fn(item) {
-      let child = dd_option(item)
-      #(item.value, child)
-    }),
+    [component.named_slot("options", [], [])],
   )
 }

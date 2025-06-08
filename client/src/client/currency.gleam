@@ -1,7 +1,25 @@
+import gleam/dict.{type Dict}
 import gleam/float
 import gleam/list
 import gleam/string
 import shared/currency.{type Currency, Crypto, Fiat}
+
+pub type CurrencyType {
+  CryptoCurrency
+  FiatCurrency
+}
+
+pub fn group_by_type(
+  currencies: List(Currency),
+) -> Dict(CurrencyType, List(Currency)) {
+  currencies
+  |> list.group(fn(currency) {
+    case currency {
+      Crypto(..) -> CryptoCurrency
+      Fiat(..) -> FiatCurrency
+    }
+  })
+}
 
 pub fn format_amount_str(currency: Currency, amount: Float) -> String {
   let amount = float.absolute_value(amount)
