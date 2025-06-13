@@ -27,7 +27,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/element/keyed
 import lustre/event
-import shared/currency.{type Currency, Crypto} as _shared_currency
+import shared/currency.{type Currency} as _shared_currency
 import shared/rates/rate_request.{type RateRequest, RateRequest} as _shared_rate_request
 import shared/rates/rate_response.{RateResponse} as _shared_rate_response
 
@@ -424,17 +424,11 @@ fn main_content(model: Model) -> Element(Msg) {
     |> dict.map_values(fn(currency_type, currencies) {
       currencies
       |> list.sort(fn(c1, c2) {
-        case currency_type {
-          CryptoCurrency -> {
-            let get_rank = fn(currency) {
-              let assert Crypto(_, _, _, maybe_rank) = currency
-              option.unwrap(maybe_rank, or: 0)
-            }
-            int.compare(get_rank(c1), get_rank(c2))
-          }
-
-          _ -> string.compare(c1.symbol, c2.symbol)
+        let assert Ok(order) = case currency_type {
+          CryptoCurrency -> currency.sort_cryptos(c1, c2)
+          FiatCurrency -> currency.sort_fiats(c1, c2)
         }
+        order
       })
     })
 
