@@ -97,3 +97,21 @@ pub fn sort_fiats_second_fiat_is_usd_test() {
   |> should.be_ok
   |> should.equal(order.Gt)
 }
+
+pub fn filter_incudes_currency_when_filter_string_contains_name_test() {
+  [Crypto(0, "ABC", "DEF", None), Crypto(0, "GHI", "JKL", None)]
+  |> collection.filter("ab")
+  |> should.equal([Crypto(0, "ABC", "DEF", None)])
+}
+
+pub fn filter_includes_currency_when_filter_string_contains_symbol_test() {
+  [Crypto(0, "ABC", "DEF", None), Crypto(0, "GHI", "JKL", None)]
+  |> collection.filter("jk")
+  |> should.equal([Crypto(0, "GHI", "JKL", None)])
+}
+
+pub fn filter_includes_everything_when_filter_string_is_empty_test() {
+  [Crypto(0, "ABC", "DEF", None), Crypto(0, "GHI", "JKL", None)]
+  |> collection.filter("")
+  |> should.equal([Crypto(0, "ABC", "DEF", None), Crypto(0, "GHI", "JKL", None)])
+}
