@@ -1,6 +1,9 @@
 import client/browser/document
 import client/browser/element as browser_element
-import client/currency.{type CurrencyType, CryptoCurrency, FiatCurrency}
+import client/currency/collection.{
+  type CurrencyType, CryptoCurrency, FiatCurrency,
+} as currency_collection
+import client/currency/formatting as currency_formatting
 import client/rates/rate_request
 import client/rates/rate_response
 import client/side.{type Side, Left, Right}
@@ -52,6 +55,8 @@ pub type ConversionInput {
   ConversionInput(
     amount_input: String,
     parsed_amount: Option(Float),
+    currencies: Dict(CurrencyType, List(Currency)),
+    currency_filter: String,
     currency: Currency,
   )
 }
@@ -88,16 +93,24 @@ pub fn model_from_start_data(start_data: StartData) {
     start_data.currencies
     |> list.find(fn(c) { c.id == to })
 
+  let currency_groups =
+    start_data.currencies
+    |> currency_collection.group
+
   let left_input =
     ConversionInput(
-      currency.format_amount_str(from_currency, 1.0),
+      currency_formatting.format_amount_str(from_currency, 1.0),
       Some(1.0),
+      currency_groups,
+      "",
       from_currency,
     )
   let right_input =
     ConversionInput(
-      currency.format_amount_str(to_currency, rate),
+      currency_formatting.format_amount_str(to_currency, rate),
       Some(rate),
+      currency_groups,
+      "",
       to_currency,
     )
 
@@ -111,6 +124,7 @@ pub fn model_from_start_data(start_data: StartData) {
 pub type Msg {
   WsWrapper(WebSocketEvent)
   UserEnteredAmount(Side, String)
+  UserFilteredCurrencies(Side, String)
   UserSelectedCurrency(Side, String)
 }
 
@@ -163,7 +177,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                   let right_input =
                     ConversionInput(
                       ..model.conversion.right_input,
-                      amount_input: currency.format_amount_str(
+                      amount_input: currency_formatting.format_amount_str(
                         to_currency,
                         right_amount,
                       ),
@@ -183,7 +197,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                   let left_input =
                     ConversionInput(
                       ..model.conversion.left_input,
-                      amount_input: currency.format_amount_str(
+                      amount_input: currency_formatting.format_amount_str(
                         from_currency,
                         left_amount,
                       ),
@@ -240,7 +254,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         let updated_source =
           ConversionInput(
             ..source_input,
-            amount_input: currency.format_amount_str(
+            amount_input: currency_formatting.format_amount_str(
               source_input.currency,
               amount,
             ),
@@ -252,7 +266,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           ConversionInput(
             ..target_input,
             amount_input: maybe_converted_amount
-              |> option.map(currency.format_amount_str(target_input.currency, _))
+              |> option.map(currency_formatting.format_amount_str(
+                target_input.currency,
+                _,
+              ))
               |> option.unwrap(""),
             parsed_amount: maybe_converted_amount,
           )
@@ -325,6 +342,43 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let conversion = update_failed_parse(side)
           Model(..model, conversion:)
         }
+      }
+
+      #(model, effect.none())
+    }
+
+    UserFilteredCurrencies(side, filter_str) -> {
+      let filtered_currencies =
+        model.currencies
+        |> currency_collection.filter(filter_str)
+        |> currency_collection.group
+
+      let model = case side {
+        Left ->
+          Model(
+            ..model,
+            conversion: Conversion(
+              ..model.conversion,
+              left_input: ConversionInput(
+                ..model.conversion.left_input,
+                currency_filter: filter_str,
+                currencies: filtered_currencies,
+              ),
+            ),
+          )
+
+        Right ->
+          Model(
+            ..model,
+            conversion: Conversion(
+              ..model.conversion,
+              right_input: ConversionInput(
+                ..model.conversion.right_input,
+                currency_filter: filter_str,
+                currencies: filtered_currencies,
+              ),
+            ),
+          )
       }
 
       #(model, effect.none())
@@ -418,20 +472,6 @@ fn header() -> Element(Msg) {
 }
 
 fn main_content(model: Model) -> Element(Msg) {
-  let currency_groups =
-    model.currencies
-    |> currency.group_by_type
-    |> dict.map_values(fn(currency_type, currencies) {
-      currencies
-      |> list.sort(fn(c1, c2) {
-        let assert Ok(order) = case currency_type {
-          CryptoCurrency -> currency.sort_cryptos(c1, c2)
-          FiatCurrency -> currency.sort_fiats(c1, c2)
-        }
-        order
-      })
-    })
-
   let equal_sign =
     html.p([attribute.class("text-3xl font-bold")], [element.text("=")])
 
@@ -449,14 +489,20 @@ fn main_content(model: Model) -> Element(Msg) {
     [
       conversion_input(
         amount_input(Left, left_conversion_input.amount_input),
-        currency_selector(Left, currency_groups, left_conversion_input.currency),
+        currency_selector(
+          Left,
+          left_conversion_input.currencies,
+          left_conversion_input.currency_filter,
+          left_conversion_input.currency,
+        ),
       ),
       equal_sign,
       conversion_input(
         amount_input(Right, right_conversion_input.amount_input),
         currency_selector(
           Right,
-          currency_groups,
+          right_conversion_input.currencies,
+          right_conversion_input.currency_filter,
           right_conversion_input.currency,
         ),
       ),
@@ -488,6 +534,7 @@ fn amount_input(side: Side, value: String) -> Element(Msg) {
 fn currency_selector(
   side: Side,
   currency_groups: Dict(CurrencyType, List(Currency)),
+  currency_filter: String,
   selected_currency: Currency,
 ) -> Element(Msg) {
   let currency_option_group_elems =
@@ -495,14 +542,33 @@ fn currency_selector(
     |> dict.to_list
     |> list.map(currency_option_group(_, UserSelectedCurrency(side, _)))
 
+  let filter_input_elem =
+    currency_filter_input(currency_filter, UserFilteredCurrencies(side, _))
+
   button_dropdown.element(
     [
       button_dropdown.id("currency-selector-" <> side.to_string(side)),
       button_dropdown.value(int.to_string(selected_currency.id)),
       button_dropdown.btn_text(selected_currency.symbol),
     ],
-    [html.div([component.slot("options")], currency_option_group_elems)],
+    [
+      html.div([component.slot("filter")], [filter_input_elem]),
+      html.div([component.slot("options")], currency_option_group_elems),
+    ],
   )
+}
+
+fn currency_filter_input(
+  value: String,
+  on_input: fn(String) -> Msg,
+) -> Element(Msg) {
+  html.input([
+    attribute.type_("text"),
+    attribute.placeholder("Search..."),
+    attribute.class("w-full p-2 border-b focus:outline-none"),
+    attribute.value(value),
+    event.on_input(on_input),
+  ])
 }
 
 fn currency_option_group(

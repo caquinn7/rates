@@ -103,7 +103,9 @@ fn dropdown(visible: Bool) -> Element(Msg) {
         False -> attribute.class("hidden")
       },
     ],
-    // [search_input(filter), html.div([], [todo])],
-    [component.named_slot("options", [], [])],
+    [
+      component.named_slot("filter", [], []),
+      component.named_slot("options", [], []),
+    ],
   )
 }
