@@ -116,9 +116,9 @@ pub fn main() {
             |> resolver.get_rate(rate_req, 5000)
             |> result.map_error(fn(err) {
               echo "error getting rate for "
-              <> string.inspect(rate_req)
-              <> ": "
-              <> string.inspect(err)
+                <> string.inspect(rate_req)
+                <> ": "
+                <> string.inspect(err)
 
               Nil
             })
