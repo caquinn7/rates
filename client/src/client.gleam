@@ -604,7 +604,7 @@ fn currency_options_container(
         attribute.class("hover:bg-base-content hover:text-base-100"),
         event.on_click(on_option_selected(int.to_string(currency.id))),
       ],
-      [html.text(currency.name)],
+      [html.text(currency.symbol <> " - " <> currency.name)],
     )
   }
 
