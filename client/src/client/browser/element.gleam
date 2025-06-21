@@ -1,3 +1,5 @@
+import gleam/dynamic.{type Dynamic}
+
 pub type Element
 
 @external(javascript, "../../element_ffi.mjs", "innerText")
@@ -17,3 +19,18 @@ pub fn get_computed_style_property(
   element: Element,
   property_name: String,
 ) -> String
+
+@external(javascript, "../../element_ffi.mjs", "cast")
+pub fn cast(element: Dynamic) -> Result(Element, Nil)
+
+/// Returns `True` if:
+/// 
+/// * the second element is a descendant of the first
+/// 
+/// or
+/// 
+/// * the second element is the same element as the first
+/// 
+/// Otherwise `False`.
+@external(javascript, "../../element_ffi.mjs", "contains")
+pub fn contains(element1: Element, element2: Element) -> Bool

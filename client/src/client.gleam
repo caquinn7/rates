@@ -1,5 +1,6 @@
 import client/browser/document
 import client/browser/element as browser_element
+import client/browser/event as browser_event
 import client/currency/collection.{CryptoCurrency, FiatCurrency} as currency_collection
 import client/currency/formatting as currency_formatting
 import client/rates/rate_request
@@ -18,6 +19,7 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/pair
 import gleam/result
 import gleam/string
 import lustre
@@ -60,6 +62,7 @@ pub type AmountInput {
 
 pub type CurrencySelector {
   CurrencySelector(
+    id: String,
     show_dropdown: Bool,
     currency_filter: String,
     currencies: List(Currency),
@@ -67,7 +70,71 @@ pub type CurrencySelector {
   )
 }
 
-pub fn main() {
+// model utility functions
+
+pub fn map_conversion_input(
+  model: Model,
+  side: Side,
+  fun: fn(ConversionInput) -> a,
+) -> a {
+  let target = case side {
+    Left -> model.conversion.left_input
+    Right -> model.conversion.right_input
+  }
+  fun(target)
+}
+
+pub type TargetedSide {
+  Just(Side)
+  Both
+}
+
+pub fn map_conversion_inputs(
+  currency_input_groups: #(ConversionInput, ConversionInput),
+  side: TargetedSide,
+  fun: fn(ConversionInput) -> ConversionInput,
+) -> #(ConversionInput, ConversionInput) {
+  let map_pair = case side {
+    Just(Left) -> pair.map_first
+    Just(Right) -> pair.map_second
+    Both -> fn(pair, map) {
+      pair
+      |> pair.map_first(map)
+      |> pair.map_second(map)
+    }
+  }
+  map_pair(currency_input_groups, fun)
+}
+
+pub fn toggle_currency_selector_dropdown(
+  model: Model,
+  side: TargetedSide,
+) -> Model {
+  #(model.conversion.left_input, model.conversion.right_input)
+  |> map_conversion_inputs(side, fn(conversion_input) {
+    ConversionInput(
+      ..conversion_input,
+      currency_selector: CurrencySelector(
+        ..conversion_input.currency_selector,
+        show_dropdown: !conversion_input.currency_selector.show_dropdown,
+      ),
+    )
+  })
+  |> fn(conversion_inputs) {
+    Model(
+      ..model,
+      conversion: Conversion(
+        ..model.conversion,
+        left_input: conversion_inputs.0,
+        right_input: conversion_inputs.1,
+      ),
+    )
+  }
+}
+
+// end model utility functions
+
+pub fn main() -> Nil {
   let assert Ok(json_str) =
     document.query_selector("#model")
     |> result.map(browser_element.inner_text)
@@ -80,7 +147,14 @@ pub fn main() {
   let assert Ok(_) = auto_resize_input.register("auto-resize-input")
 
   let app = lustre.application(init, update, view)
-  let assert Ok(_to_runtime) = lustre.start(app, "#app", start_data)
+  let assert Ok(runtime) = lustre.start(app, "#app", start_data)
+
+  document.add_event_listener("click", fn(event) {
+    event
+    |> UserClickedInDocument
+    |> lustre.dispatch
+    |> lustre.send(runtime, _)
+  })
 }
 
 pub fn init(flags: StartData) -> #(Model, Effect(Msg)) {
@@ -104,7 +178,13 @@ pub fn model_from_start_data(start_data: StartData) {
         currency_formatting.format_amount_str(from_currency, 1.0),
         Some(1.0),
       ),
-      CurrencySelector(False, "", start_data.currencies, from_currency),
+      CurrencySelector(
+        "currency-selector-" <> side.to_string(Left),
+        False,
+        "",
+        start_data.currencies,
+        from_currency,
+      ),
     )
   let right_input =
     ConversionInput(
@@ -112,7 +192,13 @@ pub fn model_from_start_data(start_data: StartData) {
         currency_formatting.format_amount_str(to_currency, rate),
         Some(rate),
       ),
-      CurrencySelector(False, "", start_data.currencies, to_currency),
+      CurrencySelector(
+        "currency-selector-" <> side.to_string(Right),
+        False,
+        "",
+        start_data.currencies,
+        to_currency,
+      ),
     )
 
   Model(
@@ -128,6 +214,7 @@ pub type Msg {
   UserClickedCurrencySelector(Side)
   UserFilteredCurrencies(Side, String)
   UserSelectedCurrency(Side, Int)
+  UserClickedInDocument(browser_event.Event)
 }
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -489,6 +576,45 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       #(model, effect)
     }
+
+    UserClickedInDocument(event) -> {
+      let assert Ok(clicked_elem) =
+        event
+        |> browser_event.target
+        |> browser_element.cast
+
+      let update_side = fn(side, model) {
+        let #(currency_selector_id, dropdown_visible) =
+          model
+          |> map_conversion_input(side, fn(conversion_input) {
+            #(
+              conversion_input.currency_selector.id,
+              conversion_input.currency_selector.show_dropdown,
+            )
+          })
+
+        let assert Ok(currency_selector_elem) =
+          document.get_element_by_id(currency_selector_id)
+
+        let clicked_outside_dropdown =
+          !browser_element.contains(currency_selector_elem, clicked_elem)
+
+        let should_toggle = dropdown_visible && clicked_outside_dropdown
+        case should_toggle {
+          False -> model
+          True ->
+            model
+            |> toggle_currency_selector_dropdown(Just(side))
+        }
+      }
+
+      let model =
+        model
+        |> update_side(Left, _)
+        |> update_side(Right, _)
+
+      #(model, effect.none())
+    }
   }
 }
 
@@ -549,7 +675,6 @@ fn main_content(model: Model) -> Element(Msg) {
         UserEnteredAmount(side, _),
       ),
       currency_selector(
-        "currency-selector-" <> side.to_string(side),
         target_conversion_input.currency_selector,
         UserClickedCurrencySelector(side),
         UserFilteredCurrencies(side, _),
@@ -596,7 +721,6 @@ fn amount_input(
 }
 
 fn currency_selector(
-  id: String,
   currency_selector: CurrencySelector,
   on_btn_click: Msg,
   on_filter: fn(String) -> Msg,
@@ -627,7 +751,7 @@ fn currency_selector(
   }
 
   button_dropdown.view(
-    id,
+    currency_selector.id,
     currency_selector.currency.symbol,
     currency_selector.show_dropdown,
     currency_selector.currency_filter,

@@ -26,3 +26,14 @@ export function getComputedStyleProperty(elem, propertyName) {
 export function offsetWidth(elem) {
   return elem.offsetWidth;
 }
+
+export function cast(raw) {
+  if (raw instanceof Element) {
+    return new Ok(raw);
+  }
+  return new Error();
+}
+
+export function contains(elem1, elem2) {
+  return elem1.contains(elem2);
+}
