@@ -131,7 +131,11 @@ fn resize_input(component_elem_id: String, min_width: Int) -> Effect(Msg) {
   let assert Ok(shadow_input_mirror_elem) =
     shadow_root.query_selector(shadow_root, ".input-mirror")
 
-  browser_element.copy_input_styles(shadow_input_elem, shadow_input_mirror_elem)
+  let _ =
+    browser_element.copy_input_styles(
+      shadow_input_elem,
+      shadow_input_mirror_elem,
+    )
 
   let new_width =
     shadow_input_mirror_elem
@@ -160,7 +164,7 @@ fn parse_pixel_count(
   let val =
     browser_element.get_computed_style_property(from_elem, property_name)
 
-  let assert True = string.ends_with(val, "px")
+  assert True == string.ends_with(val, "px")
   let pixel_count_str = string.replace(val, "px", "")
 
   let assert Ok(parsed) =
