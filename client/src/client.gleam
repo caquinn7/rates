@@ -42,8 +42,7 @@ pub type Model {
 
 pub type Conversion {
   Conversion(
-    left_input: ConversionInput,
-    right_input: ConversionInput,
+    conversion_inputs: #(ConversionInput, ConversionInput),
     rate: Option(Float),
     last_edited: Side,
   )
@@ -78,8 +77,8 @@ pub fn map_conversion_input(
   fun: fn(ConversionInput) -> a,
 ) -> a {
   let target = case side {
-    Left -> model.conversion.left_input
-    Right -> model.conversion.right_input
+    Left -> model.conversion.conversion_inputs.0
+    Right -> model.conversion.conversion_inputs.1
   }
   fun(target)
 }
@@ -90,7 +89,7 @@ pub type TargetedSide {
 }
 
 pub fn map_conversion_inputs(
-  currency_input_groups: #(ConversionInput, ConversionInput),
+  inputs: #(ConversionInput, ConversionInput),
   side: TargetedSide,
   fun: fn(ConversionInput) -> ConversionInput,
 ) -> #(ConversionInput, ConversionInput) {
@@ -103,33 +102,151 @@ pub fn map_conversion_inputs(
       |> pair.map_second(map)
     }
   }
-  map_pair(currency_input_groups, fun)
+  map_pair(inputs, fun)
 }
 
-pub fn toggle_currency_selector_dropdown(
-  model: Model,
-  side: TargetedSide,
-) -> Model {
-  #(model.conversion.left_input, model.conversion.right_input)
-  |> map_conversion_inputs(side, fn(conversion_input) {
-    ConversionInput(
-      ..conversion_input,
-      currency_selector: CurrencySelector(
-        ..conversion_input.currency_selector,
-        show_dropdown: !conversion_input.currency_selector.show_dropdown,
-      ),
-    )
-  })
-  |> fn(conversion_inputs) {
-    Model(
-      ..model,
-      conversion: Conversion(
-        ..model.conversion,
-        left_input: conversion_inputs.0,
-        right_input: conversion_inputs.1,
-      ),
-    )
+pub fn with_amount(model: Model, side: Side, raw_amount: String) -> Model {
+  let parse_amount = fn(str) {
+    let to_float = fn(str) {
+      str
+      |> float.parse
+      |> result.lazy_or(fn() {
+        int.parse(str)
+        |> result.map(int.to_float)
+      })
+    }
+
+    case string.ends_with(str, ".") {
+      False -> str
+      True -> string.drop_end(str, 1)
+    }
+    |> string.replace(",", "")
+    |> to_float
   }
+
+  let conversion_inputs = model.conversion.conversion_inputs
+
+  let map_failed_parse = fn() {
+    map_conversion_inputs(conversion_inputs, Just(side), fn(input) {
+      ConversionInput(
+        ..input,
+        amount_input: AmountInput(raw: raw_amount, parsed: None),
+      )
+    })
+    |> map_conversion_inputs(Just(side.opposite_side(side)), fn(input) {
+      ConversionInput(..input, amount_input: AmountInput(raw: "", parsed: None))
+    })
+  }
+
+  let map_successful_parse = fn(parsed_amount) {
+    let format_amount_input = fn(currency, amount) {
+      AmountInput(
+        raw: currency_formatting.format_amount_str(currency, amount),
+        parsed: Some(amount),
+      )
+    }
+
+    map_conversion_inputs(conversion_inputs, Just(side), fn(input) {
+      ConversionInput(
+        ..input,
+        amount_input: format_amount_input(
+          input.currency_selector.currency,
+          parsed_amount,
+        ),
+      )
+    })
+    |> map_conversion_inputs(Just(side.opposite_side(side)), fn(input) {
+      let rate = model.conversion.rate
+      let maybe_converted_amount = case side {
+        Left -> rate |> option.map(fn(r) { parsed_amount *. r })
+        Right -> rate |> option.map(fn(r) { parsed_amount /. r })
+      }
+
+      ConversionInput(
+        ..input,
+        amount_input: maybe_converted_amount
+          |> option.map(fn(converted) {
+            format_amount_input(input.currency_selector.currency, converted)
+          })
+          |> option.unwrap(AmountInput(raw: "", parsed: None)),
+      )
+    })
+  }
+
+  let updated_inputs = case parse_amount(raw_amount) {
+    Error(_) -> map_failed_parse()
+    Ok(amount) -> map_successful_parse(amount)
+  }
+
+  Model(
+    ..model,
+    conversion: Conversion(
+      ..model.conversion,
+      conversion_inputs: updated_inputs,
+      last_edited: side,
+    ),
+  )
+}
+
+pub fn toggle_currency_selector_dropdown(model: Model, side: Side) -> Model {
+  let conversion_inputs =
+    model.conversion.conversion_inputs
+    |> map_conversion_inputs(Just(side), fn(conversion_input) {
+      ConversionInput(
+        ..conversion_input,
+        currency_selector: CurrencySelector(
+          ..conversion_input.currency_selector,
+          show_dropdown: !conversion_input.currency_selector.show_dropdown,
+        ),
+      )
+    })
+
+  Model(..model, conversion: Conversion(..model.conversion, conversion_inputs:))
+}
+
+pub fn with_currency_filter(
+  model: Model,
+  side: Side,
+  filter_str: String,
+) -> Model {
+  let currencies =
+    model.currencies
+    |> currency_collection.filter(filter_str)
+
+  let conversion_inputs =
+    model.conversion.conversion_inputs
+    |> map_conversion_inputs(Just(side), fn(conversion_input) {
+      ConversionInput(
+        ..conversion_input,
+        currency_selector: CurrencySelector(
+          ..conversion_input.currency_selector,
+          currency_filter: filter_str,
+          currencies:,
+        ),
+      )
+    })
+
+  Model(..model, conversion: Conversion(..model.conversion, conversion_inputs:))
+}
+
+pub fn with_selected_currency(model: Model, side: Side, currency_id: Int) {
+  let assert Ok(currency) =
+    model.currencies
+    |> list.find(fn(c) { c.id == currency_id })
+
+  let conversion_inputs =
+    model.conversion.conversion_inputs
+    |> map_conversion_inputs(Just(side), fn(conversion_input) {
+      ConversionInput(
+        ..conversion_input,
+        currency_selector: CurrencySelector(
+          ..conversion_input.currency_selector,
+          currency:,
+        ),
+      )
+    })
+
+  Model(..model, conversion: Conversion(..model.conversion, conversion_inputs:))
 }
 
 // end model utility functions
@@ -203,7 +320,11 @@ pub fn model_from_start_data(start_data: StartData) {
 
   Model(
     start_data.currencies,
-    Conversion(left_input:, right_input:, rate: Some(rate), last_edited: Left),
+    Conversion(
+      conversion_inputs: #(left_input, right_input),
+      rate: Some(rate),
+      last_edited: Left,
+    ),
     socket: None,
   )
 }
@@ -260,12 +381,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
           let conversion = case model.conversion.last_edited {
             Left -> {
-              case model.conversion.left_input.amount_input.parsed {
+              case
+                { model.conversion.conversion_inputs.0 }.amount_input.parsed
+              {
                 Some(left_amount) -> {
                   let right_amount = left_amount *. rate
                   let right_input =
                     ConversionInput(
-                      ..model.conversion.right_input,
+                      ..model.conversion.conversion_inputs.1,
                       amount_input: AmountInput(
                         raw: currency_formatting.format_amount_str(
                           to_currency,
@@ -274,7 +397,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                         parsed: Some(right_amount),
                       ),
                     )
-                  Conversion(..model.conversion, right_input:, rate: Some(rate))
+                  Conversion(
+                    ..model.conversion,
+                    conversion_inputs: #(
+                      model.conversion.conversion_inputs.0,
+                      right_input,
+                    ),
+                    rate: Some(rate),
+                  )
                 }
 
                 None -> Conversion(..model.conversion, rate: Some(rate))
@@ -282,12 +412,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             }
 
             Right -> {
-              case model.conversion.right_input.amount_input.parsed {
+              case
+                { model.conversion.conversion_inputs.1 }.amount_input.parsed
+              {
                 Some(right_amount) -> {
                   let left_amount = right_amount /. rate
                   let left_input =
                     ConversionInput(
-                      ..model.conversion.left_input,
+                      ..model.conversion.conversion_inputs.0,
                       amount_input: AmountInput(
                         raw: currency_formatting.format_amount_str(
                           from_currency,
@@ -296,7 +428,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                         parsed: Some(left_amount),
                       ),
                     )
-                  Conversion(..model.conversion, left_input:, rate: Some(rate))
+                  Conversion(
+                    ..model.conversion,
+                    conversion_inputs: #(
+                      left_input,
+                      model.conversion.conversion_inputs.1,
+                    ),
+                    rate: Some(rate),
+                  )
                 }
 
                 None -> Conversion(..model.conversion, rate: Some(rate))
@@ -310,256 +449,33 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     UserEnteredAmount(side, amount_str) -> {
-      let to_float = fn(str) {
-        str
-        |> float.parse
-        |> result.lazy_or(fn() {
-          int.parse(str)
-          |> result.map(int.to_float)
-        })
-      }
-
-      let parse_amount = fn(str) {
-        case string.ends_with(str, ".") {
-          False -> str
-          True -> string.drop_end(str, 1)
-        }
-        |> string.replace(",", "")
-        |> to_float
-      }
-
-      // Build a new Conversion when the user has entered a valid number
-      let update_conversion = fn(
-        edited_side: Side,
-        // the input they just typed into
-        source_input: ConversionInput,
-        target_input: ConversionInput,
-        amount: Float,
-        rate: Option(Float),
-      ) {
-        // Compute the amount for the side opposite the edited one
-        let maybe_converted_amount = case edited_side {
-          Left -> rate |> option.map(fn(r) { amount *. r })
-          Right -> rate |> option.map(fn(r) { amount /. r })
-        }
-
-        // Update the field the user just typed into
-        let updated_source =
-          ConversionInput(
-            ..source_input,
-            amount_input: AmountInput(
-              raw: currency_formatting.format_amount_str(
-                source_input.currency_selector.currency,
-                amount,
-              ),
-              parsed: Some(amount),
-            ),
-          )
-
-        // Update the other field with the converted value (or blank if no rate)
-        let updated_target =
-          ConversionInput(
-            ..target_input,
-            amount_input: AmountInput(
-              raw: maybe_converted_amount
-                |> option.map(currency_formatting.format_amount_str(
-                  target_input.currency_selector.currency,
-                  _,
-                ))
-                |> option.unwrap(""),
-              parsed: maybe_converted_amount,
-            ),
-          )
-
-        Conversion(
-          ..model.conversion,
-          last_edited: edited_side,
-          left_input: case edited_side {
-            Left -> updated_source
-            _ -> updated_target
-          },
-          right_input: case edited_side {
-            Left -> updated_target
-            _ -> updated_source
-          },
-        )
-      }
-
-      // Build a new Conversion when the user typed something non-numeric
-      let update_failed_parse = fn(edited_side: Side) {
-        // Helper to clear parsed_amount on both fields,
-        // keep amount_str only in the field the user was editing
-        let clear_amount_str = fn(input: ConversionInput, field_side: Side) {
-          ConversionInput(
-            ..input,
-            amount_input: AmountInput(
-              raw: case field_side == edited_side {
-                True -> amount_str
-                False -> ""
-              },
-              parsed: None,
-            ),
-          )
-        }
-
-        let left_input = clear_amount_str(model.conversion.left_input, Left)
-        let right_input = clear_amount_str(model.conversion.right_input, Right)
-
-        Conversion(
-          ..model.conversion,
-          last_edited: edited_side,
-          left_input: left_input,
-          right_input: right_input,
-        )
-      }
-
-      let model = case parse_amount(amount_str) {
-        Ok(amount) -> {
-          let conversion = case side {
-            Left ->
-              update_conversion(
-                Left,
-                model.conversion.left_input,
-                model.conversion.right_input,
-                amount,
-                model.conversion.rate,
-              )
-            Right ->
-              update_conversion(
-                Right,
-                model.conversion.right_input,
-                model.conversion.left_input,
-                amount,
-                model.conversion.rate,
-              )
-          }
-
-          Model(..model, conversion:)
-        }
-
-        Error(_) -> {
-          let conversion = update_failed_parse(side)
-          Model(..model, conversion:)
-        }
-      }
+      let model =
+        model
+        |> with_amount(side, amount_str)
 
       #(model, effect.none())
     }
 
     UserClickedCurrencySelector(side) -> {
-      let model = case side {
-        Left ->
-          Model(
-            ..model,
-            conversion: Conversion(
-              ..model.conversion,
-              left_input: ConversionInput(
-                ..model.conversion.left_input,
-                currency_selector: CurrencySelector(
-                  ..model.conversion.left_input.currency_selector,
-                  show_dropdown: !model.conversion.left_input.currency_selector.show_dropdown,
-                ),
-              ),
-            ),
-          )
-
-        Right ->
-          Model(
-            ..model,
-            conversion: Conversion(
-              ..model.conversion,
-              right_input: ConversionInput(
-                ..model.conversion.right_input,
-                currency_selector: CurrencySelector(
-                  ..model.conversion.right_input.currency_selector,
-                  show_dropdown: !model.conversion.right_input.currency_selector.show_dropdown,
-                ),
-              ),
-            ),
-          )
-      }
+      let model =
+        model
+        |> toggle_currency_selector_dropdown(side)
 
       #(model, effect.none())
     }
 
     UserFilteredCurrencies(side, filter_str) -> {
-      let currencies =
-        model.currencies
-        |> currency_collection.filter(filter_str)
-
-      let model = case side {
-        Left ->
-          Model(
-            ..model,
-            conversion: Conversion(
-              ..model.conversion,
-              left_input: ConversionInput(
-                ..model.conversion.left_input,
-                currency_selector: CurrencySelector(
-                  ..model.conversion.left_input.currency_selector,
-                  currency_filter: filter_str,
-                  currencies:,
-                ),
-              ),
-            ),
-          )
-
-        Right ->
-          Model(
-            ..model,
-            conversion: Conversion(
-              ..model.conversion,
-              right_input: ConversionInput(
-                ..model.conversion.right_input,
-                currency_selector: CurrencySelector(
-                  ..model.conversion.right_input.currency_selector,
-                  currency_filter: filter_str,
-                  currencies:,
-                ),
-              ),
-            ),
-          )
-      }
+      let model =
+        model
+        |> with_currency_filter(side, filter_str)
 
       #(model, effect.none())
     }
 
     UserSelectedCurrency(side, currency_id) -> {
-      let assert Ok(currency) =
-        model.currencies
-        |> list.find(fn(c) { c.id == currency_id })
-
-      let model = case side {
-        Left ->
-          Model(
-            ..model,
-            conversion: Conversion(
-              ..model.conversion,
-              left_input: ConversionInput(
-                ..model.conversion.left_input,
-                currency_selector: CurrencySelector(
-                  ..model.conversion.left_input.currency_selector,
-                  currency:,
-                ),
-              ),
-            ),
-          )
-
-        Right ->
-          Model(
-            ..model,
-            conversion: Conversion(
-              ..model.conversion,
-              right_input: ConversionInput(
-                ..model.conversion.right_input,
-                currency_selector: CurrencySelector(
-                  ..model.conversion.right_input.currency_selector,
-                  currency:,
-                ),
-              ),
-            ),
-          )
-      }
+      let model =
+        model
+        |> with_selected_currency(side, currency_id)
 
       let effect = case model.socket {
         None -> {
@@ -604,7 +520,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           False -> model
           True ->
             model
-            |> toggle_currency_selector_dropdown(Just(side))
+            |> toggle_currency_selector_dropdown(side)
         }
       }
 
@@ -629,10 +545,10 @@ fn subscribe_to_rate_updates(
 }
 
 fn build_rate_request(model: Model) -> RateRequest {
-  let conversion = model.conversion
+  let #(left_input, right_input) = model.conversion.conversion_inputs
   RateRequest(
-    conversion.left_input.currency_selector.currency.id,
-    conversion.right_input.currency_selector.currency.id,
+    left_input.currency_selector.currency.id,
+    right_input.currency_selector.currency.id,
   )
 }
 
@@ -659,8 +575,8 @@ fn main_content(model: Model) -> Element(Msg) {
 
   let conversion_input_elem = fn(side) {
     let target_conversion_input = case side {
-      Left -> model.conversion.left_input
-      Right -> model.conversion.right_input
+      Left -> model.conversion.conversion_inputs.0
+      Right -> model.conversion.conversion_inputs.1
     }
 
     let on_currency_selected = fn(currency_id_str) {
