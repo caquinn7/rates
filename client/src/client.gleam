@@ -105,27 +105,45 @@ pub fn map_conversion_inputs(
   map_pair(inputs, fun)
 }
 
+/// Updates the model in response to a new exchange rate.
+///
+/// If the user previously entered a valid amount on one side (tracked by `last_edited`),
+/// this function:
+/// - Calculates the converted value for the opposite side using the new rate
+/// - Updates the `amount_input` on the opposite side accordingly
+///
+/// If no valid parsed input is present, only the rate is updated.
+///
+/// This function ensures that the conversion remains accurate when the rate changes,
+/// while preserving the user’s original input.
 pub fn with_rate(model: Model, rate: Float) -> Model {
-  // •	When rate update comes in:
-  // •	If last_edited == Left: recalculate right_input using parsed_amount * rate
-  // •	If last_edited == Right: recalculate left_input using parsed_amount / rate
+  // When a new exchange rate comes in, we want to:
+  // - Recalculate the opposite input field if the user previously entered a number
+  // - Leave the inputs unchanged if there’s no valid parsed input
+  // - Always update the stored rate
 
   let edited_side = model.conversion.last_edited
 
+  // Try to get the parsed amount from the side the user last edited
   let edited_side_parsed_amount =
     map_conversion_input(model, edited_side, fn(input) {
       input.amount_input.parsed
     })
 
+  // Decide how to update the inputs based on whether we have a parsed amount
   let updated_inputs = case edited_side_parsed_amount {
     None -> model.conversion.conversion_inputs
 
     Some(parsed_amount) -> {
+      // Compute the value for the *opposite* field using the new rate
       let converted_amount = case edited_side {
+        // converting from left to right
         Left -> parsed_amount *. rate
+        // converting from right to left
         Right -> parsed_amount /. rate
       }
 
+      // Update only the opposite side’s amount_input field with the converted value
       model.conversion.conversion_inputs
       |> map_conversion_inputs(Just(side.opposite_side(edited_side)), fn(input) {
         ConversionInput(
@@ -156,7 +174,23 @@ pub fn format_amount_input(currency, amount) {
   )
 }
 
+/// Updates the model in response to user input in the amount field.
+///
+/// Attempts to parse the `raw_amount` string into a float. If successful, it:
+/// - Updates the `amount_input` on the edited side with the parsed value
+/// - Computes the converted amount for the opposite side using the current exchange rate
+///
+/// If parsing fails:
+/// - Clears the input on the opposite side
+///
+/// Always updates the `last_edited` field in the model’s conversion state.
+///
+/// This function ensures that the two conversion inputs stay in sync
+/// while allowing user-friendly behavior like partial decimal input and
+/// comma separators.
 pub fn with_amount(model: Model, side: Side, raw_amount: String) -> Model {
+  // Try to parse the raw string into a float.
+  // Allows decimals or comma separators, and gracefully falls back to int parsing.
   let parse_amount = fn(str) {
     let to_float = fn(str) {
       str
@@ -178,18 +212,21 @@ pub fn with_amount(model: Model, side: Side, raw_amount: String) -> Model {
   let conversion_inputs = model.conversion.conversion_inputs
 
   let map_failed_parse = fn() {
+    // Set the raw string on the edited side, clear the parsed value
     map_conversion_inputs(conversion_inputs, Just(side), fn(input) {
       ConversionInput(
         ..input,
         amount_input: AmountInput(raw: raw_amount, parsed: None),
       )
     })
+    // Clear the raw and parsed value on the opposite side
     |> map_conversion_inputs(Just(side.opposite_side(side)), fn(input) {
       ConversionInput(..input, amount_input: AmountInput(raw: "", parsed: None))
     })
   }
 
   let map_successful_parse = fn(parsed_amount) {
+    // Update the side the user edited with the parsed and formatted value
     map_conversion_inputs(conversion_inputs, Just(side), fn(input) {
       ConversionInput(
         ..input,
@@ -199,6 +236,7 @@ pub fn with_amount(model: Model, side: Side, raw_amount: String) -> Model {
         ),
       )
     })
+    // Compute and set the converted amount on the opposite side if a rate is available
     |> map_conversion_inputs(Just(side.opposite_side(side)), fn(input) {
       let rate = model.conversion.rate
       let maybe_converted_amount = case side {
@@ -232,6 +270,7 @@ pub fn with_amount(model: Model, side: Side, raw_amount: String) -> Model {
   )
 }
 
+/// Toggles the visibility of the currency selector dropdown for the given side.
 pub fn toggle_currency_selector_dropdown(model: Model, side: Side) -> Model {
   let conversion_inputs =
     model.conversion.conversion_inputs
@@ -248,6 +287,15 @@ pub fn toggle_currency_selector_dropdown(model: Model, side: Side) -> Model {
   Model(..model, conversion: Conversion(..model.conversion, conversion_inputs:))
 }
 
+/// Updates the currency filter string and filtered currency list for one side.
+///
+/// Applies `filter_str` to the full list of available currencies and updates the
+/// `currency_selector` on the specified `side` with:
+/// - The new filter string
+/// - The filtered list of matching currencies
+///
+/// This function is called in response to user input in the currency
+/// search field, allowing the dropdown to dynamically narrow results.
 pub fn with_currency_filter(
   model: Model,
   side: Side,
@@ -273,6 +321,12 @@ pub fn with_currency_filter(
   Model(..model, conversion: Conversion(..model.conversion, conversion_inputs:))
 }
 
+/// Updates the selected currency for the specified side.
+///
+/// Replaces the currently selected currency in the `currency_selector`
+/// with the provided `currency`.
+///
+/// Ued when the user selects a currency from the dropdown.
 pub fn with_selected_currency(model: Model, side: Side, currency: Currency) {
   let conversion_inputs =
     model.conversion.conversion_inputs
