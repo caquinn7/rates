@@ -20,3 +20,7 @@ export function getDocumentUrl() {
   return document.URL;
 }
 
+export function addEventListener(type, listener) {
+  return document.addEventListener(type, listener);
+}
+
