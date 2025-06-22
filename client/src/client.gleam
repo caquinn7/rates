@@ -83,24 +83,14 @@ pub fn map_conversion_input(
   fun(target)
 }
 
-pub type TargetedSide {
-  Just(Side)
-  Both
-}
-
 pub fn map_conversion_inputs(
   inputs: #(ConversionInput, ConversionInput),
-  side: TargetedSide,
+  side: Side,
   fun: fn(ConversionInput) -> ConversionInput,
 ) -> #(ConversionInput, ConversionInput) {
   let map_pair = case side {
-    Just(Left) -> pair.map_first
-    Just(Right) -> pair.map_second
-    Both -> fn(pair, map) {
-      pair
-      |> pair.map_first(map)
-      |> pair.map_second(map)
-    }
+    Left -> pair.map_first
+    Right -> pair.map_second
   }
   map_pair(inputs, fun)
 }
@@ -145,7 +135,7 @@ pub fn model_with_rate(model: Model, rate: Float) -> Model {
 
       // Update only the opposite side’s amount_input field with the converted value
       model.conversion.conversion_inputs
-      |> map_conversion_inputs(Just(side.opposite_side(edited_side)), fn(input) {
+      |> map_conversion_inputs(side.opposite_side(edited_side), fn(input) {
         ConversionInput(
           ..input,
           amount_input: format_amount_input(
@@ -213,21 +203,21 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
 
   let map_failed_parse = fn() {
     // Set the raw string on the edited side, clear the parsed value
-    map_conversion_inputs(conversion_inputs, Just(side), fn(input) {
+    map_conversion_inputs(conversion_inputs, side, fn(input) {
       ConversionInput(
         ..input,
         amount_input: AmountInput(raw: raw_amount, parsed: None),
       )
     })
     // Clear the raw and parsed value on the opposite side
-    |> map_conversion_inputs(Just(side.opposite_side(side)), fn(input) {
+    |> map_conversion_inputs(side.opposite_side(side), fn(input) {
       ConversionInput(..input, amount_input: AmountInput(raw: "", parsed: None))
     })
   }
 
   let map_successful_parse = fn(parsed_amount) {
     // Update the side the user edited with the parsed and formatted value
-    map_conversion_inputs(conversion_inputs, Just(side), fn(input) {
+    map_conversion_inputs(conversion_inputs, side, fn(input) {
       ConversionInput(
         ..input,
         amount_input: format_amount_input(
@@ -237,7 +227,7 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
       )
     })
     // Compute and set the converted amount on the opposite side if a rate is available
-    |> map_conversion_inputs(Just(side.opposite_side(side)), fn(input) {
+    |> map_conversion_inputs(side.opposite_side(side), fn(input) {
       let rate = model.conversion.rate
       let maybe_converted_amount = case side {
         Left -> rate |> option.map(fn(r) { parsed_amount *. r })
@@ -274,7 +264,7 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
 pub fn toggle_currency_selector_dropdown(model: Model, side: Side) -> Model {
   let conversion_inputs =
     model.conversion.conversion_inputs
-    |> map_conversion_inputs(Just(side), fn(conversion_input) {
+    |> map_conversion_inputs(side, fn(conversion_input) {
       ConversionInput(
         ..conversion_input,
         currency_selector: CurrencySelector(
@@ -307,7 +297,7 @@ pub fn model_with_currency_filter(
 
   let conversion_inputs =
     model.conversion.conversion_inputs
-    |> map_conversion_inputs(Just(side), fn(conversion_input) {
+    |> map_conversion_inputs(side, fn(conversion_input) {
       ConversionInput(
         ..conversion_input,
         currency_selector: CurrencySelector(
@@ -334,7 +324,7 @@ pub fn model_with_selected_currency(
 ) {
   let conversion_inputs =
     model.conversion.conversion_inputs
-    |> map_conversion_inputs(Just(side), fn(conversion_input) {
+    |> map_conversion_inputs(side, fn(conversion_input) {
       ConversionInput(
         ..conversion_input,
         currency_selector: CurrencySelector(
