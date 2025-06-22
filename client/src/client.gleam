@@ -116,7 +116,7 @@ pub fn map_conversion_inputs(
 ///
 /// This function ensures that the conversion remains accurate when the rate changes,
 /// while preserving the user’s original input.
-pub fn with_rate(model: Model, rate: Float) -> Model {
+pub fn model_with_rate(model: Model, rate: Float) -> Model {
   // When a new exchange rate comes in, we want to:
   // - Recalculate the opposite input field if the user previously entered a number
   // - Leave the inputs unchanged if there’s no valid parsed input
@@ -188,7 +188,7 @@ pub fn format_amount_input(currency, amount) {
 /// This function ensures that the two conversion inputs stay in sync
 /// while allowing user-friendly behavior like partial decimal input and
 /// comma separators.
-pub fn with_amount(model: Model, side: Side, raw_amount: String) -> Model {
+pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model {
   // Try to parse the raw string into a float.
   // Allows decimals or comma separators, and gracefully falls back to int parsing.
   let parse_amount = fn(str) {
@@ -296,7 +296,7 @@ pub fn toggle_currency_selector_dropdown(model: Model, side: Side) -> Model {
 ///
 /// This function is called in response to user input in the currency
 /// search field, allowing the dropdown to dynamically narrow results.
-pub fn with_currency_filter(
+pub fn model_with_currency_filter(
   model: Model,
   side: Side,
   filter_str: String,
@@ -327,7 +327,11 @@ pub fn with_currency_filter(
 /// with the provided `currency`.
 ///
 /// Ued when the user selects a currency from the dropdown.
-pub fn with_selected_currency(model: Model, side: Side, currency: Currency) {
+pub fn model_with_selected_currency(
+  model: Model,
+  side: Side,
+  currency: Currency,
+) {
   let conversion_inputs =
     model.conversion.conversion_inputs
     |> map_conversion_inputs(Just(side), fn(conversion_input) {
@@ -462,7 +466,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
           let model =
             model
-            |> with_rate(rate)
+            |> model_with_rate(rate)
 
           #(model, effect.none())
         }
@@ -472,7 +476,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserEnteredAmount(side, amount_str) -> {
       let model =
         model
-        |> with_amount(side, amount_str)
+        |> model_with_amount(side, amount_str)
 
       #(model, effect.none())
     }
@@ -488,7 +492,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserFilteredCurrencies(side, filter_str) -> {
       let model =
         model
-        |> with_currency_filter(side, filter_str)
+        |> model_with_currency_filter(side, filter_str)
 
       #(model, effect.none())
     }
@@ -500,7 +504,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       let model =
         model
-        |> with_selected_currency(side, currency)
+        |> model_with_selected_currency(side, currency)
 
       let effect = case model.socket {
         None -> {
