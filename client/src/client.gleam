@@ -105,6 +105,50 @@ pub fn map_conversion_inputs(
   map_pair(inputs, fun)
 }
 
+pub fn with_rate(model: Model, rate: Float) -> Model {
+  // •	When rate update comes in:
+  // •	If last_edited == Left: recalculate right_input using parsed_amount * rate
+  // •	If last_edited == Right: recalculate left_input using parsed_amount / rate
+
+  let edited_side = model.conversion.last_edited
+
+  let edited_side_parsed_amount =
+    map_conversion_input(model, edited_side, fn(input) {
+      input.amount_input.parsed
+    })
+
+  let updated_inputs = case edited_side_parsed_amount {
+    None -> model.conversion.conversion_inputs
+
+    Some(parsed_amount) -> {
+      let converted_amount = case edited_side {
+        Left -> parsed_amount *. rate
+        Right -> parsed_amount /. rate
+      }
+
+      model.conversion.conversion_inputs
+      |> map_conversion_inputs(Just(side.opposite_side(edited_side)), fn(input) {
+        ConversionInput(
+          ..input,
+          amount_input: format_amount_input(
+            input.currency_selector.currency,
+            converted_amount,
+          ),
+        )
+      })
+    }
+  }
+
+  let updated_conversion =
+    Conversion(
+      ..model.conversion,
+      conversion_inputs: updated_inputs,
+      rate: Some(rate),
+    )
+
+  Model(..model, conversion: updated_conversion)
+}
+
 pub fn format_amount_input(currency, amount) {
   AmountInput(
     raw: currency_formatting.format_amount_str(currency, amount),
@@ -229,11 +273,7 @@ pub fn with_currency_filter(
   Model(..model, conversion: Conversion(..model.conversion, conversion_inputs:))
 }
 
-pub fn with_selected_currency(model: Model, side: Side, currency_id: Int) {
-  let assert Ok(currency) =
-    model.currencies
-    |> list.find(fn(c) { c.id == currency_id })
-
+pub fn with_selected_currency(model: Model, side: Side, currency: Currency) {
   let conversion_inputs =
     model.conversion.conversion_inputs
     |> map_conversion_inputs(Just(side), fn(conversion_input) {
@@ -357,86 +397,20 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           #(model, effect.none())
         }
 
-        Ok(rate_resp) -> {
-          let RateResponse(from, to, rate, _source) = rate_resp
-
-          let assert Ok(from_currency) =
+        Ok(RateResponse(from, to, rate, _source)) -> {
+          let assert Ok(_from_currency) =
             model.currencies
             |> list.find(fn(currency) { currency.id == from })
 
-          let assert Ok(to_currency) =
+          let assert Ok(_to_currency) =
             model.currencies
             |> list.find(fn(currency) { currency.id == to })
 
-          // •	When rate update comes in:
-          // •	If last_edited == Left: recalculate right_input using parsed_amount * rate
-          // •	If last_edited == Right: recalculate left_input using parsed_amount / rate
+          let model =
+            model
+            |> with_rate(rate)
 
-          let conversion = case model.conversion.last_edited {
-            Left -> {
-              case
-                { model.conversion.conversion_inputs.0 }.amount_input.parsed
-              {
-                Some(left_amount) -> {
-                  let right_amount = left_amount *. rate
-                  let right_input =
-                    ConversionInput(
-                      ..model.conversion.conversion_inputs.1,
-                      amount_input: AmountInput(
-                        raw: currency_formatting.format_amount_str(
-                          to_currency,
-                          right_amount,
-                        ),
-                        parsed: Some(right_amount),
-                      ),
-                    )
-                  Conversion(
-                    ..model.conversion,
-                    conversion_inputs: #(
-                      model.conversion.conversion_inputs.0,
-                      right_input,
-                    ),
-                    rate: Some(rate),
-                  )
-                }
-
-                None -> Conversion(..model.conversion, rate: Some(rate))
-              }
-            }
-
-            Right -> {
-              case
-                { model.conversion.conversion_inputs.1 }.amount_input.parsed
-              {
-                Some(right_amount) -> {
-                  let left_amount = right_amount /. rate
-                  let left_input =
-                    ConversionInput(
-                      ..model.conversion.conversion_inputs.0,
-                      amount_input: AmountInput(
-                        raw: currency_formatting.format_amount_str(
-                          from_currency,
-                          left_amount,
-                        ),
-                        parsed: Some(left_amount),
-                      ),
-                    )
-                  Conversion(
-                    ..model.conversion,
-                    conversion_inputs: #(
-                      left_input,
-                      model.conversion.conversion_inputs.1,
-                    ),
-                    rate: Some(rate),
-                  )
-                }
-
-                None -> Conversion(..model.conversion, rate: Some(rate))
-              }
-            }
-          }
-
-          #(Model(..model, conversion:), effect.none())
+          #(model, effect.none())
         }
       }
     }
@@ -466,9 +440,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     UserSelectedCurrency(side, currency_id) -> {
+      let assert Ok(currency) =
+        model.currencies
+        |> list.find(fn(c) { c.id == currency_id })
+
       let model =
         model
-        |> with_selected_currency(side, currency_id)
+        |> with_selected_currency(side, currency)
 
       let effect = case model.socket {
         None -> {
