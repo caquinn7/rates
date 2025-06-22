@@ -105,6 +105,13 @@ pub fn map_conversion_inputs(
   map_pair(inputs, fun)
 }
 
+pub fn format_amount_input(currency, amount) {
+  AmountInput(
+    raw: currency_formatting.format_amount_str(currency, amount),
+    parsed: Some(amount),
+  )
+}
+
 pub fn with_amount(model: Model, side: Side, raw_amount: String) -> Model {
   let parse_amount = fn(str) {
     let to_float = fn(str) {
@@ -139,13 +146,6 @@ pub fn with_amount(model: Model, side: Side, raw_amount: String) -> Model {
   }
 
   let map_successful_parse = fn(parsed_amount) {
-    let format_amount_input = fn(currency, amount) {
-      AmountInput(
-        raw: currency_formatting.format_amount_str(currency, amount),
-        parsed: Some(amount),
-      )
-    }
-
     map_conversion_inputs(conversion_inputs, Just(side), fn(input) {
       ConversionInput(
         ..input,
@@ -289,38 +289,31 @@ pub fn model_from_start_data(start_data: StartData) {
     start_data.currencies
     |> list.find(fn(c) { c.id == to })
 
+  let make_selector = fn(side: Side, currency: Currency) {
+    CurrencySelector(
+      id: "currency-selector-" <> side.to_string(side),
+      show_dropdown: False,
+      currency_filter: "",
+      currencies: start_data.currencies,
+      currency: currency,
+    )
+  }
+
   let left_input =
     ConversionInput(
-      AmountInput(
-        currency_formatting.format_amount_str(from_currency, 1.0),
-        Some(1.0),
-      ),
-      CurrencySelector(
-        "currency-selector-" <> side.to_string(Left),
-        False,
-        "",
-        start_data.currencies,
-        from_currency,
-      ),
+      amount_input: format_amount_input(from_currency, 1.0),
+      currency_selector: make_selector(Left, from_currency),
     )
+
   let right_input =
     ConversionInput(
-      AmountInput(
-        currency_formatting.format_amount_str(to_currency, rate),
-        Some(rate),
-      ),
-      CurrencySelector(
-        "currency-selector-" <> side.to_string(Right),
-        False,
-        "",
-        start_data.currencies,
-        to_currency,
-      ),
+      amount_input: format_amount_input(to_currency, rate),
+      currency_selector: make_selector(Right, to_currency),
     )
 
   Model(
-    start_data.currencies,
-    Conversion(
+    currencies: start_data.currencies,
+    conversion: Conversion(
       conversion_inputs: #(left_input, right_input),
       rate: Some(rate),
       last_edited: Left,
