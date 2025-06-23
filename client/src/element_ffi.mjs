@@ -37,3 +37,7 @@ export function copyInputStyles(from_elem, to_elem) {
 export function offsetWidth(elem) {
   return elem.offsetWidth;
 }
+
+export function focus(elem) {
+  elem.focus();
+}

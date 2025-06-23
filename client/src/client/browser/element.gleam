@@ -40,3 +40,8 @@ pub fn copy_input_styles(from element1: Element, to element2: Element) -> Nil
 
 @external(javascript, "../../element_ffi.mjs", "offsetWidth")
 pub fn offset_width(element: Element) -> Int
+
+// Interaction
+
+@external(javascript, "../../element_ffi.mjs", "focus")
+pub fn focus(element: Element) -> Nil
