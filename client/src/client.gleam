@@ -518,7 +518,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         |> browser_event.target
         |> browser_element.cast
 
-      let update_side = fn(side, model) {
+      let close_dropdown = fn(model, side) {
         let #(currency_selector_id, dropdown_visible) =
           model
           |> map_conversion_input(side, fn(conversion_input) {
@@ -545,8 +545,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       let model =
         model
-        |> update_side(Left, _)
-        |> update_side(Right, _)
+        |> close_dropdown(Left)
+        |> close_dropdown(Right)
 
       #(model, effect.none())
     }
