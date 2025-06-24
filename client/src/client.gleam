@@ -477,28 +477,30 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         |> model_with_currency_filter(side, "")
         |> toggle_currency_selector_dropdown(side)
 
-      let dropdown_visible =
-        model
-        |> map_conversion_input(side, fn(input) {
-          input.currency_selector.show_dropdown
-        })
+      let effect = {
+        let dropdown_visible =
+          model
+          |> map_conversion_input(side, fn(input) {
+            input.currency_selector.show_dropdown
+          })
 
-      let effect = case dropdown_visible {
-        False -> effect.none()
-        True -> {
-          // apply focus to filter input when opening dropdown
-          use _, _ <- effect.before_paint
+        case dropdown_visible {
+          False -> effect.none()
+          True -> {
+            // apply focus to filter input when opening dropdown
+            use _, _ <- effect.before_paint
 
-          let currency_selector_id =
-            model
-            |> map_conversion_input(side, fn(input) {
-              input.currency_selector.id
-            })
+            let currency_selector_id =
+              model
+              |> map_conversion_input(side, fn(input) {
+                input.currency_selector.id
+              })
 
-          let assert Ok(filter_elem) =
-            document.query_selector("#" <> currency_selector_id <> " input")
+            let assert Ok(filter_elem) =
+              document.query_selector("#" <> currency_selector_id <> " input")
 
-          browser_element.focus(filter_elem)
+            browser_element.focus(filter_elem)
+          }
         }
       }
 
@@ -529,11 +531,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           effect.none()
         }
 
-        Some(socket) -> {
+        Some(socket) ->
           model
           |> build_rate_request
           |> subscribe_to_rate_updates(socket, _)
-        }
       }
 
       #(model, effect)
