@@ -521,6 +521,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let model =
         model
         |> model_with_selected_currency(side, currency)
+        |> toggle_currency_selector_dropdown(side)
 
       let effect = case model.socket {
         None -> {
