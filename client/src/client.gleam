@@ -486,21 +486,20 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
         case dropdown_visible {
           False -> effect.none()
-          True -> {
+          True ->
             // apply focus to filter input when opening dropdown
-            use _, _ <- effect.before_paint
+            effect.before_paint(fn(_, _) {
+              let currency_selector_id =
+                model
+                |> map_conversion_input(side, fn(input) {
+                  input.currency_selector.id
+                })
 
-            let currency_selector_id =
-              model
-              |> map_conversion_input(side, fn(input) {
-                input.currency_selector.id
-              })
+              let assert Ok(filter_elem) =
+                document.query_selector("#" <> currency_selector_id <> " input")
 
-            let assert Ok(filter_elem) =
-              document.query_selector("#" <> currency_selector_id <> " input")
-
-            browser_element.focus(filter_elem)
-          }
+              browser_element.focus(filter_elem)
+            })
         }
       }
 
