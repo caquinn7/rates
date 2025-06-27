@@ -463,13 +463,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
     }
 
-    UserEnteredAmount(side, amount_str) -> {
-      let model =
-        model
-        |> model_with_amount(side, amount_str)
-
-      #(model, effect.none())
-    }
+    UserEnteredAmount(side, amount_str) -> #(
+      model_with_amount(model, side, amount_str),
+      effect.none(),
+    )
 
     UserClickedCurrencySelector(side) -> {
       let model =
@@ -506,13 +503,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect)
     }
 
-    UserFilteredCurrencies(side, filter_str) -> {
-      let model =
-        model
-        |> model_with_currency_filter(side, filter_str)
-
-      #(model, effect.none())
-    }
+    UserFilteredCurrencies(side, filter_str) -> #(
+      model_with_currency_filter(model, side, filter_str),
+      effect.none(),
+    )
 
     UserSelectedCurrency(side, currency_id) -> {
       let assert Ok(currency) =
