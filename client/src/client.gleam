@@ -601,10 +601,10 @@ fn header() -> Element(Msg) {
     html.h1(
       [
         attribute.class(
-          "w-full mx-auto max-w-screen-xl text-5xl text-base-content",
+          "w-full mx-auto max-w-screen-xl text-4xl text-base-content",
         ),
       ],
-      [html.text("RateRadar")],
+      [html.text("rates")],
     ),
   ])
 }
