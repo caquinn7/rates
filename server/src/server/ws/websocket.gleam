@@ -9,7 +9,7 @@ import mist.{
 }
 import server/kraken/kraken.{type Kraken}
 import server/kraken/price_store.{type PriceStore}
-import server/rates/actors/subscriber.{type RateSubscriber}
+import server/rates/actors/subscriber.{type RateSubscriber} as rate_subscriber
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/rate_request
 import server/rates/rate_response
@@ -32,7 +32,7 @@ pub fn on_init(
     |> process.selecting(self_subject, function.identity)
 
   let assert Ok(rate_subscriber) =
-    subscriber.new(
+    rate_subscriber.new(
       self_subject,
       cmc_currencies,
       request_cmc_conversion,
@@ -55,7 +55,7 @@ pub fn handler(
 
       case json.parse(str, rate_request.decoder()) {
         Ok(rate_req) -> {
-          subscriber.subscribe(state, rate_req)
+          rate_subscriber.subscribe(state, rate_req)
           actor.continue(state)
         }
 
@@ -92,6 +92,6 @@ pub fn handler(
 
 pub fn on_close(state: RateSubscriber) -> Nil {
   echo "socket closed"
-  subscriber.stop(state)
+  rate_subscriber.stop(state)
   Nil
 }

@@ -13,7 +13,7 @@ import server/context.{Context}
 import server/currencies/cmc_currency_handler
 import server/kraken/kraken
 import server/kraken/price_store
-import server/rates/actors/resolver
+import server/rates/actors/resolver as rate_resolver
 import server/routes/home/home
 import server/ws/websocket
 import shared/currency.{type Currency}
@@ -103,7 +103,7 @@ pub fn main() {
         _ -> {
           let get_rate = fn(rate_req) {
             use resolver <- result.try(
-              resolver.new(
+              rate_resolver.new(
                 cmc_currencies,
                 kraken,
                 request_cmc_conversion,
@@ -113,7 +113,7 @@ pub fn main() {
             )
 
             resolver
-            |> resolver.get_rate(rate_req, 5000)
+            |> rate_resolver.get_rate(rate_req, 5000)
             |> result.map_error(fn(err) {
               echo "error getting rate for "
                 <> string.inspect(rate_req)
