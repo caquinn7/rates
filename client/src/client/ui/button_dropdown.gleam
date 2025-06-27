@@ -45,12 +45,9 @@ fn dropdown(
       attribute.class(
         "min-w-max left-1/2 transform -translate-x-1/2 w-auto translate-y-3",
       ),
-      case visible {
-        True -> attribute.none()
-        False -> attribute.class("hidden")
-      },
+      attribute.hidden(!visible),
     ],
-    [filter_elem, html.div([], option_group_elems)],
+    [filter_elem, element.fragment(option_group_elems)],
   )
 }
 
@@ -79,7 +76,7 @@ fn option_groups(
 fn option_group(
   group: #(String, List(DropdownOption(msg))),
   on_option_click: fn(String) -> msg,
-) {
+) -> Element(msg) {
   let #(title, options) = group
 
   let group_title_div =
