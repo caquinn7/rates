@@ -37,7 +37,7 @@ pub type RateError {
   CmcError(RateRequestError)
 }
 
-pub type Msg {
+type Msg {
   GetRate(Subject(Result(RateResponse, RateError)), RateRequest)
 }
 
@@ -73,7 +73,11 @@ pub fn new(
   |> result.map(RateResolver)
 }
 
-pub fn get_rate(resolver: RateResolver, rate_request: RateRequest, timeout: Int) {
+pub fn get_rate(
+  resolver: RateResolver,
+  rate_request: RateRequest,
+  timeout: Int,
+) -> Result(RateResponse, RateError) {
   let RateResolver(subject) = resolver
   actor.call(subject, GetRate(_, rate_request), timeout)
 }

@@ -102,15 +102,13 @@ pub fn main() {
         // handle http requests
         _ -> {
           let get_rate = fn(rate_req) {
-            use resolver <- result.try(
+            let assert Ok(resolver) =
               rate_resolver.new(
                 cmc_currencies,
                 kraken,
                 request_cmc_conversion,
                 get_price_store,
               )
-              |> result.replace_error(Nil),
-            )
 
             resolver
             |> rate_resolver.get_rate(rate_req, 5000)
