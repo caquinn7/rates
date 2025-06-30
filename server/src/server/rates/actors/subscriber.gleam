@@ -16,7 +16,7 @@
 /// Only one active subscription is supported at a time. A future enhancement could allow
 /// multiple concurrent subscriptions per actor instance.
 import gleam/dict.{type Dict}
-import gleam/erlang/process.{type Subject, Normal}
+import gleam/erlang/process.{type Subject}
 import gleam/int
 import gleam/list
 import gleam/otp/actor.{type Next, type StartError}
@@ -77,17 +77,18 @@ pub fn new(
     |> dict.from_list
 
   let initial_state = Idle(reply_to, currency_dict, kraken, get_price_store())
-  let msg_loop = fn(msg, state) {
-    handle_msg(msg, state, request_cmc_conversion)
+  let msg_loop = fn(state, msg) {
+    handle_msg(state, msg, request_cmc_conversion)
   }
 
   initial_state
-  |> actor.start(msg_loop)
-  |> result.map(fn(subject) {
-    process.start(fn() { polling_loop(subject, interval) }, True)
-    subject
+  |> actor.new
+  |> actor.on_message(msg_loop)
+  |> actor.start
+  |> result.map(fn(started) {
+    process.spawn(fn() { polling_loop(started.data, interval) })
+    RateSubscriber(started.data)
   })
-  |> result.map(RateSubscriber)
 }
 
 fn polling_loop(subject: Subject(Msg), interval: Int) -> Nil {
@@ -107,10 +108,10 @@ pub fn stop(subscriber: RateSubscriber) -> Nil {
 }
 
 fn handle_msg(
-  msg: Msg,
   state: State,
+  msg: Msg,
   request_cmc_conversion: RequestCmcConversion,
-) -> Next(Msg, State) {
+) -> Next(State, Msg) {
   case msg {
     Subscribe(rate_req) -> {
       // If we were already subscribed via Kraken, first unsubscribe from the old symbol
@@ -228,17 +229,17 @@ fn handle_msg(
 
     Stop -> {
       case state {
-        Idle(..) -> actor.Stop(Normal)
+        Idle(..) -> actor.stop()
 
         Subscribed(_, _, kraken, _, subscription) -> {
           case subscription {
             Kraken(_, symbol) -> {
               let symbol_str = utils.unwrap_kraken_symbol(symbol)
               kraken.unsubscribe(kraken, symbol_str)
-              actor.Stop(Normal)
+              actor.stop()
             }
 
-            Cmc(_) -> actor.Stop(Normal)
+            Cmc(_) -> actor.stop()
           }
         }
       }
@@ -250,7 +251,7 @@ fn handle_cmc_fallback(
   state: State,
   rate_req: RateRequest,
   request_cmc_conversion: RequestCmcConversion,
-) -> Next(Msg, State) {
+) -> Next(State, Msg) {
   let result = get_cmc_rate(rate_req, request_cmc_conversion)
 
   process.send(state.reply_to, result)

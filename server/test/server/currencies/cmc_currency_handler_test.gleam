@@ -56,9 +56,8 @@ pub fn get_currencies_timeout_test() {
   }
 
   let timeout = 25
-  let blocker = process.new_subject()
   let request_fiats = fn(_) {
-    let _ = process.receive(blocker, timeout)
+    process.sleep(timeout)
 
     [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
     |> Some

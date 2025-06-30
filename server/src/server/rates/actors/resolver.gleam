@@ -14,9 +14,9 @@
 ///   - Send a `GetRate` message using `get_rate`.
 ///   - The actor automatically stops after sending its response.
 import gleam/dict.{type Dict}
-import gleam/erlang/process.{type Subject, Normal}
+import gleam/erlang/process.{type Subject}
 import gleam/list
-import gleam/otp/actor.{type Next, type StartError, Stop}
+import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
 import server/kraken/kraken.{type Kraken}
 import server/kraken/price_store.{type PriceStore}
@@ -66,11 +66,15 @@ pub fn new(
   let initial_state =
     State(currency_dict, kraken, price_store, request_cmc_conversion)
 
-  let loop = fn(msg, state) { handle_msg(msg, state, request_cmc_conversion) }
+  let msg_loop = fn(state, msg) {
+    handle_msg(state, msg, request_cmc_conversion)
+  }
 
   initial_state
-  |> actor.start(loop)
-  |> result.map(RateResolver)
+  |> actor.new
+  |> actor.on_message(msg_loop)
+  |> actor.start
+  |> result.map(fn(started) { RateResolver(started.data) })
 }
 
 pub fn get_rate(
@@ -79,14 +83,14 @@ pub fn get_rate(
   timeout: Int,
 ) -> Result(RateResponse, RateError) {
   let RateResolver(subject) = resolver
-  actor.call(subject, GetRate(_, rate_request), timeout)
+  actor.call(subject, timeout, GetRate(_, rate_request))
 }
 
 fn handle_msg(
-  msg: Msg,
   state: State,
+  msg: Msg,
   request_cmc_conversion: RequestCmcConversion,
-) -> Next(Msg, State) {
+) -> Next(State, Msg) {
   case msg {
     GetRate(reply_to, rate_req) -> {
       rate_req
@@ -94,7 +98,7 @@ fn handle_msg(
       |> result.map_error(fn(err) {
         let utils.CurrencyNotFound(id) = err
         process.send(reply_to, Error(CurrencyNotFound(id)))
-        Stop(Normal)
+        actor.stop()
       })
       |> result.map(fn(symbols) {
         case utils.resolve_kraken_symbol(symbols) {
@@ -125,7 +129,7 @@ fn handle_msg(
                   Ok(RateResponse(rate_req.from, rate_req.to, rate, Kraken)),
                 )
 
-                Stop(Normal)
+                actor.stop()
               }
             }
           }
@@ -140,16 +144,16 @@ fn handle_cmc_fallback(
   rate_req: RateRequest,
   request_cmc_conversion: RequestCmcConversion,
   reply_to: Subject(Result(RateResponse, RateError)),
-) -> Next(Msg, State) {
+) -> Next(State, Msg) {
   case cmc_rate_handler.get_rate(rate_req, request_cmc_conversion) {
     Error(err) -> {
       process.send(reply_to, Error(CmcError(err)))
-      Stop(Normal)
+      actor.stop()
     }
 
     Ok(rate_resp) -> {
       process.send(reply_to, Ok(rate_resp))
-      Stop(Normal)
+      actor.stop()
     }
   }
 }

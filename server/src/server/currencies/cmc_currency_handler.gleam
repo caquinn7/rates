@@ -39,21 +39,17 @@ pub fn get_currencies(
 ) -> CurrenciesResult {
   let subject = process.new_subject()
 
-  process.start(
-    fn() {
-      get_cryptos(ctx.crypto_limit, request_cryptos)
-      |> process.send(subject, _)
-    },
-    True,
-  )
+  process.spawn(fn() {
+    ctx.crypto_limit
+    |> get_cryptos(request_cryptos)
+    |> process.send(subject, _)
+  })
 
-  process.start(
-    fn() {
-      get_fiats(ctx.supported_fiat_symbols, request_fiats)
-      |> process.send(subject, _)
-    },
-    True,
-  )
+  process.spawn(fn() {
+    ctx.supported_fiat_symbols
+    |> get_fiats(request_fiats)
+    |> process.send(subject, _)
+  })
 
   receive_both(subject, None, None, timeout, current_time_ms(), current_time_ms)
 }
@@ -171,7 +167,7 @@ fn receive_both(
 }
 
 fn current_time_ms() -> Int {
-  monotonic_time(atom.create_from_string("millisecond"))
+  monotonic_time(atom.create("millisecond"))
 }
 
 @external(erlang, "erlang", "monotonic_time")

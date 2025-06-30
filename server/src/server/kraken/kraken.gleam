@@ -22,7 +22,7 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/otp/actor.{type Next, type StartError}
+import gleam/otp/actor.{type StartError, type Started}
 import gleam/result
 import gleam/set.{type Set}
 import gleam/string
@@ -63,26 +63,41 @@ type State {
 
 pub fn new(create_price_store: fn() -> PriceStore) -> Result(Kraken, StartError) {
   let intitial_state = State(None, set.new(), dict.new(), dict.new(), None)
-  let loop = fn(msg, state) { kraken_loop(msg, state, create_price_store) }
+  let msg_loop = fn(state, msg) { kraken_loop(state, msg, create_price_store) }
 
-  use kraken_subject <- result.try(actor.start(intitial_state, loop))
-  use websocket_subject <- result.try(init_websocket(kraken_subject))
+  use kraken_subject <- result.try(
+    intitial_state
+    |> actor.new
+    |> actor.on_message(msg_loop)
+    |> actor.start
+    |> result.map(fn(started) { started.data }),
+  )
+
+  use websocket_subject <- result.try(
+    kraken_subject
+    |> init_websocket
+    |> result.map(fn(started) { started.data }),
+  )
 
   actor.send(kraken_subject, Init(websocket_subject))
   Ok(Kraken(kraken_subject))
 }
 
-pub fn subscribe(kraken: Kraken, symbol: String) {
+pub fn subscribe(kraken: Kraken, symbol: String) -> Nil {
   let Kraken(kraken_subject) = kraken
   actor.send(kraken_subject, Subscribe(symbol))
 }
 
-pub fn unsubscribe(kraken: Kraken, symbol: String) {
+pub fn unsubscribe(kraken: Kraken, symbol: String) -> Nil {
   let Kraken(kraken_subject) = kraken
   actor.send(kraken_subject, Unsubscribe(symbol))
 }
 
-fn kraken_loop(msg: Msg, state: State, create_price_store: fn() -> PriceStore) {
+fn kraken_loop(
+  state: State,
+  msg: Msg,
+  create_price_store: fn() -> PriceStore,
+) -> actor.Next(State, Msg) {
   let State(
     maybe_websocket_subject,
     supported_symbols,
@@ -253,7 +268,7 @@ type WebsocketMsg {
 
 fn init_websocket(
   reply_to: Subject(Msg),
-) -> Result(Subject(InternalMessage(WebsocketMsg)), StartError) {
+) -> Result(Started(Subject(InternalMessage(WebsocketMsg))), StartError) {
   let assert Ok(req) = http_request.to("https://ws.kraken.com/v2")
   stratus.websocket(
     request: req,
@@ -268,14 +283,14 @@ fn init_websocket(
 }
 
 fn websocket_loop(
-  msg: Message(WebsocketMsg),
   state: Subject(Msg),
+  msg: Message(WebsocketMsg),
   conn: Connection,
-) -> Next(WebsocketMsg, Subject(Msg)) {
+) -> stratus.Next(Subject(Msg), WebsocketMsg) {
   case msg {
     Text(str) -> {
       case json.parse(str, response.decoder()) {
-        Error(_) -> actor.continue(state)
+        Error(_) -> stratus.continue(state)
 
         Ok(InstrumentsResponse(pairs)) -> {
           let symbols =
@@ -284,17 +299,17 @@ fn websocket_loop(
             |> set.from_list
 
           actor.send(state, SetSupportedSymbols(symbols))
-          actor.continue(state)
+          stratus.continue(state)
         }
 
         Ok(TickerSubscribeConfirmation(symbol)) -> {
           actor.send(state, ConfirmSubscribe(symbol))
-          actor.continue(state)
+          stratus.continue(state)
         }
 
         Ok(TickerResponse(symbol, price)) -> {
           actor.send(state, UpdatePrice(symbol, price))
-          actor.continue(state)
+          stratus.continue(state)
         }
       }
     }
@@ -308,13 +323,13 @@ fn websocket_loop(
       case stratus.send_text_message(conn, json_str) {
         Error(err) -> {
           echo "failed to send message to kraken: " <> string.inspect(err)
-          actor.continue(state)
+          stratus.continue(state)
         }
 
-        Ok(_) -> actor.continue(state)
+        Ok(_) -> stratus.continue(state)
       }
     }
 
-    Binary(_) -> actor.continue(state)
+    Binary(_) -> stratus.continue(state)
   }
 }
