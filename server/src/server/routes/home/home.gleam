@@ -64,7 +64,7 @@ fn page_scaffold(content: Element(a), seed_json: String) -> Element(a) {
           ),
           attribute.name("viewport"),
         ]),
-        html.title([], "RateRadar 💹 📡"),
+        html.title([], "rates 💹"),
         html.style(
           [],
           "
