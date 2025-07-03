@@ -1,134 +1,190 @@
-import gleam/bool
-import gleam/dynamic.{type Dynamic}
+import gleam/erlang/atom
+import gleam/erlang/process.{type Subject}
 import gleam/list
-import gleam/option.{Some}
-import gleam/otp/task
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import server/coin_market_cap/client.{
   type CmcCryptoCurrency, type CmcFiatCurrency, type CmcListResponse,
-  type CmcRequestError,
+  type CmcRequestError, type CmcStatus,
 }
 import server/context.{type Context}
-import shared/currency.{type Currency}
+import shared/currency.{type Currency, Crypto, Fiat}
 
-pub type RequestCmcCryptos =
-  fn(Int) -> Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError)
+pub type CurrenciesResult =
+  Result(List(Currency), CurrencyFetcherError)
 
-pub type RequestCmcFiats =
-  fn(Int) -> Result(CmcListResponse(CmcFiatCurrency), CmcRequestError)
+pub type CurrencyFetcherError {
+  RequestError(RequestType, RequestSpecificError)
+  Timeout
+}
 
-pub type CurrenciesRequestError {
-  CurrenciesRequestError(RequestType, RequestError)
+pub type RequestSpecificError {
+  ClientError(CmcRequestError)
+  ErrorStatusReceived(CmcStatus)
+  EmptyListReceived
 }
 
 pub type RequestType {
-  Crypto
-  Fiat
+  CryptoRequest
+  FiatRequest
 }
 
-pub type RequestError {
-  RequestFailed(CmcRequestError)
-  TimedOut
-  TaskCrashed(Dynamic)
-}
+type RequestCmcCryptos =
+  fn(Int) -> Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError)
 
+type RequestCmcFiats =
+  fn(Int) -> Result(CmcListResponse(CmcFiatCurrency), CmcRequestError)
+
+/// Fetches and combines crypto and fiat currencies from CMC.
+/// 
+/// Returns a combined list or detailed error.
 pub fn get_currencies(
   ctx: Context,
   request_cryptos: RequestCmcCryptos,
   request_fiats: RequestCmcFiats,
   timeout: Int,
-) -> Result(List(Currency), CurrenciesRequestError) {
-  let crypto_task =
-    task.async(fn() { get_cryptos(ctx.crypto_limit, request_cryptos) })
+) -> CurrenciesResult {
+  let get_currencies_by_type = fn(req_type) {
+    let get_cryptos = fn() { get_cryptos(ctx.crypto_limit, request_cryptos) }
 
-  let fiat_task =
-    task.async(fn() { get_fiats(ctx.supported_fiat_symbols, request_fiats) })
+    let get_fiats = fn() {
+      get_fiats(ctx.supported_fiat_symbols, request_fiats)
+    }
 
-  let #(crypto_result, fiat_result) =
-    task.try_await2(crypto_task, fiat_task, timeout)
+    case req_type {
+      CryptoRequest -> get_cryptos()
+      FiatRequest -> get_fiats()
+    }
+    |> result.try(fn(currencies) {
+      case currencies {
+        [] -> Error(EmptyListReceived)
+        _ -> Ok(currencies)
+      }
+    })
+    |> result.map_error(RequestError(req_type, _))
+  }
 
-  use cryptos_result <- result.try(map_await_error(Crypto, crypto_result))
-  use cryptos <- result.try(cryptos_result)
+  let start_time = current_time_ms()
+  let get_remaining_time = fn() {
+    let now = current_time_ms()
+    let elapsed = now - start_time
+    timeout - elapsed
+  }
 
-  use fiats_result <- result.try(map_await_error(Fiat, fiat_result))
-  use fiats <- result.try(fiats_result)
+  let subject = process.new_subject()
 
-  cryptos
-  |> list.append(fiats)
-  |> Ok
+  process.spawn(fn() {
+    get_currencies_by_type(CryptoRequest)
+    |> process.send(subject, _)
+  })
+
+  process.spawn(fn() {
+    get_currencies_by_type(FiatRequest)
+    |> process.send(subject, _)
+  })
+
+  receive_both(subject, None, None, get_remaining_time)
+}
+
+fn receive_both(
+  subject: Subject(CurrenciesResult),
+  crypto_result: Option(CurrenciesResult),
+  fiat_result: Option(CurrenciesResult),
+  get_remaining_time: fn() -> Int,
+) -> CurrenciesResult {
+  case crypto_result, fiat_result {
+    Some(Ok(crypto)), Some(Ok(fiat)) -> Ok(list.append(crypto, fiat))
+
+    Some(Error(err)), _ | _, Some(Error(err)) -> Error(err)
+
+    _, _ ->
+      case process.receive(subject, get_remaining_time()) {
+        Error(_) -> Error(Timeout)
+
+        Ok(Error(err)) -> Error(err)
+
+        Ok(Ok(currencies)) -> {
+          case currencies {
+            [] -> panic as "received empty currency list"
+
+            [Crypto(..), ..] ->
+              receive_both(
+                subject,
+                Some(Ok(currencies)),
+                fiat_result,
+                get_remaining_time,
+              )
+
+            [Fiat(..), ..] ->
+              receive_both(
+                subject,
+                crypto_result,
+                Some(Ok(currencies)),
+                get_remaining_time,
+              )
+          }
+        }
+      }
+  }
 }
 
 pub fn get_cryptos(
   limit: Int,
-  request_cryptos: RequestCmcCryptos,
-) -> Result(List(Currency), CurrenciesRequestError) {
-  limit
-  |> request_cryptos
-  |> result.map(fn(cmc_response) {
-    case cmc_response.data {
-      Some(currencies) -> list.unique(currencies)
-      _ -> []
-    }
+  request_crypto: RequestCmcCryptos,
+) -> Result(List(Currency), RequestSpecificError) {
+  use cmc_response <- result.try(
+    limit
+    |> request_crypto
+    |> result.map_error(ClientError),
+  )
+
+  use data <- result.try(case cmc_response.status.error_code == 0 {
+    True -> Ok(cmc_response.data)
+    False -> Error(ErrorStatusReceived(cmc_response.status))
   })
-  |> result.map(fn(cmc_cryptos) {
-    cmc_cryptos
-    |> list.map(fn(crypto) {
-      currency.Crypto(crypto.id, crypto.name, crypto.symbol, crypto.rank)
-    })
+
+  let assert Some(cryptos) = data
+
+  cryptos
+  |> list.unique
+  |> list.map(fn(crypto) {
+    currency.Crypto(crypto.id, crypto.name, crypto.symbol, crypto.rank)
   })
-  |> result.map_error(wrap_cmc_error(_, Crypto))
+  |> Ok
 }
 
 pub fn get_fiats(
   supported_symbols: List(String),
-  request_fiats: RequestCmcFiats,
-) -> Result(List(Currency), CurrenciesRequestError) {
-  let select_supported_fiats = fn(currencies: List(CmcFiatCurrency)) {
-    use <- bool.guard(list.is_empty(supported_symbols), currencies)
+  request_fiat: RequestCmcFiats,
+) -> Result(List(Currency), RequestSpecificError) {
+  use cmc_response <- result.try(
+    100
+    |> request_fiat
+    |> result.map_error(ClientError),
+  )
 
-    currencies
-    |> list.filter(fn(currency) {
-      list.contains(supported_symbols, currency.symbol)
-    })
-  }
-
-  100
-  |> request_fiats
-  |> result.map(fn(cmc_response) {
-    case cmc_response.data {
-      Some(currencies) ->
-        currencies
-        |> list.unique
-        |> select_supported_fiats
-
-      _ -> []
-    }
+  use data <- result.try(case cmc_response.status.error_code == 0 {
+    True -> Ok(cmc_response.data)
+    False -> Error(ErrorStatusReceived(cmc_response.status))
   })
-  |> result.map(fn(cmc_fiats) {
-    cmc_fiats
-    |> list.map(fn(fiat) {
-      currency.Fiat(fiat.id, fiat.name, fiat.symbol, fiat.sign)
-    })
+
+  let assert Some(fiats) = data
+
+  fiats
+  |> list.unique
+  |> list.filter(fn(currency) {
+    list.is_empty(supported_symbols)
+    || list.contains(supported_symbols, currency.symbol)
   })
-  |> result.map_error(wrap_cmc_error(_, Fiat))
+  |> list.map(fn(fiat) {
+    currency.Fiat(fiat.id, fiat.name, fiat.symbol, fiat.sign)
+  })
+  |> Ok
 }
 
-fn map_await_error(
-  request_type: RequestType,
-  result: Result(a, task.AwaitError),
-) -> Result(a, CurrenciesRequestError) {
-  result
-  |> result.map_error(fn(err) {
-    case err {
-      task.Timeout -> CurrenciesRequestError(request_type, TimedOut)
-      task.Exit(reason) ->
-        CurrenciesRequestError(request_type, TaskCrashed(reason))
-    }
-  })
+fn current_time_ms() -> Int {
+  monotonic_time(atom.create("millisecond"))
 }
 
-fn wrap_cmc_error(cmc_request_err, req_type) {
-  cmc_request_err
-  |> RequestFailed
-  |> CurrenciesRequestError(req_type, _)
-}
+@external(erlang, "erlang", "monotonic_time")
+fn monotonic_time(unit: atom) -> Int

@@ -18,15 +18,15 @@ client = { path = "../client" }
 gleam_stdlib = ">= 0.44.0 and < 2.0.0"
 wisp = ">= 1.5.3 and < 2.0.0"
 dot_env = ">= 1.2.0 and < 2.0.0"
-mist = ">= 4.0.7 and < 5.0.0"
+mist = ">= 5.0.0 and < 6.0.0"
 gleam_http = ">= 4.0.0 and < 5.0.0"
 lustre = ">= 5.0.0 and < 6.0.0"
-gleam_erlang = ">= 0.34.0 and < 1.0.0"
-gleam_otp = ">= 0.16.1 and < 1.0.0"
+gleam_erlang = ">= 1.0.0 and < 2.0.0"
+gleam_otp = ">= 1.0.0 and < 2.0.0"
 gleam_json = ">= 3.0.0 and < 4.0.0"
 gleam_httpc = ">= 4.1.0 and < 5.0.0"
-stratus = ">= 0.9.7 and < 1.0.0"
-carpenter = ">= 0.3.1 and < 1.0.0"
+stratus = ">= 1.0.0 and < 2.0.0"
+carpenter = { git = "git@github.com:ghivert/carpenter.git", ref = "main" }
 birdie = ">= 1.2.7 and < 2.0.0"
 
 [dev-dependencies]

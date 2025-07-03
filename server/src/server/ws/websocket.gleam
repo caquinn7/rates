@@ -1,8 +1,7 @@
-import gleam/erlang/process.{type Selector, Normal}
+import gleam/erlang/process.{type Selector}
 import gleam/function
 import gleam/json
 import gleam/option.{type Option, Some}
-import gleam/otp/actor.{type Next, Stop}
 import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
@@ -29,7 +28,7 @@ pub fn on_init(
 
   let selector =
     process.new_selector()
-    |> process.selecting(self_subject, function.identity)
+    |> process.select_map(self_subject, function.identity)
 
   let assert Ok(rate_subscriber) =
     rate_subscriber.new(
@@ -46,9 +45,9 @@ pub fn on_init(
 
 pub fn handler(
   state: RateSubscriber,
-  conn: WebsocketConnection,
   message: WebsocketMessage(Result(RateResponse, String)),
-) -> Next(Result(RateResponse, String), RateSubscriber) {
+  conn: WebsocketConnection,
+) -> mist.Next(RateSubscriber, Result(RateResponse, String)) {
   case message {
     Text(str) -> {
       echo "message received: " <> str
@@ -56,12 +55,12 @@ pub fn handler(
       case json.parse(str, rate_request.decoder()) {
         Ok(rate_req) -> {
           rate_subscriber.subscribe(state, rate_req)
-          actor.continue(state)
+          mist.continue(state)
         }
 
         _ -> {
           let _ = mist.send_text_frame(conn, "Failed to decode rate request")
-          actor.continue(state)
+          mist.continue(state)
         }
       }
     }
@@ -82,11 +81,11 @@ pub fn handler(
         |> echo
 
       let _ = mist.send_text_frame(conn, response_str)
-      actor.continue(state)
+      mist.continue(state)
     }
 
-    Binary(_) -> actor.continue(state)
-    Closed | Shutdown -> Stop(Normal)
+    Binary(_) -> mist.continue(state)
+    Closed | Shutdown -> mist.stop()
   }
 }
 

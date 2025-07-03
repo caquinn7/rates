@@ -51,7 +51,6 @@ pub fn main() {
     )
   }
   let cmc_currencies = case cmc_currencies_result {
-    Ok([]) -> panic as "empty currency list"
     Ok(cmc_currencies) -> {
       let count = list.length(cmc_currencies)
       echo "fetched " <> int.to_string(count) <> " currencies from cmc"
@@ -102,15 +101,13 @@ pub fn main() {
         // handle http requests
         _ -> {
           let get_rate = fn(rate_req) {
-            use resolver <- result.try(
+            let assert Ok(resolver) =
               rate_resolver.new(
                 cmc_currencies,
                 kraken,
                 request_cmc_conversion,
                 get_price_store,
               )
-              |> result.replace_error(Nil),
-            )
 
             resolver
             |> rate_resolver.get_rate(rate_req, 5000)
@@ -134,7 +131,7 @@ pub fn main() {
       }
     })
     |> mist.port(8080)
-    |> mist.start_http
+    |> mist.start
 
   process.sleep_forever()
 }
