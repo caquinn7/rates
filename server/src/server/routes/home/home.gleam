@@ -1,4 +1,3 @@
-import client
 import client/start_data.{StartData} as _client_start_data
 import gleam/json
 import gleam/list
@@ -25,13 +24,8 @@ pub fn get(
       |> start_data.encode
       |> json.to_string
 
-    let content =
-      start_data
-      |> client.model_from_start_data
-      |> client.view
-      |> page_scaffold(start_data_json)
-
-    content
+    start_data_json
+    |> page_scaffold
     |> element.to_document_string_tree
     |> wisp.html_body(wisp.response(200), _)
   })
@@ -48,26 +42,18 @@ fn get_start_data(
   Ok(StartData(currencies, rate_response))
 }
 
-fn page_scaffold(content: Element(a), seed_json: String) -> Element(a) {
-  html.html(
-    [
-      attribute.attribute("lang", "en"),
-      attribute.attribute("data-theme", "business"),
-    ],
-    [
-      html.head([], [
-        html.meta([attribute.attribute("charset", "UTF-8")]),
-        html.meta([
-          attribute.attribute(
-            "content",
-            "width=device-width, initial-scale=1.0",
-          ),
-          attribute.name("viewport"),
-        ]),
-        html.title([], "rates 💹"),
-        html.style(
-          [],
-          "
+fn page_scaffold(seed_json: String) -> Element(a) {
+  html.html([attribute.attribute("lang", "en")], [
+    html.head([], [
+      html.meta([attribute.attribute("charset", "UTF-8")]),
+      html.meta([
+        attribute.attribute("content", "width=device-width, initial-scale=1.0"),
+        attribute.name("viewport"),
+      ]),
+      html.title([], "rates 💹"),
+      html.style(
+        [],
+        "
         @font-face {
           font-family: 'Roboto';
           src: url('/static/fonts/roboto/Roboto-VariableFont_wdth,wght.ttf') format('truetype');
@@ -88,28 +74,27 @@ fn page_scaffold(content: Element(a), seed_json: String) -> Element(a) {
           font-family: 'Roboto', sans-serif;
         }
       ",
-        ),
-        html.link([
-          attribute.rel("stylesheet"),
-          attribute.type_("text/css"),
-          attribute.href("/static/client.css"),
-        ]),
-        html.script(
-          [attribute.src("/static/client.mjs"), attribute.type_("module")],
-          "",
-        ),
-        html.script(
-          [attribute.type_("application/json"), attribute.id("model")],
-          seed_json,
-        ),
-        // html.script(
-      //   [attribute.type_("text/javascript")],
-      //   "window.__ENV__ = " <> "\"" <> ctx.env <> "\"",
-      // ),
+      ),
+      html.link([
+        attribute.rel("stylesheet"),
+        attribute.type_("text/css"),
+        attribute.href("/static/client.css"),
       ]),
-      html.body([attribute.class("flex flex-col min-h-screen")], [
-        html.div([attribute.id("app")], [content]),
-      ]),
-    ],
-  )
+      html.script(
+        [attribute.src("/static/client.mjs"), attribute.type_("module")],
+        "",
+      ),
+      html.script(
+        [attribute.type_("application/json"), attribute.id("model")],
+        seed_json,
+      ),
+      // html.script(
+    //   [attribute.type_("text/javascript")],
+    //   "window.__ENV__ = " <> "\"" <> ctx.env <> "\"",
+    // ),
+    ]),
+    html.body([attribute.class("flex flex-col min-h-screen")], [
+      html.div([attribute.id("app")], []),
+    ]),
+  ])
 }
