@@ -51,7 +51,6 @@ pub fn main() {
     )
   }
   let cmc_currencies = case cmc_currencies_result {
-    Ok([]) -> panic as "empty currency list"
     Ok(cmc_currencies) -> {
       let count = list.length(cmc_currencies)
       echo "fetched " <> int.to_string(count) <> " currencies from cmc"
