@@ -597,15 +597,10 @@ pub fn view(model: Model) -> Element(Msg) {
 }
 
 fn header() -> Element(Msg) {
-  html.header([attribute.class("p-4 border-b border-base-content")], [
-    html.h1(
-      [
-        attribute.class(
-          "w-full mx-auto max-w-screen-xl text-4xl text-base-content",
-        ),
-      ],
-      [html.text("rates")],
-    ),
+  html.header([attribute.class("p-4 border-b")], [
+    html.h1([attribute.class("w-full mx-auto max-w-screen-xl text-4xl")], [
+      html.text("rates"),
+    ]),
   ])
 }
 

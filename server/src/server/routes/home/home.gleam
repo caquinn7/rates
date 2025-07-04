@@ -43,17 +43,25 @@ fn get_start_data(
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {
-  html.html([attribute.attribute("lang", "en")], [
-    html.head([], [
-      html.meta([attribute.attribute("charset", "UTF-8")]),
-      html.meta([
-        attribute.attribute("content", "width=device-width, initial-scale=1.0"),
-        attribute.name("viewport"),
-      ]),
-      html.title([], "rates 💹"),
-      html.style(
-        [],
-        "
+  html.html(
+    [
+      attribute.attribute("lang", "en"),
+      attribute.attribute("data-theme", "business"),
+    ],
+    [
+      html.head([], [
+        html.meta([attribute.attribute("charset", "UTF-8")]),
+        html.meta([
+          attribute.attribute(
+            "content",
+            "width=device-width, initial-scale=1.0",
+          ),
+          attribute.name("viewport"),
+        ]),
+        html.title([], "rates 💹"),
+        html.style(
+          [],
+          "
         @font-face {
           font-family: 'Roboto';
           src: url('/static/fonts/roboto/Roboto-VariableFont_wdth,wght.ttf') format('truetype');
@@ -74,27 +82,28 @@ fn page_scaffold(seed_json: String) -> Element(a) {
           font-family: 'Roboto', sans-serif;
         }
       ",
-      ),
-      html.link([
-        attribute.rel("stylesheet"),
-        attribute.type_("text/css"),
-        attribute.href("/static/client.css"),
+        ),
+        html.link([
+          attribute.rel("stylesheet"),
+          attribute.type_("text/css"),
+          attribute.href("/static/client.css"),
+        ]),
+        html.script(
+          [attribute.src("/static/client.mjs"), attribute.type_("module")],
+          "",
+        ),
+        html.script(
+          [attribute.type_("application/json"), attribute.id("model")],
+          seed_json,
+        ),
+        // html.script(
+      //   [attribute.type_("text/javascript")],
+      //   "window.__ENV__ = " <> "\"" <> ctx.env <> "\"",
+      // ),
       ]),
-      html.script(
-        [attribute.src("/static/client.mjs"), attribute.type_("module")],
-        "",
-      ),
-      html.script(
-        [attribute.type_("application/json"), attribute.id("model")],
-        seed_json,
-      ),
-      // html.script(
-    //   [attribute.type_("text/javascript")],
-    //   "window.__ENV__ = " <> "\"" <> ctx.env <> "\"",
-    // ),
-    ]),
-    html.body([attribute.class("flex flex-col min-h-screen")], [
-      html.div([attribute.id("app")], []),
-    ]),
-  ])
+      html.body([attribute.class("flex flex-col min-h-screen")], [
+        html.div([attribute.id("app")], []),
+      ]),
+    ],
+  )
 }
