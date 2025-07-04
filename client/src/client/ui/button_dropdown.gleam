@@ -1,10 +1,10 @@
-import client/ui/button.{Button}
 import gleam/dict.{type Dict}
 import gleam/list
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/element/keyed
+import lustre/element/svg
 import lustre/event
 
 pub type DropdownOption(msg) {
@@ -22,9 +22,38 @@ pub fn view(
   on_option_click: fn(String) -> msg,
 ) -> Element(msg) {
   html.div([attribute.class("relative"), attribute.id(id)], [
-    button.view(Button(btn_text, on_btn_click)),
+    button(btn_text, on_btn_click),
     dropdown(show_dropdown, filter, options, on_filter, on_option_click),
   ])
+}
+
+pub fn button(text, on_click) -> Element(msg) {
+  html.button(
+    [
+      attribute.class("inline-flex items-center px-3 py-3"),
+      attribute.class("w-full rounded-r-lg border cursor-pointer"),
+      attribute.class("font-light text-4xl text-left"),
+      event.on_click(on_click),
+    ],
+    [
+      html.text(text),
+      svg.svg(
+        [
+          attribute.attribute("viewBox", "0 0 20 20"),
+          attribute.attribute("xmlns", "http://www.w3.org/2000/svg"),
+          attribute.class("ml-2 h-6 w-6 fill-current"),
+        ],
+        [
+          svg.path([
+            attribute.attribute(
+              "d",
+              "M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z",
+            ),
+          ]),
+        ],
+      ),
+    ],
+  )
 }
 
 fn dropdown(
