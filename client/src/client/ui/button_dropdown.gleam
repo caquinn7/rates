@@ -80,10 +80,9 @@ fn option_group(
   let #(title, options) = group
 
   let group_title_div =
-    html.div(
-      [attribute.class("px-2 py-1 font-bold text-lg text-base-content")],
-      [html.text(title)],
-    )
+    html.div([attribute.class("px-2 py-1 font-bold text-lg")], [
+      html.text(title),
+    ])
 
   html.div([], [group_title_div, options_container(options, on_option_click)])
 }
@@ -108,8 +107,7 @@ fn option(
   html.div(
     [
       attribute.attribute("data-value", option.value),
-      attribute.class("px-6 py-1 cursor-pointer text-base-content"),
-      attribute.class("hover:bg-base-content hover:text-base-100"),
+      attribute.class("px-6 py-1 cursor-pointer"),
       event.on_click(on_click(option.value)),
     ],
     [option.display],
