@@ -55,6 +55,17 @@ pub fn parse_amount(str: String) -> Result(Float, Nil) {
   |> parse_float
 }
 
+/// Formats a floating-point `amount` as a string according to the given `currency`.
+/// The determines the appropriate decimal precision, and groups the integer part
+/// for readability. If the fractional part consists only of zeroes, it is omitted from the result.
+/// Otherwise, the fractional part is included after a decimal point.
+///
+/// ## Arguments
+/// - `currency`: The currency used to determine formatting rules.
+/// - `amount`: The floating-point number to format.
+///
+/// ## Returns
+/// A string representation of the formatted amount, suitable for display.
 pub fn format_amount_str(currency: Currency, amount: Float) -> String {
   let amount = float.absolute_value(amount)
 
@@ -77,6 +88,23 @@ pub fn format_amount_str(currency: Currency, amount: Float) -> String {
   }
 }
 
+/// Determines the maximum number of decimal places (precision) to use when formatting
+/// a given amount for a specific currency type.
+///
+/// For cryptocurrencies, the precision varies based on the value of the amount:
+/// - 0 decimal places if the amount is zero
+/// - 4 decimal places if the amount is at least 1.0
+/// - 6 decimal places if the amount is at least 0.01 but less than 1.0
+/// - 8 decimal places for smaller amounts
+///
+/// For fiat currencies, the precision is always 2 decimal places.
+///
+/// # Arguments
+/// - `currency`: The currency, which can be either `Crypto` or `Fiat`.
+/// - `amount`: The numeric value to determine the precision for.
+///
+/// # Returns
+/// The maximum number of decimal places to use for formatting the amount.
 pub fn determine_max_precision(currency: Currency, amount: Float) -> Int {
   case currency {
     Crypto(..) -> {
