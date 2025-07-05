@@ -655,7 +655,7 @@ fn theme_controller() {
 
 fn main_content(model: Model) -> Element(Msg) {
   let equal_sign =
-    html.p([attribute.class("text-3xl font-bold")], [element.text("=")])
+    html.p([attribute.class("text-3xl font-semi-bold")], [element.text("=")])
 
   let conversion_input_elem = fn(side) {
     let target_conversion_input = case side {

@@ -31,8 +31,10 @@ pub fn button(text, on_click) -> Element(msg) {
   html.button(
     [
       attribute.class("inline-flex items-center px-3 py-3"),
-      attribute.class("w-full rounded-r-lg border cursor-pointer"),
-      attribute.class("font-light text-4xl text-left"),
+      attribute.class("w-full rounded-r-lg cursor-pointer"),
+      attribute.class(
+        "font-light text-4xl text-left bg-primary text-primary-content",
+      ),
       event.on_click(on_click),
     ],
     [
@@ -87,7 +89,7 @@ fn currency_filter_input(
   html.input([
     attribute.type_("text"),
     attribute.placeholder("Search..."),
-    attribute.class("w-full p-2 border-b focus:outline-none"),
+    attribute.class("w-full p-2 border-b  focus:outline-none caret-info"),
     attribute.value(value),
     event.on_input(on_input),
   ])
@@ -109,7 +111,7 @@ fn option_group(
   let #(title, options) = group
 
   let group_title_div =
-    html.div([attribute.class("px-2 py-1 font-bold text-lg")], [
+    html.div([attribute.class("px-2 py-1 font-semi-bold text-lg")], [
       html.text(title),
     ])
 
@@ -137,6 +139,7 @@ fn option(
     [
       attribute.attribute("data-value", option.value),
       attribute.class("px-6 py-1 cursor-pointer"),
+      attribute.class("hover:bg-primary hover:text-primary-content"),
       event.on_click(on_click(option.value)),
     ],
     [option.display],

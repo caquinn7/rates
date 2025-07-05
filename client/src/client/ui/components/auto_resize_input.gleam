@@ -102,7 +102,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 fn view(model: Model) -> Element(Msg) {
   let input =
     html.input([
-      attribute.class("px-3 py-3 border rounded-l-lg focus:outline-none"),
+      attribute.class(
+        "px-3 py-3 border-2 border-primary rounded-l-lg focus:outline-none",
+      ),
       attribute.class("font-light text-4xl text-center"),
       attribute.id(model.id),
       attribute.style("width", int.to_string(model.width) <> "px"),
