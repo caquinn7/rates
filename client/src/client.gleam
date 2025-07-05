@@ -180,26 +180,6 @@ pub fn format_amount_input(currency, amount) {
 /// while allowing user-friendly behavior like partial decimal input and
 /// comma separators.
 pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model {
-  // Try to parse the raw string into a float.
-  // Allows decimals or comma separators, and gracefully falls back to int parsing.
-  let parse_amount = fn(str) {
-    let to_float = fn(str) {
-      str
-      |> float.parse
-      |> result.lazy_or(fn() {
-        int.parse(str)
-        |> result.map(int.to_float)
-      })
-    }
-
-    case string.ends_with(str, ".") {
-      False -> str
-      True -> string.drop_end(str, 1)
-    }
-    |> string.replace(",", "")
-    |> to_float
-  }
-
   let conversion_inputs = model.conversion.conversion_inputs
 
   let map_failed_parse = fn() {
@@ -246,7 +226,7 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
     })
   }
 
-  let updated_inputs = case parse_amount(raw_amount) {
+  let updated_inputs = case currency_formatting.parse_amount(raw_amount) {
     Error(_) -> map_failed_parse()
     Ok(amount) -> map_successful_parse(amount)
   }

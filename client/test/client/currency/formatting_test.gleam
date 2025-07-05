@@ -7,6 +7,30 @@ const fiat = Fiat(2781, "United States Dollar", "USD", "$")
 
 const crypto = Crypto(1, "Bitcoin", "BTC", Some(1))
 
+pub fn parse_amount_str_when_not_a_number_test() {
+  assert formatting.parse_amount("") == Error(Nil)
+}
+
+pub fn parse_amount_str_when_int_test() {
+  assert formatting.parse_amount("1") == Ok(1.0)
+}
+
+pub fn parse_amount_str_when_float_test() {
+  assert formatting.parse_amount("1.23") == Ok(1.23)
+}
+
+pub fn parse_amount_str_when_ends_with_decimal_test() {
+  assert formatting.parse_amount("1.") == Ok(1.0)
+}
+
+pub fn parse_amount_str_when_starts_with_decimal_test() {
+  assert formatting.parse_amount(".1") == Ok(0.1)
+}
+
+pub fn parse_amount_str_when_has_commas_test() {
+  assert formatting.parse_amount("1,000,000") == Ok(1_000_000.0)
+}
+
 pub fn determine_max_precision_fiat_any_amount_test() {
   fiat
   |> formatting.determine_max_precision(1000.1234)
