@@ -14,7 +14,6 @@ import client/start_data.{type StartData}
 import client/ui/button_dropdown.{DropdownOption}
 import client/ui/components/auto_resize_input
 import gleam/dict
-import gleam/float
 import gleam/int
 import gleam/json
 import gleam/list
