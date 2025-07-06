@@ -13,7 +13,6 @@ import client/socket.{
 import client/start_data.{type StartData}
 import client/ui/button_dropdown.{DropdownOption}
 import client/ui/components/auto_resize_input
-import gleam/dict
 import gleam/int
 import gleam/json
 import gleam/list
@@ -710,23 +709,24 @@ fn currency_selector(
       currency_collection.group(currency_selector.currencies)
 
     currency_groups
-    |> dict.keys
-    |> list.map(fn(key) {
-      let assert Ok(currencies) = dict.get(currency_groups, key)
-      let options =
-        list.map(currencies, fn(currency) {
+    |> list.map(fn(group) {
+      group
+      |> pair.map_first(fn(currency_type) {
+        case currency_type {
+          CryptoCurrency -> "Crypto"
+          FiatCurrency -> "Fiat"
+        }
+      })
+      |> pair.map_second(fn(currencies) {
+        currencies
+        |> list.map(fn(currency) {
           DropdownOption(
             value: int.to_string(currency.id),
             display: html.text(currency.symbol <> " - " <> currency.name),
           )
         })
-      let key_str = case key {
-        CryptoCurrency -> "Crypto"
-        FiatCurrency -> "Fiat"
-      }
-      #(key_str, options)
+      })
     })
-    |> dict.from_list
   }
 
   button_dropdown.view(

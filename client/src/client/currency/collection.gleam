@@ -1,4 +1,4 @@
-import gleam/dict.{type Dict}
+import gleam/dict
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
@@ -12,7 +12,9 @@ pub type CurrencyType {
   FiatCurrency
 }
 
-pub fn group(currencies: List(Currency)) -> Dict(CurrencyType, List(Currency)) {
+pub fn group(
+  currencies: List(Currency),
+) -> List(#(CurrencyType, List(Currency))) {
   currencies
   |> list.group(fn(currency) {
     case currency {
@@ -29,6 +31,14 @@ pub fn group(currencies: List(Currency)) -> Dict(CurrencyType, List(Currency)) {
       }
       order
     })
+  })
+  |> dict.to_list
+  |> list.sort(fn(a, b) {
+    case a.0, b.0 {
+      CryptoCurrency, _ -> order.Lt
+      FiatCurrency, CryptoCurrency -> order.Gt
+      _, _ -> order.Eq
+    }
   })
 }
 

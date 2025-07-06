@@ -1,4 +1,3 @@
-import gleam/dict.{type Dict}
 import gleam/list
 import lustre/attribute
 import lustre/element.{type Element}
@@ -16,7 +15,7 @@ pub fn view(
   btn_text: String,
   show_dropdown: Bool,
   filter: String,
-  options: Dict(String, List(DropdownOption(msg))),
+  options: List(#(String, List(DropdownOption(msg)))),
   on_btn_click: msg,
   on_filter: fn(String) -> msg,
   on_option_click: fn(String) -> msg,
@@ -61,7 +60,7 @@ pub fn button(text, on_click) -> Element(msg) {
 fn dropdown(
   visible: Bool,
   filter: String,
-  options: Dict(String, List(DropdownOption(msg))),
+  options: List(#(String, List(DropdownOption(msg)))),
   on_filter: fn(String) -> msg,
   on_option_click: fn(String) -> msg,
 ) -> Element(msg) {
@@ -96,11 +95,10 @@ fn currency_filter_input(
 }
 
 fn option_groups(
-  groups: Dict(String, List(DropdownOption(msg))),
+  groups: List(#(String, List(DropdownOption(msg)))),
   on_option_click: fn(String) -> msg,
 ) -> List(Element(msg)) {
   groups
-  |> dict.to_list
   |> list.map(option_group(_, on_option_click))
 }
 

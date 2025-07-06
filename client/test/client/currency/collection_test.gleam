@@ -1,7 +1,15 @@
-import client/currency/collection
+import client/currency/collection.{CryptoCurrency, FiatCurrency}
 import gleam/option.{None, Some}
 import gleam/order
 import shared/currency.{Crypto, Fiat}
+
+pub fn group_returns_cryptos_first_test() {
+  let crypto = Crypto(0, "", "", None)
+  let fiat = Fiat(0, "", "", "")
+
+  assert [#(CryptoCurrency, [crypto]), #(FiatCurrency, [fiat])]
+    == collection.group([fiat, crypto])
+}
 
 pub fn sort_cryptos_currency_not_a_crypto_test() {
   let result =
