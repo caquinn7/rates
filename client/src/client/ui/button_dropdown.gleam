@@ -7,7 +7,7 @@ import lustre/element/svg
 import lustre/event
 
 pub type DropdownOption(msg) {
-  DropdownOption(value: String, display: Element(msg))
+  DropdownOption(value: String, display: Element(msg), is_focused: Bool)
 }
 
 pub fn view(
@@ -18,11 +18,19 @@ pub fn view(
   options: List(#(String, List(DropdownOption(msg)))),
   on_btn_click: msg,
   on_filter: fn(String) -> msg,
+  on_keydown_in_dropdown: fn(String) -> msg,
   on_option_click: fn(String) -> msg,
 ) -> Element(msg) {
   html.div([attribute.class("relative"), attribute.id(id)], [
     button(btn_text, on_btn_click),
-    dropdown(show_dropdown, filter, options, on_filter, on_option_click),
+    dropdown(
+      show_dropdown,
+      filter,
+      options,
+      on_filter,
+      on_keydown_in_dropdown,
+      on_option_click,
+    ),
   ])
 }
 
@@ -62,9 +70,11 @@ fn dropdown(
   filter: String,
   options: List(#(String, List(DropdownOption(msg)))),
   on_filter: fn(String) -> msg,
+  on_keydown_in_dropdown: fn(String) -> msg,
   on_option_click: fn(String) -> msg,
 ) -> Element(msg) {
-  let filter_elem = currency_filter_input(filter, on_filter)
+  let filter_elem =
+    currency_filter_input(filter, on_filter, on_keydown_in_dropdown)
   let option_group_elems = option_groups(options, on_option_click)
 
   html.div(
@@ -84,13 +94,15 @@ fn dropdown(
 fn currency_filter_input(
   value: String,
   on_input: fn(String) -> msg,
+  on_keydown_in_dropdown: fn(String) -> msg,
 ) -> Element(msg) {
   html.input([
     attribute.type_("text"),
     attribute.placeholder("Search..."),
-    attribute.class("w-full p-2 border-b  focus:outline-none caret-info"),
+    attribute.class("w-full p-2 border-b focus:outline-none caret-info"),
     attribute.value(value),
     event.on_input(on_input),
+    event.on_keydown(on_keydown_in_dropdown),
   ])
 }
 
@@ -136,8 +148,12 @@ fn option(
   html.div(
     [
       attribute.attribute("data-value", option.value),
-      attribute.class("px-6 py-1 cursor-pointer"),
+      attribute.class("dd-option px-6 py-1 cursor-pointer"),
       attribute.class("hover:bg-primary hover:text-primary-content"),
+      case option.is_focused {
+        False -> attribute.none()
+        True -> attribute.class("bg-primary text-primary-content")
+      },
       event.on_click(on_click(option.value)),
     ],
     [option.display],

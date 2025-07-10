@@ -16,6 +16,10 @@ export function querySelector(query) {
   return new Ok(found);
 }
 
+export function querySelectorAll(query) {
+  return Array.from(document.querySelectorAll(query));
+}
+
 export function getDocumentUrl() {
   return document.URL;
 }
@@ -23,4 +27,3 @@ export function getDocumentUrl() {
 export function addEventListener(type, listener) {
   return document.addEventListener(type, listener);
 }
-

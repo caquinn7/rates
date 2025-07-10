@@ -12,6 +12,13 @@ pub type CurrencyType {
   FiatCurrency
 }
 
+pub fn currency_type_to_string(currency_type: CurrencyType) -> String {
+  case currency_type {
+    CryptoCurrency -> "Crypto"
+    FiatCurrency -> "Fiat"
+  }
+}
+
 pub fn group(
   currencies: List(Currency),
 ) -> List(#(CurrencyType, List(Currency))) {

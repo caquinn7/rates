@@ -432,9 +432,46 @@ pub fn model_with_selected_currency_test() {
     )
 }
 
+pub fn calculate_next_focused_index_arrow_down_from_none_test() {
+  assert Some(0) == client.calculate_next_focused_index(None, "ArrowDown", 1)
+}
+
+pub fn calculate_next_focused_index_arrow_down_wraps_test() {
+  let option_count = 3
+
+  assert Some(0)
+    == client.calculate_next_focused_index(
+      Some(option_count - 1),
+      "ArrowDown",
+      option_count,
+    )
+}
+
+pub fn calculate_next_focused_index_arrow_up_from_none_test() {
+  let option_count = 3
+
+  assert Some(option_count - 1)
+    == client.calculate_next_focused_index(None, "ArrowUp", option_count)
+}
+
+pub fn calculate_next_focused_index_arrow_up_wraps_test() {
+  let option_count = 3
+
+  assert Some(option_count - 1)
+    == client.calculate_next_focused_index(Some(0), "ArrowUp", option_count)
+}
+
+pub fn calculate_next_focused_index_non_arrow_key_ignored_test() {
+  assert Some(0) == client.calculate_next_focused_index(Some(0), "a", 3)
+}
+
+pub fn calculate_next_focused_index_with_no_options_test() {
+  assert None == client.calculate_next_focused_index(Some(0), "ArrowUp", 0)
+}
+
 fn empty_model() {
   let empty_selector =
-    CurrencySelector("", False, "", [], Crypto(0, "", "", None))
+    CurrencySelector("", False, "", [], Crypto(0, "", "", None), None)
 
   let empty_amount_input = AmountInput("", None)
 
