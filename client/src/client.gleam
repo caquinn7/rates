@@ -286,9 +286,15 @@ pub fn model_with_focused_index(
   )
 }
 
+pub type NavKey {
+  ArrowUp
+  ArrowDown
+  Other(String)
+}
+
 pub fn calculate_next_focused_index(
   current_index: Option(Int),
-  key: String,
+  key: NavKey,
   option_count: Int,
 ) -> Option(Int) {
   use <- bool.guard(option_count == 0, None)
@@ -296,14 +302,14 @@ pub fn calculate_next_focused_index(
   current_index
   |> option.map(fn(index) {
     case key {
-      "ArrowDown" -> { index + 1 } % option_count
-      "ArrowUp" -> { index - 1 + option_count } % option_count
+      ArrowDown -> { index + 1 } % option_count
+      ArrowUp -> { index - 1 + option_count } % option_count
       _ -> index
     }
   })
   |> option.or(case key {
-    "ArrowDown" -> Some(0)
-    "ArrowUp" -> Some(option_count - 1)
+    ArrowDown -> Some(0)
+    ArrowUp -> Some(option_count - 1)
     _ -> None
   })
 }
@@ -447,7 +453,7 @@ pub type Msg {
   UserEnteredAmount(Side, String)
   UserClickedCurrencySelector(Side)
   UserFilteredCurrencies(Side, String)
-  UserPressedKeyInCurrencySelector(Side, String)
+  UserPressedKeyInCurrencySelector(Side, NavKey)
   UserSelectedCurrency(Side, Int)
   UserClickedInDocument(browser_event.Event)
 }
@@ -543,7 +549,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
 
     UserPressedKeyInCurrencySelector(side, key) -> {
-      let should_ignore_key = !{ key == "ArrowDown" || key == "ArrowUp" }
+      let should_ignore_key = !{ key == ArrowDown || key == ArrowUp }
       use <- bool.guard(should_ignore_key, #(model, effect.none()))
 
       let model = {
@@ -753,6 +759,16 @@ fn main_content(model: Model) -> Element(Msg) {
       UserSelectedCurrency(side, currency_id)
     }
 
+    let on_keydown_in_dropdown = fn(key_str) {
+      let nav_key = case key_str {
+        "ArrowUp" -> ArrowUp
+        "ArrowDown" -> ArrowDown
+        s -> Other(s)
+      }
+
+      UserPressedKeyInCurrencySelector(side, nav_key)
+    }
+
     conversion_input(
       amount_input(
         "amount-input-" <> side.to_string(side),
@@ -763,7 +779,7 @@ fn main_content(model: Model) -> Element(Msg) {
         target_conversion_input.currency_selector,
         UserClickedCurrencySelector(side),
         UserFilteredCurrencies(side, _),
-        UserPressedKeyInCurrencySelector(side, _),
+        on_keydown_in_dropdown,
         on_currency_selected,
       ),
     )
