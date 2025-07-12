@@ -3,6 +3,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/order.{type Order}
+import gleam/pair
 import gleam/result
 import gleam/string
 import shared/currency.{type Currency, Crypto, Fiat}
@@ -47,6 +48,34 @@ pub fn group(
       _, _ -> order.Eq
     }
   })
+}
+
+pub fn find_flat_index(
+  in currencies: List(#(CurrencyType, List(Currency))),
+  of currency_id: Int,
+) -> Result(Int, Nil) {
+  currencies
+  |> flatten_groups
+  |> list.index_map(fn(currency, idx) { #(currency.id, idx) })
+  |> dict.from_list
+  |> dict.get(currency_id)
+}
+
+pub fn find_by_flat_index(
+  in currencies: List(#(CurrencyType, List(Currency))),
+  at index: Int,
+) -> Result(Currency, Nil) {
+  currencies
+  |> flatten_groups
+  |> list.drop(index)
+  |> list.first
+}
+
+fn flatten_groups(
+  currencies: List(#(CurrencyType, List(Currency))),
+) -> List(Currency) {
+  currencies
+  |> list.flat_map(pair.second)
 }
 
 pub fn sort_cryptos(c1: Currency, c2: Currency) -> Result(Order, Nil) {

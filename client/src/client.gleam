@@ -14,7 +14,6 @@ import client/start_data.{type StartData}
 import client/ui/button_dropdown.{DropdownOption}
 import client/ui/components/auto_resize_input
 import gleam/bool
-import gleam/dict
 import gleam/int
 import gleam/javascript/array
 import gleam/json
@@ -289,6 +288,7 @@ pub fn model_with_focused_index(
 pub type NavKey {
   ArrowUp
   ArrowDown
+  Enter
   Other(String)
 }
 
@@ -312,6 +312,87 @@ pub fn calculate_next_focused_index(
     ArrowUp -> Some(option_count - 1)
     _ -> None
   })
+}
+
+pub fn navigate_currency_selector(
+  model: Model,
+  side: Side,
+  key: NavKey,
+) -> #(Model, Effect(Msg)) {
+  let model = {
+    let currency_selector =
+      map_conversion_input(model, side, fn(input) { input.currency_selector })
+
+    model_with_focused_index(model, side, fn() {
+      calculate_next_focused_index(
+        currency_selector.focused_index,
+        key,
+        list.length(currency_selector.currencies),
+      )
+    })
+  }
+
+  let focused_index =
+    map_conversion_input(model, side, fn(input) {
+      input.currency_selector.focused_index
+    })
+
+  let effect = case focused_index {
+    None -> effect.none()
+
+    Some(index) ->
+      effect.before_paint(fn(_, _) {
+        let currency_selector_id =
+          map_conversion_input(model, side, fn(input) {
+            input.currency_selector.id
+          })
+
+        let option_elems =
+          document.query_selector_all(
+            "#"
+            <> currency_selector_id
+            <> " .options-container"
+            <> " .dd-option",
+          )
+
+        let assert Ok(target_option_elem) = array.get(option_elems, index)
+        let _ = browser_element.scroll_into_view(target_option_elem)
+
+        Nil
+      })
+  }
+
+  #(model, effect)
+}
+
+pub fn select_currency_via_enter_key(
+  model: Model,
+  side: Side,
+) -> #(Model, Effect(Msg)) {
+  let #(focused_index, currencies) =
+    map_conversion_input(model, side, fn(input) {
+      let selector = input.currency_selector
+      #(selector.focused_index, selector.currencies)
+    })
+
+  let model = case focused_index {
+    None -> model
+
+    Some(index) -> {
+      let assert Ok(selected_currency) =
+        currencies
+        |> currency_collection.group
+        |> currency_collection.find_by_flat_index(index)
+
+      model
+      |> model_with_selected_currency(side, selected_currency)
+      |> toggle_currency_selector_dropdown(side)
+    }
+  }
+
+  let effect = try_subscribe_to_rate_updates(model)
+
+  #(model, effect)
 }
 
 /// Updates the currency filter string and filtered currency list for one side.
@@ -549,55 +630,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
 
     UserPressedKeyInCurrencySelector(side, key) -> {
-      let should_ignore_key = !{ key == ArrowDown || key == ArrowUp }
-      use <- bool.guard(should_ignore_key, #(model, effect.none()))
-
-      let model = {
-        let currency_selector =
-          map_conversion_input(model, side, fn(input) {
-            input.currency_selector
-          })
-
-        model_with_focused_index(model, side, fn() {
-          calculate_next_focused_index(
-            currency_selector.focused_index,
-            key,
-            list.length(currency_selector.currencies),
-          )
-        })
+      case key {
+        ArrowDown -> navigate_currency_selector(model, side, key)
+        ArrowUp -> navigate_currency_selector(model, side, key)
+        Enter -> select_currency_via_enter_key(model, side)
+        Other(_) -> #(model, effect.none())
       }
-
-      let focused_index =
-        map_conversion_input(model, side, fn(input) {
-          input.currency_selector.focused_index
-        })
-
-      let effect = case focused_index {
-        None -> effect.none()
-
-        Some(index) ->
-          effect.before_paint(fn(_, _) {
-            let currency_selector_id =
-              map_conversion_input(model, side, fn(input) {
-                input.currency_selector.id
-              })
-
-            let option_elems =
-              document.query_selector_all(
-                "#"
-                <> currency_selector_id
-                <> " .options-container"
-                <> " .dd-option",
-              )
-
-            let assert Ok(target_option_elem) = array.get(option_elems, index)
-            let _ = browser_element.scroll_into_view(target_option_elem)
-
-            Nil
-          })
-      }
-
-      #(model, effect)
     }
 
     UserSelectedCurrency(side, currency_id) -> {
@@ -610,17 +648,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         |> model_with_selected_currency(side, currency)
         |> toggle_currency_selector_dropdown(side)
 
-      let effect = case model.socket {
-        None -> {
-          echo "could not request rate. socket not initialized."
-          effect.none()
-        }
-
-        Some(socket) ->
-          model
-          |> build_rate_request
-          |> subscribe_to_rate_updates(socket, _)
-      }
+      let effect = try_subscribe_to_rate_updates(model)
 
       #(model, effect)
     }
@@ -663,6 +691,20 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       #(model, effect.none())
     }
+  }
+}
+
+fn try_subscribe_to_rate_updates(model: Model) -> Effect(Msg) {
+  case model.socket {
+    None -> {
+      echo "could not request rate. socket not initialized."
+      effect.none()
+    }
+
+    Some(socket) ->
+      model
+      |> build_rate_request
+      |> subscribe_to_rate_updates(socket, _)
   }
 }
 
@@ -763,6 +805,7 @@ fn main_content(model: Model) -> Element(Msg) {
       let nav_key = case key_str {
         "ArrowUp" -> ArrowUp
         "ArrowDown" -> ArrowDown
+        "Enter" -> Enter
         s -> Other(s)
       }
 
@@ -833,14 +876,6 @@ fn currency_selector(
     let currency_groups =
       currency_collection.group(currency_selector.currencies)
 
-    // todo: move to collection.gleam?
-    let currency_id_to_index =
-      currency_groups
-      |> list.map(pair.second)
-      |> list.flatten
-      |> list.index_map(fn(currency, idx) { #(currency.id, idx) })
-      |> dict.from_list
-
     currency_groups
     |> list.map(fn(group) {
       group
@@ -848,7 +883,8 @@ fn currency_selector(
       |> pair.map_second(fn(currencies) {
         currencies
         |> list.map(fn(currency) {
-          let assert Ok(index) = dict.get(currency_id_to_index, currency.id)
+          let assert Ok(index) =
+            currency_collection.find_flat_index(currency_groups, currency.id)
 
           DropdownOption(
             value: int.to_string(currency.id),

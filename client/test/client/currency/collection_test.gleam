@@ -11,6 +11,60 @@ pub fn group_returns_cryptos_first_test() {
     == collection.group([fiat, crypto])
 }
 
+pub fn find_flat_index_test() {
+  let currencies = [
+    Crypto(1, "", "", Some(1)),
+    Fiat(4, "b", "", ""),
+    Fiat(3, "a", "", ""),
+    Crypto(2, "", "", Some(2)),
+  ]
+
+  let result =
+    currencies
+    |> collection.group
+    |> collection.find_flat_index(4)
+
+  assert Ok(3) == result
+}
+
+pub fn find_flat_index_when_currency_id_not_found_test() {
+  let currencies = [Crypto(1, "", "", Some(1)), Fiat(2, "b", "", "")]
+
+  let result =
+    currencies
+    |> collection.group
+    |> collection.find_flat_index(of: 3)
+
+  assert Error(Nil) == result
+}
+
+pub fn find_by_flat_index_test() {
+  let currencies = [
+    Crypto(1, "", "", Some(1)),
+    Fiat(4, "b", "", ""),
+    Fiat(3, "a", "", ""),
+    Crypto(2, "", "", Some(2)),
+  ]
+
+  let result =
+    currencies
+    |> collection.group
+    |> collection.find_by_flat_index(at: 3)
+
+  assert Ok(Fiat(4, "b", "", "")) == result
+}
+
+pub fn find_by_flat_index_when_out_of_bounds_test() {
+  let currencies = [Crypto(1, "", "", Some(1)), Fiat(2, "b", "", "")]
+
+  let result =
+    currencies
+    |> collection.group
+    |> collection.find_by_flat_index(at: 2)
+
+  assert Error(Nil) == result
+}
+
 pub fn sort_cryptos_currency_not_a_crypto_test() {
   let result =
     Crypto(0, "", "", None)
