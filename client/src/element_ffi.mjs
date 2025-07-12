@@ -43,5 +43,5 @@ export function focus(elem) {
 }
 
 export function scrollIntoView(element) {
-  element.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  element.scrollIntoView({ behavior: "instant", block: "center" });
 }
