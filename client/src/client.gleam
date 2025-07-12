@@ -292,6 +292,14 @@ pub type NavKey {
   Other(String)
 }
 
+/// Calculates the next focused index for keyboard navigation in a currency selector dropdown.
+///
+/// Given the current index, a navigation key (`ArrowDown`, `ArrowUp`, etc.), and the number of options,
+/// returns the new focused index according to the following rules:
+/// - If `option_count` is zero, returns `None`.
+/// - If the current index is set, moves up or down (with wrap-around) for arrow keys.
+/// - If the current index is `None`, sets to `0` for `ArrowDown` or to the last index for `ArrowUp`.
+/// - For other keys, returns the current index unchanged.
 pub fn calculate_next_focused_index(
   current_index: Option(Int),
   key: NavKey,
