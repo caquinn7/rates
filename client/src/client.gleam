@@ -66,7 +66,7 @@ pub type CurrencySelector {
     show_dropdown: Bool,
     currency_filter: String,
     currencies: CurrencyCollection,
-    currency: Currency,
+    selected_currency: Currency,
     focused_index: Option(Int),
   )
 }
@@ -141,7 +141,7 @@ pub fn model_with_rate(model: Model, rate: Float) -> Model {
         ConversionInput(
           ..input,
           amount_input: format_amount_input(
-            input.currency_selector.currency,
+            input.currency_selector.selected_currency,
             converted_amount,
           ),
         )
@@ -203,7 +203,7 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
       ConversionInput(
         ..input,
         amount_input: format_amount_input(
-          input.currency_selector.currency,
+          input.currency_selector.selected_currency,
           parsed_amount,
         ),
       )
@@ -220,7 +220,10 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
         ..input,
         amount_input: maybe_converted_amount
           |> option.map(fn(converted) {
-            format_amount_input(input.currency_selector.currency, converted)
+            format_amount_input(
+              input.currency_selector.selected_currency,
+              converted,
+            )
           })
           |> option.unwrap(AmountInput(raw: "", parsed: None)),
       )
@@ -480,7 +483,7 @@ pub fn model_with_selected_currency(
         ..conversion_input,
         currency_selector: CurrencySelector(
           ..conversion_input.currency_selector,
-          currency:,
+          selected_currency: currency,
         ),
       )
     })
@@ -538,7 +541,7 @@ pub fn model_from_start_data(start_data: StartData) {
       show_dropdown: False,
       currency_filter: "",
       currencies:,
-      currency: currency,
+      selected_currency: currency,
       focused_index: None,
     )
   }
@@ -763,8 +766,8 @@ fn subscribe_to_rate_updates(
 fn build_rate_request(model: Model) -> RateRequest {
   let #(left_input, right_input) = model.conversion.conversion_inputs
   RateRequest(
-    left_input.currency_selector.currency.id,
-    right_input.currency_selector.currency.id,
+    left_input.currency_selector.selected_currency.id,
+    right_input.currency_selector.selected_currency.id,
   )
 }
 
@@ -929,7 +932,7 @@ fn currency_selector(
 
   button_dropdown.view(
     currency_selector.id,
-    currency_selector.currency.symbol,
+    currency_selector.selected_currency.symbol,
     currency_selector.show_dropdown,
     currency_selector.currency_filter,
     dropdown_options,

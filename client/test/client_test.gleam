@@ -81,7 +81,7 @@ pub fn model_with_rate_left_side_amount_parsed_test() {
   let result = client.model_with_rate(model, new_rate)
 
   let right_currency =
-    { model.conversion.conversion_inputs.1 }.currency_selector.currency
+    { model.conversion.conversion_inputs.1 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -135,7 +135,7 @@ pub fn model_with_rate_right_side_amount_parsed_test() {
   let result = client.model_with_rate(model, new_rate)
 
   let left_currency =
-    { model.conversion.conversion_inputs.0 }.currency_selector.currency
+    { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -225,9 +225,9 @@ pub fn model_with_amount_parse_success_on_left_side_with_rate_test() {
     |> client.model_with_amount(Left, "3.0")
 
   let left_currency =
-    { model.conversion.conversion_inputs.0 }.currency_selector.currency
+    { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
   let right_currency =
-    { model.conversion.conversion_inputs.1 }.currency_selector.currency
+    { model.conversion.conversion_inputs.1 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -277,9 +277,9 @@ pub fn model_with_amount_parse_success_on_right_side_with_rate_test() {
     |> client.model_with_amount(Right, "6.0")
 
   let left_currency =
-    { model.conversion.conversion_inputs.0 }.currency_selector.currency
+    { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
   let right_currency =
-    { model.conversion.conversion_inputs.1 }.currency_selector.currency
+    { model.conversion.conversion_inputs.1 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -329,7 +329,7 @@ pub fn model_with_amount_parse_success_with_no_rate_test() {
     |> client.model_with_amount(Left, "3.0")
 
   let left_currency =
-    { model.conversion.conversion_inputs.0 }.currency_selector.currency
+    { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -461,7 +461,7 @@ pub fn model_with_selected_currency_test() {
           ..model.conversion.conversion_inputs.0,
           currency_selector: CurrencySelector(
             ..{ model.conversion.conversion_inputs.0 }.currency_selector,
-            currency:,
+            selected_currency: currency,
           ),
         ),
         model.conversion.conversion_inputs.1,
