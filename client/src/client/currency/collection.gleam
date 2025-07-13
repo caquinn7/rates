@@ -149,8 +149,7 @@ pub fn compare_currencies(c1: Currency, c2: Currency) -> Order {
         Some(_), None -> order.Lt
         None, Some(_) -> order.Gt
         Some(r1), Some(r2) if r1 != r2 -> int.compare(r1, r2)
-        Some(_), Some(_) -> string.compare(c1.name, c2.name)
-        None, None -> string.compare(c1.name, c2.name)
+        _, _ -> string.compare(c1.name, c2.name)
       }
     Fiat(..), Fiat(..) ->
       case c1.symbol, c2.symbol {
