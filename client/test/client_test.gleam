@@ -1,9 +1,12 @@
-import client.{AmountInput, Conversion, ConversionInput, CurrencySelector, Model}
+import client.{
+  AmountInput, ArrowDown, ArrowUp, Conversion, ConversionInput, CurrencySelector,
+  Model, Other,
+}
 import client/currency/collection as currency_collection
 import client/side.{Left, Right}
 import gleam/option.{None, Some}
 import gleeunit
-import shared/currency.{Crypto} as _shared_currency
+import shared/currency.{type Currency, Crypto, Fiat} as _shared_currency
 
 pub fn main() {
   gleeunit.main()
@@ -78,7 +81,7 @@ pub fn model_with_rate_left_side_amount_parsed_test() {
   let result = client.model_with_rate(model, new_rate)
 
   let right_currency =
-    { model.conversion.conversion_inputs.1 }.currency_selector.currency
+    { model.conversion.conversion_inputs.1 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -132,7 +135,7 @@ pub fn model_with_rate_right_side_amount_parsed_test() {
   let result = client.model_with_rate(model, new_rate)
 
   let left_currency =
-    { model.conversion.conversion_inputs.0 }.currency_selector.currency
+    { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -222,9 +225,9 @@ pub fn model_with_amount_parse_success_on_left_side_with_rate_test() {
     |> client.model_with_amount(Left, "3.0")
 
   let left_currency =
-    { model.conversion.conversion_inputs.0 }.currency_selector.currency
+    { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
   let right_currency =
-    { model.conversion.conversion_inputs.1 }.currency_selector.currency
+    { model.conversion.conversion_inputs.1 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -274,9 +277,9 @@ pub fn model_with_amount_parse_success_on_right_side_with_rate_test() {
     |> client.model_with_amount(Right, "6.0")
 
   let left_currency =
-    { model.conversion.conversion_inputs.0 }.currency_selector.currency
+    { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
   let right_currency =
-    { model.conversion.conversion_inputs.1 }.currency_selector.currency
+    { model.conversion.conversion_inputs.1 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -326,7 +329,7 @@ pub fn model_with_amount_parse_success_with_no_rate_test() {
     |> client.model_with_amount(Left, "3.0")
 
   let left_currency =
-    { model.conversion.conversion_inputs.0 }.currency_selector.currency
+    { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -376,6 +379,34 @@ pub fn toggle_currency_selector_dropdown_test() {
     )
 }
 
+pub fn currency_matches_filter_when_name_matches_test() {
+  let currency = Crypto(1, "Bitcoin", "BTC", None)
+  assert client.currency_matches_filter(currency, "bit")
+  assert client.currency_matches_filter(currency, "coin")
+}
+
+pub fn currency_matches_filter_when_symbol_matches_test() {
+  let currency = Fiat(2, "US Dollar", "USD", "")
+  assert client.currency_matches_filter(currency, "USD")
+  assert client.currency_matches_filter(currency, "usd")
+  assert client.currency_matches_filter(currency, "us")
+}
+
+pub fn currency_matches_filter_is_case_insensitive_test() {
+  let currency = Crypto(3, "Ethereum", "ETH", None)
+  assert client.currency_matches_filter(currency, "ether")
+  assert client.currency_matches_filter(currency, "ETH")
+  assert client.currency_matches_filter(currency, "Eth")
+  assert client.currency_matches_filter(currency, "eTh")
+}
+
+pub fn currency_matches_filter_when_no_match_test() {
+  let currency = Fiat(4, "Japanese Yen", "JPY", "")
+  assert !client.currency_matches_filter(currency, "usd")
+  assert !client.currency_matches_filter(currency, "bitcoin")
+  assert !client.currency_matches_filter(currency, "euro")
+}
+
 pub fn model_with_currency_filter_test() {
   let model =
     Model(..empty_model(), currencies: [
@@ -383,11 +414,17 @@ pub fn model_with_currency_filter_test() {
       Crypto(2781, "xyz", "xyz", None),
     ])
 
-  let currency_filter = "abc"
+  let expected_currencies = [Crypto(1, "abc", "abc", None)]
+  let filter_fun = fn(currency: Currency, _filter_str) {
+    case currency.id {
+      1 -> True
+      _ -> False
+    }
+  }
 
   let result =
     model
-    |> client.model_with_currency_filter(Left, currency_filter)
+    |> client.model_with_currency_filter(Left, "", filter_fun)
 
   assert result
     == Model(
@@ -397,9 +434,9 @@ pub fn model_with_currency_filter_test() {
           ..model.conversion.conversion_inputs.0,
           currency_selector: CurrencySelector(
             ..{ model.conversion.conversion_inputs.0 }.currency_selector,
-            currency_filter:,
-            currencies: model.currencies
-              |> currency_collection.filter(currency_filter),
+            currency_filter: "",
+            currencies: expected_currencies
+              |> currency_collection.from_list,
           ),
         ),
         model.conversion.conversion_inputs.1,
@@ -424,7 +461,7 @@ pub fn model_with_selected_currency_test() {
           ..model.conversion.conversion_inputs.0,
           currency_selector: CurrencySelector(
             ..{ model.conversion.conversion_inputs.0 }.currency_selector,
-            currency:,
+            selected_currency: currency,
           ),
         ),
         model.conversion.conversion_inputs.1,
@@ -432,9 +469,53 @@ pub fn model_with_selected_currency_test() {
     )
 }
 
+pub fn calculate_next_focused_index_arrow_down_from_none_test() {
+  assert Some(0) == client.calculate_next_focused_index(None, ArrowDown, 1)
+}
+
+pub fn calculate_next_focused_index_arrow_down_wraps_test() {
+  let option_count = 3
+
+  assert Some(0)
+    == client.calculate_next_focused_index(
+      Some(option_count - 1),
+      ArrowDown,
+      option_count,
+    )
+}
+
+pub fn calculate_next_focused_index_arrow_up_from_none_test() {
+  let option_count = 3
+
+  assert Some(option_count - 1)
+    == client.calculate_next_focused_index(None, ArrowUp, option_count)
+}
+
+pub fn calculate_next_focused_index_arrow_up_wraps_test() {
+  let option_count = 3
+
+  assert Some(option_count - 1)
+    == client.calculate_next_focused_index(Some(0), ArrowUp, option_count)
+}
+
+pub fn calculate_next_focused_index_non_arrow_key_ignored_test() {
+  assert Some(0) == client.calculate_next_focused_index(Some(0), Other("a"), 3)
+}
+
+pub fn calculate_next_focused_index_with_no_options_test() {
+  assert None == client.calculate_next_focused_index(Some(0), ArrowUp, 0)
+}
+
 fn empty_model() {
   let empty_selector =
-    CurrencySelector("", False, "", [], Crypto(0, "", "", None))
+    CurrencySelector(
+      "",
+      False,
+      "",
+      currency_collection.from_list([]),
+      Crypto(0, "", "", None),
+      None,
+    )
 
   let empty_amount_input = AmountInput("", None)
 

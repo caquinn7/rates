@@ -1,7 +1,7 @@
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/event as browser_event
-import client/currency/collection.{CryptoCurrency, FiatCurrency} as currency_collection
+import client/currency/collection.{type CurrencyCollection} as currency_collection
 import client/currency/formatting as currency_formatting
 import client/rates/rate_request
 import client/rates/rate_response
@@ -13,8 +13,9 @@ import client/socket.{
 import client/start_data.{type StartData}
 import client/ui/button_dropdown.{DropdownOption}
 import client/ui/components/auto_resize_input
-import gleam/dict
+import gleam/bool
 import gleam/int
+import gleam/javascript/array
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -64,8 +65,9 @@ pub type CurrencySelector {
     id: String,
     show_dropdown: Bool,
     currency_filter: String,
-    currencies: List(Currency),
-    currency: Currency,
+    currencies: CurrencyCollection,
+    selected_currency: Currency,
+    focused_index: Option(Int),
   )
 }
 
@@ -139,7 +141,7 @@ pub fn model_with_rate(model: Model, rate: Float) -> Model {
         ConversionInput(
           ..input,
           amount_input: format_amount_input(
-            input.currency_selector.currency,
+            input.currency_selector.selected_currency,
             converted_amount,
           ),
         )
@@ -201,7 +203,7 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
       ConversionInput(
         ..input,
         amount_input: format_amount_input(
-          input.currency_selector.currency,
+          input.currency_selector.selected_currency,
           parsed_amount,
         ),
       )
@@ -218,7 +220,10 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
         ..input,
         amount_input: maybe_converted_amount
           |> option.map(fn(converted) {
-            format_amount_input(input.currency_selector.currency, converted)
+            format_amount_input(
+              input.currency_selector.selected_currency,
+              converted,
+            )
           })
           |> option.unwrap(AmountInput(raw: "", parsed: None)),
       )
@@ -257,23 +262,192 @@ pub fn toggle_currency_selector_dropdown(model: Model, side: Side) -> Model {
   Model(..model, conversion: Conversion(..model.conversion, conversion_inputs:))
 }
 
-/// Updates the currency filter string and filtered currency list for one side.
+pub fn model_with_focused_index(
+  model: Model,
+  side: Side,
+  get_next_index: fn() -> Option(Int),
+) {
+  let conversion_inputs =
+    model.conversion.conversion_inputs
+    |> map_conversion_inputs(side, fn(input) {
+      ConversionInput(
+        ..input,
+        currency_selector: CurrencySelector(
+          ..input.currency_selector,
+          focused_index: get_next_index(),
+        ),
+      )
+    })
+
+  Model(
+    ..model,
+    conversion: Conversion(
+      ..model.conversion,
+      conversion_inputs: conversion_inputs,
+    ),
+  )
+}
+
+pub type NavKey {
+  ArrowUp
+  ArrowDown
+  Enter
+  Other(String)
+}
+
+/// Calculates the next focused index for keyboard navigation in a currency selector dropdown.
 ///
-/// Applies `filter_str` to the full list of available currencies and updates the
-/// `currency_selector` on the specified `side` with:
-/// - The new filter string
-/// - The filtered list of matching currencies
+/// Given the current index, a navigation key (`ArrowDown`, `ArrowUp`, etc.), and the number of options,
+/// returns the new focused index according to the following rules:
+/// - If `option_count` is zero, returns `None`.
+/// - If the current index is set, moves up or down (with wrap-around) for arrow keys.
+/// - If the current index is `None`, sets to `0` for `ArrowDown` or to the last index for `ArrowUp`.
+/// - For other keys, returns the current index unchanged.
+pub fn calculate_next_focused_index(
+  current_index: Option(Int),
+  key: NavKey,
+  option_count: Int,
+) -> Option(Int) {
+  use <- bool.guard(option_count == 0, None)
+
+  current_index
+  |> option.map(fn(index) {
+    case key {
+      ArrowDown -> { index + 1 } % option_count
+      ArrowUp -> { index - 1 + option_count } % option_count
+      _ -> index
+    }
+  })
+  |> option.or(case key {
+    ArrowDown -> Some(0)
+    ArrowUp -> Some(option_count - 1)
+    _ -> None
+  })
+}
+
+pub fn navigate_currency_selector(
+  model: Model,
+  side: Side,
+  key: NavKey,
+) -> #(Model, Effect(Msg)) {
+  let model = {
+    let currency_selector =
+      map_conversion_input(model, side, fn(input) { input.currency_selector })
+
+    model_with_focused_index(model, side, fn() {
+      calculate_next_focused_index(
+        currency_selector.focused_index,
+        key,
+        currency_collection.length(currency_selector.currencies),
+      )
+    })
+  }
+
+  let focused_index =
+    map_conversion_input(model, side, fn(input) {
+      input.currency_selector.focused_index
+    })
+
+  let effect = case focused_index {
+    None -> effect.none()
+
+    Some(index) ->
+      effect.before_paint(fn(_, _) {
+        let currency_selector_id =
+          map_conversion_input(model, side, fn(input) {
+            input.currency_selector.id
+          })
+
+        let option_elems =
+          document.query_selector_all(
+            "#"
+            <> currency_selector_id
+            <> " .options-container"
+            <> " .dd-option",
+          )
+
+        let assert Ok(target_option_elem) = array.get(option_elems, index)
+        let _ = browser_element.scroll_into_view(target_option_elem)
+
+        Nil
+      })
+  }
+
+  #(model, effect)
+}
+
+pub fn select_currency_via_enter_key(
+  model: Model,
+  side: Side,
+) -> #(Model, Effect(Msg)) {
+  let #(focused_index, currencies) =
+    map_conversion_input(model, side, fn(input) {
+      let selector = input.currency_selector
+      #(selector.focused_index, selector.currencies)
+    })
+
+  let model = case focused_index {
+    None -> model
+
+    Some(index) -> {
+      let assert Ok(selected_currency) =
+        currencies
+        |> currency_collection.at_index(index)
+
+      model
+      |> model_with_selected_currency(side, selected_currency)
+      |> toggle_currency_selector_dropdown(side)
+    }
+  }
+
+  let effect = try_subscribe_to_rate_updates(model)
+
+  #(model, effect)
+}
+
+/// Checks if the given currency matches the provided filter string.
+/// The match is case-insensitive and is performed against both the currency's name and symbol.
+/// Returns `True` if either the name or symbol contains the filter string, otherwise returns `False`.
 ///
-/// This function is called in response to user input in the currency
-/// search field, allowing the dropdown to dynamically narrow results.
+/// # Arguments
+/// - `currency`: The currency to check.
+/// - `filter_str`: The filter string to match against the currency's name and symbol.
+///
+/// # Example
+/// ```gleam
+/// let usd = Fiat(id: 2781, name: "US Dollar", symbol: "USD", sign: "$")
+/// currency_matches_filter(usd, "usd") // Returns: True
+/// currency_matches_filter(usd, "dollar") // Returns: True
+/// currency_matches_filter(usd, "eur") // Returns: False
+/// ```
+pub fn currency_matches_filter(currency: Currency, filter_str: String) -> Bool {
+  let is_match = fn(str) {
+    str
+    |> string.lowercase
+    |> string.contains(string.lowercase(filter_str))
+  }
+
+  is_match(currency.name) || is_match(currency.symbol)
+}
+
+/// Updates the given `model` by applying a currency filter to its currencies and conversion inputs.
+/// 
+/// - `model`: The current `Model` to update.
+/// - `side`: The `Side` to use for conversion input mapping.
+/// - `filter_str`: The string used to filter currencies.
+/// - `match_fun`: A function that determines if a `Currency` matches the filter string.
+/// 
+/// Returns a new `Model` with filtered currencies and updated conversion inputs reflecting the filter.
 pub fn model_with_currency_filter(
   model: Model,
   side: Side,
   filter_str: String,
+  currency_matches: fn(Currency, String) -> Bool,
 ) -> Model {
   let currencies =
     model.currencies
-    |> currency_collection.filter(filter_str)
+    |> list.filter(currency_matches(_, filter_str))
+    |> currency_collection.from_list
 
   let conversion_inputs =
     model.conversion.conversion_inputs
@@ -309,7 +483,7 @@ pub fn model_with_selected_currency(
         ..conversion_input,
         currency_selector: CurrencySelector(
           ..conversion_input.currency_selector,
-          currency:,
+          selected_currency: currency,
         ),
       )
     })
@@ -357,13 +531,18 @@ pub fn model_from_start_data(start_data: StartData) {
     start_data.currencies
     |> list.find(fn(c) { c.id == to })
 
+  let currencies =
+    start_data.currencies
+    |> currency_collection.from_list
+
   let make_selector = fn(side: Side, currency: Currency) {
     CurrencySelector(
       id: "currency-selector-" <> side.to_string(side),
       show_dropdown: False,
       currency_filter: "",
-      currencies: start_data.currencies,
-      currency: currency,
+      currencies:,
+      selected_currency: currency,
+      focused_index: None,
     )
   }
 
@@ -395,6 +574,7 @@ pub type Msg {
   UserEnteredAmount(Side, String)
   UserClickedCurrencySelector(Side)
   UserFilteredCurrencies(Side, String)
+  UserPressedKeyInCurrencySelector(Side, NavKey)
   UserSelectedCurrency(Side, Int)
   UserClickedInDocument(browser_event.Event)
 }
@@ -451,7 +631,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserClickedCurrencySelector(side) -> {
       let model =
         model
-        |> model_with_currency_filter(side, "")
+        |> model_with_currency_filter(side, "", currency_matches_filter)
+        |> model_with_focused_index(side, fn() { None })
         |> toggle_currency_selector_dropdown(side)
 
       let effect = {
@@ -484,9 +665,23 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     UserFilteredCurrencies(side, filter_str) -> #(
-      model_with_currency_filter(model, side, filter_str),
+      model_with_currency_filter(
+        model,
+        side,
+        filter_str,
+        currency_matches_filter,
+      ),
       effect.none(),
     )
+
+    UserPressedKeyInCurrencySelector(side, key) -> {
+      case key {
+        ArrowDown -> navigate_currency_selector(model, side, key)
+        ArrowUp -> navigate_currency_selector(model, side, key)
+        Enter -> select_currency_via_enter_key(model, side)
+        Other(_) -> #(model, effect.none())
+      }
+    }
 
     UserSelectedCurrency(side, currency_id) -> {
       let assert Ok(currency) =
@@ -498,17 +693,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         |> model_with_selected_currency(side, currency)
         |> toggle_currency_selector_dropdown(side)
 
-      let effect = case model.socket {
-        None -> {
-          echo "could not request rate. socket not initialized."
-          effect.none()
-        }
-
-        Some(socket) ->
-          model
-          |> build_rate_request
-          |> subscribe_to_rate_updates(socket, _)
-      }
+      let effect = try_subscribe_to_rate_updates(model)
 
       #(model, effect)
     }
@@ -554,6 +739,20 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
+fn try_subscribe_to_rate_updates(model: Model) -> Effect(Msg) {
+  case model.socket {
+    None -> {
+      echo "could not request rate. socket not initialized."
+      effect.none()
+    }
+
+    Some(socket) ->
+      model
+      |> build_rate_request
+      |> subscribe_to_rate_updates(socket, _)
+  }
+}
+
 fn subscribe_to_rate_updates(
   socket: WebSocket,
   rate_request: RateRequest,
@@ -567,8 +766,8 @@ fn subscribe_to_rate_updates(
 fn build_rate_request(model: Model) -> RateRequest {
   let #(left_input, right_input) = model.conversion.conversion_inputs
   RateRequest(
-    left_input.currency_selector.currency.id,
-    right_input.currency_selector.currency.id,
+    left_input.currency_selector.selected_currency.id,
+    right_input.currency_selector.selected_currency.id,
   )
 }
 
@@ -647,6 +846,17 @@ fn main_content(model: Model) -> Element(Msg) {
       UserSelectedCurrency(side, currency_id)
     }
 
+    let on_keydown_in_dropdown = fn(key_str) {
+      let nav_key = case key_str {
+        "ArrowUp" -> ArrowUp
+        "ArrowDown" -> ArrowDown
+        "Enter" -> Enter
+        s -> Other(s)
+      }
+
+      UserPressedKeyInCurrencySelector(side, nav_key)
+    }
+
     conversion_input(
       amount_input(
         "amount-input-" <> side.to_string(side),
@@ -657,6 +867,7 @@ fn main_content(model: Model) -> Element(Msg) {
         target_conversion_input.currency_selector,
         UserClickedCurrencySelector(side),
         UserFilteredCurrencies(side, _),
+        on_keydown_in_dropdown,
         on_currency_selected,
       ),
     )
@@ -703,40 +914,31 @@ fn currency_selector(
   currency_selector: CurrencySelector,
   on_btn_click: Msg,
   on_filter: fn(String) -> Msg,
+  on_keydown_in_dropdown: fn(String) -> Msg,
   on_select: fn(String) -> Msg,
 ) -> Element(Msg) {
-  let dropdown_options = {
-    let currency_groups =
-      currency_collection.group(currency_selector.currencies)
-
-    currency_groups
-    |> dict.keys
-    |> list.map(fn(key) {
-      let assert Ok(currencies) = dict.get(currency_groups, key)
-      let options =
-        list.map(currencies, fn(currency) {
-          DropdownOption(
-            value: int.to_string(currency.id),
-            display: html.text(currency.symbol <> " - " <> currency.name),
-          )
-        })
-      let key_str = case key {
-        CryptoCurrency -> "Crypto"
-        FiatCurrency -> "Fiat"
-      }
-      #(key_str, options)
-    })
-    |> dict.from_list
-  }
+  let dropdown_options =
+    currency_selector.currencies
+    |> currency_collection.index_map(
+      currency_collection.currency_type_to_string,
+      fn(currency, index) {
+        DropdownOption(
+          value: int.to_string(currency.id),
+          display: html.text(currency.symbol <> " - " <> currency.name),
+          is_focused: Some(index) == currency_selector.focused_index,
+        )
+      },
+    )
 
   button_dropdown.view(
     currency_selector.id,
-    currency_selector.currency.symbol,
+    currency_selector.selected_currency.symbol,
     currency_selector.show_dropdown,
     currency_selector.currency_filter,
     dropdown_options,
     on_btn_click,
     on_filter,
+    on_keydown_in_dropdown,
     on_select,
   )
 }

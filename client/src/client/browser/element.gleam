@@ -45,3 +45,6 @@ pub fn offset_width(element: Element) -> Int
 
 @external(javascript, "../../element_ffi.mjs", "focus")
 pub fn focus(element: Element) -> Nil
+
+@external(javascript, "../../element_ffi.mjs", "scrollIntoView")
+pub fn scroll_into_view(element: Element) -> Nil

@@ -41,3 +41,7 @@ export function offsetWidth(elem) {
 export function focus(elem) {
   elem.focus();
 }
+
+export function scrollIntoView(element) {
+  element.scrollIntoView({ behavior: "instant", block: "center" });
+}
