@@ -1,7 +1,7 @@
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/event as browser_event
-import client/currency/collection as currency_collection
+import client/currency/collection.{type CurrencyCollection} as currency_collection
 import client/currency/formatting as currency_formatting
 import client/rates/rate_request
 import client/rates/rate_response
@@ -65,7 +65,7 @@ pub type CurrencySelector {
     id: String,
     show_dropdown: Bool,
     currency_filter: String,
-    currencies: List(Currency),
+    currencies: CurrencyCollection,
     currency: Currency,
     focused_index: Option(Int),
   )
@@ -335,7 +335,7 @@ pub fn navigate_currency_selector(
       calculate_next_focused_index(
         currency_selector.focused_index,
         key,
-        list.length(currency_selector.currencies),
+        currency_collection.length(currency_selector.currencies),
       )
     })
   }
@@ -389,8 +389,7 @@ pub fn select_currency_via_enter_key(
     Some(index) -> {
       let assert Ok(selected_currency) =
         currencies
-        |> currency_collection.group
-        |> currency_collection.find_by_flat_index(index)
+        |> currency_collection.at_index(index)
 
       model
       |> model_with_selected_currency(side, selected_currency)
@@ -403,23 +402,49 @@ pub fn select_currency_via_enter_key(
   #(model, effect)
 }
 
-/// Updates the currency filter string and filtered currency list for one side.
+/// Checks if the given currency matches the provided filter string.
+/// The match is case-insensitive and is performed against both the currency's name and symbol.
+/// Returns `True` if either the name or symbol contains the filter string, otherwise returns `False`.
 ///
-/// Applies `filter_str` to the full list of available currencies and updates the
-/// `currency_selector` on the specified `side` with:
-/// - The new filter string
-/// - The filtered list of matching currencies
+/// # Arguments
+/// - `currency`: The currency to check.
+/// - `filter_str`: The filter string to match against the currency's name and symbol.
 ///
-/// This function is called in response to user input in the currency
-/// search field, allowing the dropdown to dynamically narrow results.
+/// # Example
+/// ```gleam
+/// let usd = Fiat(id: 2781, name: "US Dollar", symbol: "USD", sign: "$")
+/// currency_matches_filter(usd, "usd") // Returns: True
+/// currency_matches_filter(usd, "dollar") // Returns: True
+/// currency_matches_filter(usd, "eur") // Returns: False
+/// ```
+pub fn currency_matches_filter(currency: Currency, filter_str: String) -> Bool {
+  let is_match = fn(str) {
+    str
+    |> string.lowercase
+    |> string.contains(string.lowercase(filter_str))
+  }
+
+  is_match(currency.name) || is_match(currency.symbol)
+}
+
+/// Updates the given `model` by applying a currency filter to its currencies and conversion inputs.
+/// 
+/// - `model`: The current `Model` to update.
+/// - `side`: The `Side` to use for conversion input mapping.
+/// - `filter_str`: The string used to filter currencies.
+/// - `match_fun`: A function that determines if a `Currency` matches the filter string.
+/// 
+/// Returns a new `Model` with filtered currencies and updated conversion inputs reflecting the filter.
 pub fn model_with_currency_filter(
   model: Model,
   side: Side,
   filter_str: String,
+  currency_matches: fn(Currency, String) -> Bool,
 ) -> Model {
   let currencies =
     model.currencies
-    |> currency_collection.filter(filter_str)
+    |> list.filter(currency_matches(_, filter_str))
+    |> currency_collection.from_list
 
   let conversion_inputs =
     model.conversion.conversion_inputs
@@ -503,12 +528,16 @@ pub fn model_from_start_data(start_data: StartData) {
     start_data.currencies
     |> list.find(fn(c) { c.id == to })
 
+  let currencies =
+    start_data.currencies
+    |> currency_collection.from_list
+
   let make_selector = fn(side: Side, currency: Currency) {
     CurrencySelector(
       id: "currency-selector-" <> side.to_string(side),
       show_dropdown: False,
       currency_filter: "",
-      currencies: start_data.currencies,
+      currencies:,
       currency: currency,
       focused_index: None,
     )
@@ -599,7 +628,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserClickedCurrencySelector(side) -> {
       let model =
         model
-        |> model_with_currency_filter(side, "")
+        |> model_with_currency_filter(side, "", currency_matches_filter)
         |> model_with_focused_index(side, fn() { None })
         |> toggle_currency_selector_dropdown(side)
 
@@ -633,7 +662,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     UserFilteredCurrencies(side, filter_str) -> #(
-      model_with_currency_filter(model, side, filter_str),
+      model_with_currency_filter(
+        model,
+        side,
+        filter_str,
+        currency_matches_filter,
+      ),
       effect.none(),
     )
 
@@ -880,29 +914,18 @@ fn currency_selector(
   on_keydown_in_dropdown: fn(String) -> Msg,
   on_select: fn(String) -> Msg,
 ) -> Element(Msg) {
-  let dropdown_options = {
-    let currency_groups =
-      currency_collection.group(currency_selector.currencies)
-
-    currency_groups
-    |> list.map(fn(group) {
-      group
-      |> pair.map_first(currency_collection.currency_type_to_string)
-      |> pair.map_second(fn(currencies) {
-        currencies
-        |> list.map(fn(currency) {
-          let assert Ok(index) =
-            currency_collection.find_flat_index(currency_groups, currency.id)
-
-          DropdownOption(
-            value: int.to_string(currency.id),
-            display: html.text(currency.symbol <> " - " <> currency.name),
-            is_focused: Some(index) == currency_selector.focused_index,
-          )
-        })
-      })
-    })
-  }
+  let dropdown_options =
+    currency_selector.currencies
+    |> currency_collection.index_map(
+      currency_collection.currency_type_to_string,
+      fn(currency, index) {
+        DropdownOption(
+          value: int.to_string(currency.id),
+          display: html.text(currency.symbol <> " - " <> currency.name),
+          is_focused: Some(index) == currency_selector.focused_index,
+        )
+      },
+    )
 
   button_dropdown.view(
     currency_selector.id,

@@ -4,9 +4,12 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/order.{type Order}
 import gleam/pair
-import gleam/result
 import gleam/string
 import shared/currency.{type Currency, Crypto, Fiat}
+
+pub opaque type CurrencyCollection {
+  CurrencyCollection(List(#(CurrencyType, List(Currency))))
+}
 
 pub type CurrencyType {
   CryptoCurrency
@@ -20,148 +23,141 @@ pub fn currency_type_to_string(currency_type: CurrencyType) -> String {
   }
 }
 
-/// Groups a list of `Currency` values by their type (`CryptoCurrency` or `FiatCurrency`),
-/// sorts each group using the appropriate sorting function (`sort_cryptos` for crypto, `sort_fiats` for fiat),
-/// and returns a sorted list of tuples containing the currency type and the sorted list of currencies.
-/// The resulting list is ordered with `CryptoCurrency` first, followed by `FiatCurrency`.
-pub fn group(
-  currencies: List(Currency),
-) -> List(#(CurrencyType, List(Currency))) {
-  currencies
-  |> list.group(fn(currency) {
-    case currency {
-      Crypto(..) -> CryptoCurrency
-      Fiat(..) -> FiatCurrency
-    }
-  })
-  |> dict.map_values(fn(currency_type, currencies) {
+/// Builds a `CurrencyCollection` from a flat list of currencies.
+///
+/// The currencies are:
+/// - Sorted by type (`Crypto(..)` before `Fiat(..)`)
+/// - Sorted within each type using `compare_currencies`
+///
+/// Returns a grouped and sorted `CurrencyCollection`.
+pub fn from_list(currencies: List(Currency)) -> CurrencyCollection {
+  let #(cryptos, fiats) =
     currencies
-    |> list.sort(fn(c1, c2) {
-      let assert Ok(order) = case currency_type {
-        CryptoCurrency -> sort_cryptos(c1, c2)
-        FiatCurrency -> sort_fiats(c1, c2)
+    |> list.sort(compare_currencies)
+    |> list.split_while(fn(currency) {
+      case currency {
+        Crypto(..) -> True
+        Fiat(..) -> False
       }
-      order
     })
-  })
-  |> dict.to_list
-  |> list.sort(fn(a, b) {
-    case a.0, b.0 {
-      CryptoCurrency, _ -> order.Lt
-      FiatCurrency, CryptoCurrency -> order.Gt
-      _, _ -> order.Eq
-    }
-  })
+
+  [#(CryptoCurrency, cryptos), #(FiatCurrency, fiats)]
+  |> CurrencyCollection
 }
 
-/// Finds the flat index of a currency by its ID within a grouped currency list.
-///
-/// Given a list of currency groups (as returned by `group`), this function flattens all groups into a single list,
-/// then searches for the currency with the specified `currency_id`.
-/// Returns `Ok(index)` if found, where `index` is the position in the flattened list,
-/// or `Error(Nil)` if the currency is not present.
-///
-/// This is useful for mapping a currency id to its position in a UI or for navigation purposes.
-pub fn find_flat_index(
-  in currencies: List(#(CurrencyType, List(Currency))),
-  of currency_id: Int,
-) -> Result(Int, Nil) {
+pub fn to_list(
+  collection: CurrencyCollection,
+) -> List(#(CurrencyType, List(Currency))) {
+  let CurrencyCollection(currencies) = collection
   currencies
-  |> flatten_groups
+}
+
+/// Finds the flat index of a currency by id within a `CurrencyCollection`.
+///
+/// Returns:
+/// - `Ok(index)` if the currency is found
+/// - `Error(Nil)` if it is not present
+///
+/// The index is relative to the flattened view of the collection.
+pub fn index_of(
+  collection: CurrencyCollection,
+  currency_id: Int,
+) -> Result(Int, Nil) {
+  collection
+  |> flatten
   |> list.index_map(fn(currency, idx) { #(currency.id, idx) })
   |> dict.from_list
   |> dict.get(currency_id)
 }
 
-/// Finds a currency by its flat index within a grouped currency list.
+/// Returns the currency at the given flat index within a `CurrencyCollection`.
 ///
-/// Given a list of currency groups (as returned by `group`), this function flattens all groups into a single list,
-/// then returns the currency at the specified `index` in the flattened list.
-/// Returns `Ok(currency)` if found, or `Error(Nil)` if the index is out of bounds.
-///
-/// This is useful for retrieving a currency by its position in a UI or for keyboard navigation.
-pub fn find_by_flat_index(
-  in currencies: List(#(CurrencyType, List(Currency))),
-  at index: Int,
+/// Returns:
+/// - `Ok(currency)` if the index is within bounds
+/// - `Error(Nil)` if the index is out of range
+pub fn at_index(
+  collection: CurrencyCollection,
+  index: Int,
 ) -> Result(Currency, Nil) {
-  currencies
-  |> flatten_groups
+  collection
+  |> flatten
   |> list.drop(index)
   |> list.first
 }
 
-fn flatten_groups(
-  currencies: List(#(CurrencyType, List(Currency))),
-) -> List(Currency) {
+/// Flattens a `CurrencyCollection` into a single list of currencies, preserving order.
+pub fn flatten(collection: CurrencyCollection) -> List(Currency) {
+  let CurrencyCollection(currencies) = collection
+  list.flat_map(currencies, pair.second)
+}
+
+/// Returns the total number of currencies in a `CurrencyCollection`.
+pub fn length(collection: CurrencyCollection) -> Int {
+  let CurrencyCollection(currencies) = collection
+
   currencies
-  |> list.flat_map(pair.second)
+  |> list.map(fn(group) { list.length(group.1) })
+  |> int.sum
 }
 
-/// Compares two crypto currencies for sorting.
+/// Maps over each currency in the `CurrencyCollection`, passing both its flat index
+/// and its group type. Returns a grouped result with the original structure preserved.
 ///
-/// - If only one currency has a rank, the ranked currency comes first.
-/// - If both or neither have a rank, sorts by rank (ascending) or by name (alphabetically) if no rank is present.
-/// Returns `Ok(Order)` for valid comparisons, or `Error(Nil)` if either input is not a crypto currency.
-pub fn sort_cryptos(c1: Currency, c2: Currency) -> Result(Order, Nil) {
-  let get_rank = fn(c) {
-    case c {
-      Crypto(_, _, _, rank) -> Ok(rank)
-      _ -> Error(Nil)
-    }
-  }
+/// - `map_type` transforms the group tag (e.g., `CryptoCurrency` → `"Crypto"`)
+/// - `map_currency` transforms each currency with its flat index
+pub fn index_map(
+  collection: CurrencyCollection,
+  map_type: fn(CurrencyType) -> a,
+  map_currency: fn(Currency, Int) -> b,
+) -> List(#(a, List(b))) {
+  let CurrencyCollection(groups) = collection
 
-  use c1_rank <- result.try(get_rank(c1))
-  use c2_rank <- result.try(get_rank(c2))
+  groups
+  |> list.fold(#([], 0), fn(acc, item) {
+    let #(grouped_results, flat_index) = acc
+    let #(currency_type, currencies) = item
 
-  case c1_rank, c2_rank {
-    Some(_), None -> order.Lt
-    None, Some(_) -> order.Gt
-    None, None -> string.compare(c1.name, c2.name)
-    Some(r1), Some(r2) -> int.compare(r1, r2)
-  }
-  |> Ok
-}
+    let mapped_type = map_type(currency_type)
 
-/// Compares two fiat currencies for sorting.
-///
-/// - "USD" is always sorted first among fiats.
-/// - If neither is "USD", sorts alphabetically by name.
-/// Returns `Ok(Order)` for valid comparisons, or `Error(Nil)` if either input is not a fiat currency.
-pub fn sort_fiats(c1: Currency, c2: Currency) -> Result(Order, Nil) {
-  let is_fiat = fn(c) {
-    case c {
-      Fiat(..) -> Ok(c)
-      _ -> Error(Nil)
-    }
-  }
+    let mapped_currencies =
+      list.index_map(currencies, fn(currency, local_index) {
+        map_currency(currency, flat_index + local_index)
+      })
 
-  use c1 <- result.try(is_fiat(c1))
-  use c2 <- result.try(is_fiat(c2))
+    let next_results =
+      list.append(grouped_results, [#(mapped_type, mapped_currencies)])
 
-  case c1.symbol, c2.symbol {
-    "USD", "USD" -> order.Eq
-    "USD", _ -> order.Lt
-    _, "USD" -> order.Gt
-    _, _ -> string.compare(c1.name, c2.name)
-  }
-  |> Ok
-}
+    let next_flat_index = flat_index + list.length(currencies)
 
-/// Filters a list of currencies by a search string.
-///
-/// Returns all currencies whose name or symbol contains the given `filter_str` (case-insensitive).
-pub fn filter(
-  currency_list: List(Currency),
-  filter_str: String,
-) -> List(Currency) {
-  let is_match = fn(str) {
-    str
-    |> string.lowercase
-    |> string.contains(string.lowercase(filter_str))
-  }
-
-  currency_list
-  |> list.filter(fn(currency) {
-    is_match(currency.name) || is_match(currency.symbol)
+    #(next_results, next_flat_index)
   })
+  |> pair.first
+}
+
+/// Compares two currencies for sorting purposes.
+///
+/// Sorting rules:
+/// - All cryptos come before all fiats
+/// - Cryptos are sorted by rank (ascending), then by name
+/// - Fiats are sorted with `"USD"` first, then by name
+pub fn compare_currencies(c1: Currency, c2: Currency) -> Order {
+  case c1, c2 {
+    Crypto(..), Fiat(..) -> order.Lt
+    Fiat(..), Crypto(..) -> order.Gt
+    Crypto(..), Crypto(..) ->
+      case c1.rank, c2.rank {
+        Some(_), None -> order.Lt
+        None, Some(_) -> order.Gt
+        Some(r1), Some(r2) if r1 != r2 -> int.compare(r1, r2)
+        Some(_), Some(_) -> string.compare(c1.name, c2.name)
+        None, None -> string.compare(c1.name, c2.name)
+      }
+    Fiat(..), Fiat(..) ->
+      case c1.symbol, c2.symbol {
+        "USD", "USD" -> order.Eq
+        "USD", _ -> order.Lt
+        _, "USD" -> order.Gt
+        _, _ -> string.compare(c1.name, c2.name)
+      }
+  }
 }
