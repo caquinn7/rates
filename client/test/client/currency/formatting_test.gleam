@@ -45,8 +45,9 @@ pub fn format_amount_str_crypto_above_one_test() {
 //   |> should.equal("0.00000009")
 // }
 
-pub fn format_amount_str_crypto_zero_amount_returns_zero_test() {
-  assert "0" == formatting.format_amount_str(crypto, 0.0)
+pub fn format_amount_str_does_not_omit_fractional_part_if_amount_is_zero_test() {
+  assert "0.0" == formatting.format_amount_str(fiat, 0.0)
+  assert "0.0" == formatting.format_amount_str(crypto, 0.0)
 }
 
 pub fn format_amount_str_negative_amounts_treated_as_positive_test() {

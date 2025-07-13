@@ -82,9 +82,9 @@ pub fn format_amount_str(currency: Currency, amount: Float) -> String {
     |> string.length
     == 0
 
-  case frac_str_all_zeroes {
-    False -> int_str <> "." <> frac_str
+  case frac_str_all_zeroes && amount >. 0.0 {
     True -> int_str
+    False -> int_str <> "." <> frac_str
   }
 }
 

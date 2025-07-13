@@ -185,7 +185,8 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
 
   let map_failed_parse = fn() {
     // Set the raw string on the edited side, clear the parsed value
-    map_conversion_inputs(conversion_inputs, side, fn(input) {
+    conversion_inputs
+    |> map_conversion_inputs(side, fn(input) {
       ConversionInput(
         ..input,
         amount_input: AmountInput(raw: raw_amount, parsed: None),
@@ -199,7 +200,8 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
 
   let map_successful_parse = fn(parsed_amount) {
     // Update the side the user edited with the parsed and formatted value
-    map_conversion_inputs(conversion_inputs, side, fn(input) {
+    conversion_inputs
+    |> map_conversion_inputs(side, fn(input) {
       ConversionInput(
         ..input,
         amount_input: format_amount_input(
@@ -229,7 +231,6 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
       )
     })
   }
-
   let updated_inputs = case currency_formatting.parse_amount(raw_amount) {
     Error(_) -> map_failed_parse()
     Ok(amount) -> map_successful_parse(amount)
