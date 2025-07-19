@@ -224,8 +224,6 @@ pub fn model_with_amount_parse_success_on_left_side_with_rate_test() {
     model
     |> client.model_with_amount(Left, "3.0")
 
-  let left_currency =
-    { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
   let right_currency =
     { model.conversion.conversion_inputs.1 }.currency_selector.selected_currency
 
@@ -237,7 +235,7 @@ pub fn model_with_amount_parse_success_on_left_side_with_rate_test() {
         conversion_inputs: #(
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
-            amount_input: client.format_amount_input(left_currency, 3.0),
+            amount_input: AmountInput("3.0", Some(3.0)),
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
@@ -278,8 +276,6 @@ pub fn model_with_amount_parse_success_on_right_side_with_rate_test() {
 
   let left_currency =
     { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
-  let right_currency =
-    { model.conversion.conversion_inputs.1 }.currency_selector.selected_currency
 
   assert result
     == Model(
@@ -294,7 +290,7 @@ pub fn model_with_amount_parse_success_on_right_side_with_rate_test() {
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
-            amount_input: client.format_amount_input(right_currency, 6.0),
+            amount_input: AmountInput("6.0", Some(6.0)),
           ),
         ),
         last_edited: Right,
@@ -328,9 +324,6 @@ pub fn model_with_amount_parse_success_with_no_rate_test() {
     model
     |> client.model_with_amount(Left, "3.0")
 
-  let left_currency =
-    { model.conversion.conversion_inputs.0 }.currency_selector.selected_currency
-
   assert result
     == Model(
       ..model,
@@ -339,7 +332,7 @@ pub fn model_with_amount_parse_success_with_no_rate_test() {
         conversion_inputs: #(
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
-            amount_input: client.format_amount_input(left_currency, 3.0),
+            amount_input: AmountInput("3.0", Some(3.0)),
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,

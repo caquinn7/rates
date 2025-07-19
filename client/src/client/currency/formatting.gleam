@@ -74,7 +74,7 @@ pub fn format_amount_str(currency: Currency, amount: Float) -> String {
   let rounded_str = float.to_string(rounded)
 
   let assert [int_str, frac_str] = string.split(rounded_str, ".")
-  let int_str = group_digits(int_str)
+  let int_str = group_digits_with_commas(int_str)
 
   let frac_str_all_zeroes =
     frac_str
@@ -107,19 +107,19 @@ pub fn format_amount_str(currency: Currency, amount: Float) -> String {
 /// The maximum number of decimal places to use for formatting the amount.
 pub fn determine_max_precision(currency: Currency, amount: Float) -> Int {
   case currency {
-    Crypto(..) -> {
+    Fiat(..) -> 2
+
+    Crypto(..) ->
       case amount {
         a if a == 0.0 -> 0
         a if a >=. 1.0 -> 4
         a if a >=. 0.01 -> 6
         _ -> 8
       }
-    }
-    Fiat(..) -> 2
   }
 }
 
-fn group_digits(int_str: String) -> String {
+fn group_digits_with_commas(int_str: String) -> String {
   int_str
   |> string.to_graphemes
   |> list.reverse
