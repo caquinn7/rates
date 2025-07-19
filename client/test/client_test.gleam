@@ -3,6 +3,7 @@ import client.{
   Model, Other,
 }
 import client/currency/collection as currency_collection
+import client/currency/formatting
 import client/side.{Left, Right}
 import gleam/option.{None, Some}
 import gleeunit
@@ -95,9 +96,12 @@ pub fn model_with_rate_left_side_amount_parsed_test() {
           // Right side updated based on new rate
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
-            amount_input: client.format_amount_input(
-              right_currency,
-              expected_right_amount,
+            amount_input: AmountInput(
+              raw: formatting.format_amount_str(
+                right_currency,
+                expected_right_amount,
+              ),
+              parsed: Some(expected_right_amount),
             ),
           ),
         ),
@@ -147,9 +151,12 @@ pub fn model_with_rate_right_side_amount_parsed_test() {
           // Left side updated based on new rate
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
-            amount_input: client.format_amount_input(
-              left_currency,
-              expected_left_amount,
+            amount_input: AmountInput(
+              raw: formatting.format_amount_str(
+                left_currency,
+                expected_left_amount,
+              ),
+              parsed: Some(expected_left_amount),
             ),
           ),
           // Right side unchanged
@@ -239,7 +246,10 @@ pub fn model_with_amount_parse_success_on_left_side_with_rate_test() {
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
-            amount_input: client.format_amount_input(right_currency, 6.0),
+            amount_input: AmountInput(
+              raw: formatting.format_amount_str(right_currency, 6.0),
+              parsed: Some(6.0),
+            ),
           ),
         ),
         last_edited: Left,
@@ -285,7 +295,10 @@ pub fn model_with_amount_parse_success_on_right_side_with_rate_test() {
         conversion_inputs: #(
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
-            amount_input: client.format_amount_input(left_currency, 3.0),
+            amount_input: AmountInput(
+              raw: formatting.format_amount_str(left_currency, 3.0),
+              parsed: Some(3.0),
+            ),
             // 6.0 / 2.0 = 3.0
           ),
           ConversionInput(
