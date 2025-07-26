@@ -122,7 +122,7 @@ pub fn is_zero(p: PositiveFloat) -> Bool {
 /// ```gleam
 /// to_display_string(PositiveFloat(1234567.89)) == "1,234,567.89"
 /// ```
-pub fn to_display_string(amount: PositiveFloat) -> String {
+pub fn to_display_string(p: PositiveFloat) -> String {
   let split_decimal_string = fn(amount) {
     let assert [int_str, frac_str] =
       amount
@@ -132,30 +132,87 @@ pub fn to_display_string(amount: PositiveFloat) -> String {
     #(int_str, frac_str)
   }
 
-  let group_digits_with_commas = fn(int_str) {
-    int_str
-    |> string.to_graphemes
-    |> list.reverse
-    |> list.sized_chunk(3)
-    |> list.map(fn(chunk) {
-      chunk
-      |> list.reverse
-      |> string.join("")
-    })
-    |> list.reverse
-    |> string.join(",")
-  }
-
   let rebuild_string = fn(string_parts) {
     let #(int_str, frac_str) = string_parts
     int_str <> "." <> frac_str
   }
 
-  amount
+  p
   |> split_decimal_string
   |> pair.map_first(group_digits_with_commas)
   |> rebuild_string
 }
 
+pub type ToFixedStringError {
+  InvalidPrecision
+  UnexpectedFormat
+}
+
+/// Converts a `PositiveFloat` to a string with fixed decimal precision and
+/// comma-separated digit grouping in the integer part.
+///
+/// - The number is formatted using JavaScript’s native `Number.prototype.toFixed`
+///   method via FFI, which rounds the number to exactly `precision` digits after
+///   the decimal point.
+/// - When `precision` is `0`, the decimal point is omitted entirely.
+///
+/// ## Errors
+/// - Returns `Error(InvalidPrecision)` if `precision` is less than 0 or greater than 100.
+/// - Returns `Error(UnexpectedFormat)` if the underlying `toFixed` output does not
+///   include a decimal when `precision > 0`. This should never occur, but the error
+///   is returned defensively.
+///
+/// ## Examples
+/// ```gleam
+/// let Ok(p) = positive_float.new(1234.567)
+/// to_fixed_string(p, 2) // => Ok("1,234.57")
+///
+/// to_fixed_string(p, 0) // => Ok("1,235")
+/// ```
+///
+/// ## Notes
+/// - This function depends on JavaScript behavior. For example, `toFixed` performs rounding,
+///   so `1234.567` with precision 2 becomes `"1234.57"` rather than being truncated.
+pub fn to_fixed_string(
+  p: PositiveFloat,
+  precision: Int,
+) -> Result(String, ToFixedStringError) {
+  let precision_invalid = precision < 0 || precision > 100
+  use <- bool.guard(precision_invalid, Error(InvalidPrecision))
+
+  let raw_str = with_value(p, to_fixed(_, precision))
+
+  case precision {
+    0 -> Ok(group_digits_with_commas(raw_str))
+
+    _ ->
+      case string.split(raw_str, ".") {
+        [int_part, frac_part] -> {
+          let int_part = group_digits_with_commas(int_part)
+          Ok(int_part <> "." <> frac_part)
+        }
+
+        _ -> Error(UnexpectedFormat)
+      }
+  }
+}
+
+fn group_digits_with_commas(int_str) {
+  int_str
+  |> string.to_graphemes
+  |> list.reverse
+  |> list.sized_chunk(3)
+  |> list.map(fn(chunk) {
+    chunk
+    |> list.reverse
+    |> string.join("")
+  })
+  |> list.reverse
+  |> string.join(",")
+}
+
 @external(javascript, "../number_ffi.mjs", "max_number")
 fn max_float() -> Float
+
+@external(javascript, "../number_ffi.mjs", "to_fixed")
+fn to_fixed(f: Float, digits: Int) -> String

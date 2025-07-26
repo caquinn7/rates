@@ -1,4 +1,4 @@
-import client/positive_float
+import client/positive_float.{InvalidPrecision}
 import gleam/function
 import qcheck
 
@@ -134,6 +134,31 @@ pub fn formats_large_number_test() {
 pub fn preserves_trailing_zeros_test() {
   let assert Ok(p) = positive_float.new(1000.05)
   assert "1,000.05" == positive_float.to_display_string(p)
+}
+
+// to_fixed_string
+
+pub fn to_fixed_string_formats_correctly_test() {
+  let assert Ok(p) = positive_float.new(1234.5678)
+  let assert Ok("1,234.57") = positive_float.to_fixed_string(p, 2)
+
+  let assert Ok("1,234.568") = positive_float.to_fixed_string(p, 3)
+  let assert Ok("1,234.567800") = positive_float.to_fixed_string(p, 6)
+}
+
+pub fn to_fixed_string_precision_zero_test() {
+  let assert Ok(p) = positive_float.new(1234.5678)
+  let assert Ok("1,235") = positive_float.to_fixed_string(p, 0)
+
+  let assert Ok(p2) = positive_float.new(0.0)
+  let assert Ok("0") = positive_float.to_fixed_string(p2, 0)
+}
+
+pub fn to_fixed_string_invalid_precision_test() {
+  let assert Ok(p) = positive_float.new(123.45)
+
+  let assert Error(InvalidPrecision) = positive_float.to_fixed_string(p, -1)
+  let assert Error(InvalidPrecision) = positive_float.to_fixed_string(p, 101)
 }
 
 // generators
