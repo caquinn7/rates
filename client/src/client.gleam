@@ -3,6 +3,7 @@ import client/browser/element as browser_element
 import client/browser/event as browser_event
 import client/currency/collection.{type CurrencyCollection} as currency_collection
 import client/currency/formatting as currency_formatting
+import client/positive_float.{type PositiveFloat}
 import client/rates/rate_request
 import client/rates/rate_response
 import client/side.{type Side, Left, Right}
@@ -44,7 +45,7 @@ pub type Model {
 pub type Conversion {
   Conversion(
     conversion_inputs: #(ConversionInput, ConversionInput),
-    rate: Option(Float),
+    rate: Option(PositiveFloat),
     last_edited: Side,
   )
 }
@@ -57,7 +58,7 @@ pub type ConversionInput {
 }
 
 pub type AmountInput {
-  AmountInput(raw: String, parsed: Option(Float))
+  AmountInput(raw: String, parsed: Option(PositiveFloat))
 }
 
 pub type CurrencySelector {
@@ -108,7 +109,7 @@ pub fn map_conversion_inputs(
 ///
 /// This function ensures that the conversion remains accurate when the rate changes,
 /// while preserving the user’s original input.
-pub fn model_with_rate(model: Model, rate: Float) -> Model {
+pub fn model_with_rate(model: Model, rate: PositiveFloat) -> Model {
   // When a new exchange rate comes in, we want to:
   // - Recalculate the opposite input field if the user previously entered a number
   // - Leave the inputs unchanged if there’s no valid parsed input
@@ -130,9 +131,13 @@ pub fn model_with_rate(model: Model, rate: Float) -> Model {
       // Compute the value for the *opposite* field using the new rate
       let converted_amount = case edited_side {
         // converting from left to right
-        Left -> parsed_amount *. rate
+        Left -> positive_float.multiply(parsed_amount, rate)
         // converting from right to left
-        Right -> parsed_amount /. rate
+        Right ->
+          case positive_float.try_divide(parsed_amount, rate) {
+            Error(_) -> panic as "rate should not be zero"
+            Ok(x) -> x
+          }
       }
 
       // Update only the opposite side’s amount_input field with the converted value
@@ -140,9 +145,12 @@ pub fn model_with_rate(model: Model, rate: Float) -> Model {
       |> map_conversion_inputs(side.opposite_side(edited_side), fn(input) {
         ConversionInput(
           ..input,
-          amount_input: format_amount_input(
-            input.currency_selector.selected_currency,
-            converted_amount,
+          amount_input: AmountInput(
+            raw: currency_formatting.format_currency_amount(
+              input.currency_selector.selected_currency,
+              converted_amount,
+            ),
+            parsed: Some(converted_amount),
           ),
         )
       })
@@ -157,13 +165,6 @@ pub fn model_with_rate(model: Model, rate: Float) -> Model {
     )
 
   Model(..model, conversion: updated_conversion)
-}
-
-pub fn format_amount_input(currency: Currency, amount: Float) -> AmountInput {
-  AmountInput(
-    raw: currency_formatting.format_amount_str(currency, amount),
-    parsed: Some(amount),
-  )
 }
 
 /// Updates the model in response to user input in the amount field.
@@ -204,31 +205,41 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
     |> map_conversion_inputs(side, fn(input) {
       ConversionInput(
         ..input,
-        amount_input: AmountInput(raw_amount, Some(parsed_amount)),
+        amount_input: AmountInput(raw: raw_amount, parsed: Some(parsed_amount)),
       )
     })
     // Compute and set the converted amount on the opposite side if a rate is available
     |> map_conversion_inputs(side.opposite_side(side), fn(input) {
       let rate = model.conversion.rate
       let maybe_converted_amount = case side {
-        Left -> option.map(rate, fn(r) { parsed_amount *. r })
-        Right -> option.map(rate, fn(r) { parsed_amount /. r })
+        Left -> option.map(rate, positive_float.multiply(parsed_amount, _))
+        Right ->
+          option.map(rate, fn(positive_float) {
+            case positive_float.try_divide(parsed_amount, positive_float) {
+              Ok(x) -> x
+              _ -> panic as "rate should not be zero"
+            }
+          })
       }
 
       ConversionInput(
         ..input,
         amount_input: maybe_converted_amount
           |> option.map(fn(converted) {
-            format_amount_input(
-              input.currency_selector.selected_currency,
-              converted,
+            AmountInput(
+              raw: currency_formatting.format_currency_amount(
+                input.currency_selector.selected_currency,
+                converted,
+              ),
+              parsed: Some(converted),
             )
           })
           |> option.unwrap(AmountInput(raw: "", parsed: None)),
       )
     })
   }
-  let updated_inputs = case currency_formatting.parse_amount(raw_amount) {
+
+  let updated_inputs = case positive_float.parse(raw_amount) {
     Error(_) -> map_failed_parse()
     Ok(amount) -> map_successful_parse(raw_amount, amount)
   }
@@ -546,13 +557,22 @@ pub fn model_from_start_data(start_data: StartData) {
 
   let left_input =
     ConversionInput(
-      amount_input: format_amount_input(from_currency, 1.0),
+      amount_input: AmountInput(
+        raw: "1",
+        parsed: Some(positive_float.from_float_unsafe(1.0)),
+      ),
       currency_selector: make_selector(Left, from_currency),
     )
 
   let right_input =
     ConversionInput(
-      amount_input: format_amount_input(to_currency, rate),
+      amount_input: AmountInput(
+        raw: currency_formatting.format_currency_amount(
+          to_currency,
+          positive_float.from_float_unsafe(rate),
+        ),
+        parsed: Some(positive_float.from_float_unsafe(rate)),
+      ),
       currency_selector: make_selector(Right, to_currency),
     )
 
@@ -560,7 +580,7 @@ pub fn model_from_start_data(start_data: StartData) {
     currencies: start_data.currencies,
     conversion: Conversion(
       conversion_inputs: #(left_input, right_input),
-      rate: Some(rate),
+      rate: Some(positive_float.from_float_unsafe(rate)),
       last_edited: Left,
     ),
     socket: None,
@@ -612,9 +632,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             model.currencies
             |> list.find(fn(currency) { currency.id == to })
 
-          let model =
-            model
-            |> model_with_rate(rate)
+          let assert Ok(rate) = positive_float.new(rate)
+          let model = model_with_rate(model, rate)
 
           #(model, effect.none())
         }
