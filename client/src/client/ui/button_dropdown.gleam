@@ -96,13 +96,41 @@ fn currency_filter_input(
   on_input: fn(String) -> msg,
   on_keydown_in_dropdown: fn(String) -> msg,
 ) -> Element(msg) {
-  html.input([
-    attribute.type_("text"),
-    attribute.placeholder("Search..."),
-    attribute.class("w-full p-2 border-b focus:outline-none caret-info"),
-    attribute.value(value),
-    event.on_input(on_input),
-    event.on_keydown(on_keydown_in_dropdown),
+  let search_icon =
+    svg.svg(
+      [
+        attribute.class(
+          "absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50 pointer-events-none",
+        ),
+        attribute.attribute("xmlns", "http://www.w3.org/2000/svg"),
+        attribute.attribute("fill", "none"),
+        attribute.attribute("viewBox", "0 0 24 24"),
+        attribute.attribute("stroke-width", "2"),
+        attribute.attribute("stroke", "currentColor"),
+      ],
+      [
+        svg.path([
+          attribute.attribute("stroke-linecap", "round"),
+          attribute.attribute("stroke-linejoin", "round"),
+          attribute.attribute(
+            "d",
+            "M21 21l-4.35-4.35M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14z",
+          ),
+        ]),
+      ],
+    )
+
+  html.div([attribute.class("relative")], [
+    html.input([
+      attribute.type_("text"),
+      attribute.class(
+        "w-full p-2 pl-8 border-b focus:outline-none caret-accent bg-base-100 text-base-content",
+      ),
+      attribute.value(value),
+      event.on_input(on_input),
+      event.on_keydown(on_keydown_in_dropdown),
+    ]),
+    search_icon,
   ])
 }
 
