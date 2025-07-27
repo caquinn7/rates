@@ -794,7 +794,7 @@ pub fn view(model: Model) -> Element(Msg) {
 
 fn header() -> Element(Msg) {
   html.div([attribute.class("navbar border-b")], [
-    html.div([attribute.class("flex-1")], [
+    html.div([attribute.class("flex-1 pl-4")], [
       html.h1([attribute.class("w-full mx-auto max-w-screen-xl text-4xl")], [
         html.text("rates"),
       ]),
