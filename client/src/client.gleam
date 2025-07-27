@@ -855,13 +855,13 @@ fn theme_controller() {
     )
 
   html.label([attribute.class("flex cursor-pointer gap-2")], [
-    sun_icon,
+    moon_icon,
     html.input([
       attribute.type_("checkbox"),
       attribute.class("toggle theme-controller"),
       attribute.value("lofi"),
     ]),
-    moon_icon,
+    sun_icon,
   ])
 }
 
