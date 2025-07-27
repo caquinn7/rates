@@ -937,7 +937,7 @@ fn amount_input(
   auto_resize_input.element([
     auto_resize_input.id(id),
     auto_resize_input.value(amount_input.raw),
-    auto_resize_input.min_width(4),
+    auto_resize_input.min_width(48),
     on_change
       |> auto_resize_input.on_change
       |> event.debounce(300),
