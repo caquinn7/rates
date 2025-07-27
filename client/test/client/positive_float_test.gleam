@@ -163,15 +163,15 @@ pub fn try_divide_test() {
 
 pub fn to_fixed_string_formats_correctly_test() {
   let p = positive_float.from_float_unsafe(1234.5678)
-  let assert Ok("1,234.57") = positive_float.to_fixed_string(p, 2)
+  let assert Ok("1234.57") = positive_float.to_fixed_string(p, 2)
 
-  let assert Ok("1,234.568") = positive_float.to_fixed_string(p, 3)
-  let assert Ok("1,234.567800") = positive_float.to_fixed_string(p, 6)
+  let assert Ok("1234.568") = positive_float.to_fixed_string(p, 3)
+  let assert Ok("1234.567800") = positive_float.to_fixed_string(p, 6)
 }
 
 pub fn to_fixed_string_precision_zero_test() {
   let p1 = positive_float.from_float_unsafe(1234.5678)
-  let assert Ok("1,235") = positive_float.to_fixed_string(p1, 0)
+  let assert Ok("1235") = positive_float.to_fixed_string(p1, 0)
 
   let p2 = positive_float.from_float_unsafe(0.0)
   let assert Ok("0") = positive_float.to_fixed_string(p2, 0)

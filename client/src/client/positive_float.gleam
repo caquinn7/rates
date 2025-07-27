@@ -162,8 +162,7 @@ pub type ToFixedStringError {
   UnexpectedFormat
 }
 
-/// Converts a `PositiveFloat` to a string with fixed decimal precision and
-/// comma-separated digit grouping in the integer part.
+/// Converts a `PositiveFloat` to a string with fixed decimal precision.
 ///
 /// - The number is formatted using JavaScript’s native `Number.prototype.toFixed`
 ///   method via FFI, which rounds the number to exactly `precision` digits after
@@ -179,9 +178,9 @@ pub type ToFixedStringError {
 /// ## Examples
 /// ```gleam
 /// let Ok(p) = positive_float.new(1234.567)
-/// to_fixed_string(p, 2) // => Ok("1,234.57")
+/// to_fixed_string(p, 2) // => Ok("1234.57")
 ///
-/// to_fixed_string(p, 0) // => Ok("1,235")
+/// to_fixed_string(p, 0) // => Ok("1235")
 /// ```
 ///
 /// ## Notes
@@ -197,32 +196,13 @@ pub fn to_fixed_string(
   let raw_str = with_value(p, to_fixed(_, precision))
 
   case precision {
-    0 -> Ok(group_digits_with_commas(raw_str))
-
+    0 -> Ok(raw_str)
     _ ->
       case string.split(raw_str, ".") {
-        [int_part, frac_part] -> {
-          let int_part = group_digits_with_commas(int_part)
-          Ok(int_part <> "." <> frac_part)
-        }
-
+        [int_part, frac_part] -> Ok(int_part <> "." <> frac_part)
         _ -> Error(UnexpectedFormat)
       }
   }
-}
-
-fn group_digits_with_commas(int_str) {
-  int_str
-  |> string.to_graphemes
-  |> list.reverse
-  |> list.sized_chunk(3)
-  |> list.map(fn(chunk) {
-    chunk
-    |> list.reverse
-    |> string.join("")
-  })
-  |> list.reverse
-  |> string.join(",")
 }
 
 @external(javascript, "../number_ffi.mjs", "max_number")

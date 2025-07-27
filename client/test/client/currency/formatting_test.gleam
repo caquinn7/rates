@@ -9,7 +9,7 @@ const crypto = Crypto(1, "Bitcoin", "BTC", Some(1))
 
 pub fn fiat_always_two_decimal_places_test() {
   let p = positive_float.from_float_unsafe(1234.5678)
-  assert "1,234.57" == formatting.format_currency_amount(fiat, p)
+  assert "1234.57" == formatting.format_currency_amount(fiat, p)
 }
 
 pub fn crypto_zero_amount_no_fractional_test() {
