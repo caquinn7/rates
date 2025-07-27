@@ -1,8 +1,8 @@
 import gleam/bool
 import gleam/float
+import gleam/function
 import gleam/int
 import gleam/list
-import gleam/pair
 import gleam/result
 import gleam/string
 
@@ -24,6 +24,13 @@ pub fn new(f: Float) -> Result(PositiveFloat, Nil) {
   case f >=. 0.0 {
     False -> Error(Nil)
     True -> Ok(PositiveFloat(f))
+  }
+}
+
+pub fn from_float_unsafe(x: Float) -> PositiveFloat {
+  case new(x) {
+    Error(_) -> panic as "Expected a positive value"
+    Ok(p) -> p
   }
 }
 
@@ -81,7 +88,11 @@ pub fn parse(str: String) -> Result(PositiveFloat, Nil) {
     _ -> Error(Nil)
   })
 
-  use <- bool.guard(!is_valid_comma_grouping(int_part), Error(Nil))
+  let str_has_comma = string.contains(str, ",")
+  use <- bool.guard(
+    str_has_comma && !is_valid_comma_grouping(int_part),
+    Error(Nil),
+  )
 
   int_part
   |> string.replace(",", "")
@@ -106,6 +117,10 @@ pub fn with_value(p: PositiveFloat, fun: fn(Float) -> a) -> a {
   fun(value)
 }
 
+pub fn unwrap(p: PositiveFloat) -> Float {
+  with_value(p, function.identity)
+}
+
 /// Returns the largest possible `PositiveFloat` representable in JavaScript.
 pub fn max() -> PositiveFloat {
   PositiveFloat(max_float())
@@ -116,31 +131,30 @@ pub fn is_zero(p: PositiveFloat) -> Bool {
   with_value(p, fn(f) { f == 0.0 })
 }
 
-/// Converts a `PositiveFloat` to a human-friendly string with comma separators.
+pub fn multiply(a: PositiveFloat, b: PositiveFloat) -> PositiveFloat {
+  use a <- with_value(a)
+  use b <- with_value(b)
+  PositiveFloat(a *. b)
+}
+
+/// Attempts to divide two `PositiveFloat` values, returning a `Result`.
 ///
-/// Example:
-/// ```gleam
-/// to_display_string(PositiveFloat(1234567.89)) == "1,234,567.89"
-/// ```
-pub fn to_display_string(p: PositiveFloat) -> String {
-  let split_decimal_string = fn(amount) {
-    let assert [int_str, frac_str] =
-      amount
-      |> with_value(float.to_string)
-      |> string.split(".")
-
-    #(int_str, frac_str)
-  }
-
-  let rebuild_string = fn(string_parts) {
-    let #(int_str, frac_str) = string_parts
-    int_str <> "." <> frac_str
-  }
-
-  p
-  |> split_decimal_string
-  |> pair.map_first(group_digits_with_commas)
-  |> rebuild_string
+/// If the division is successful, returns `Ok(PositiveFloat)` with the result.
+/// If the operation fails (e.g., division by zero), returns `Error(Nil)`.
+///
+/// # Arguments
+/// - `a`: The dividend as a `PositiveFloat`.
+/// - `b`: The divisor as a `PositiveFloat`.
+///
+/// # Returns
+/// - `Result(PositiveFloat, Nil)`: The result of the division or an error.
+pub fn try_divide(
+  a: PositiveFloat,
+  b: PositiveFloat,
+) -> Result(PositiveFloat, Nil) {
+  use a <- with_value(a)
+  use b <- with_value(b)
+  result.map(float.divide(a, b), PositiveFloat)
 }
 
 pub type ToFixedStringError {

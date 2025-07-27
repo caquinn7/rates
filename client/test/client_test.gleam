@@ -3,7 +3,8 @@ import client.{
   Model, Other,
 }
 import client/currency/collection as currency_collection
-import client/currency/formatting
+import client/currency/formatting as currency_formatting
+import client/positive_float
 import client/side.{Left, Right}
 import gleam/option.{None, Some}
 import gleeunit
@@ -15,7 +16,7 @@ pub fn main() {
 
 pub fn model_with_rate_edited_side_amount_not_parsed_test() {
   let model = empty_model()
-  let new_rate = 2.5
+  let new_rate = positive_float.from_float_unsafe(2.5)
 
   // Set up a model where last_edited is Left and Left has no parsed amount
   let model =
@@ -31,7 +32,10 @@ pub fn model_with_rate_edited_side_amount_not_parsed_test() {
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
-            amount_input: AmountInput("5.0", Some(5.0)),
+            amount_input: AmountInput(
+              "5.0",
+              Some(positive_float.from_float_unsafe(5.0)),
+            ),
           ),
         ),
       ),
@@ -54,10 +58,11 @@ pub fn model_with_rate_edited_side_amount_not_parsed_test() {
 
 pub fn model_with_rate_left_side_amount_parsed_test() {
   let model = empty_model()
-  let new_rate = 1.5
+  let new_rate = positive_float.from_float_unsafe(1.5)
 
-  let parsed_left_amount = 4.0
-  let expected_right_amount = parsed_left_amount *. new_rate
+  let parsed_left_amount = positive_float.from_float_unsafe(4.0)
+  let expected_right_amount =
+    positive_float.multiply(parsed_left_amount, new_rate)
 
   let model =
     Model(
@@ -73,7 +78,10 @@ pub fn model_with_rate_left_side_amount_parsed_test() {
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
             // should be overwritten
-            amount_input: AmountInput("5.0", Some(5.0)),
+            amount_input: AmountInput(
+              "5.0",
+              Some(positive_float.from_float_unsafe(5.0)),
+            ),
           ),
         ),
       ),
@@ -97,7 +105,7 @@ pub fn model_with_rate_left_side_amount_parsed_test() {
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
             amount_input: AmountInput(
-              raw: formatting.format_amount_str(
+              raw: currency_formatting.format_currency_amount(
                 right_currency,
                 expected_right_amount,
               ),
@@ -111,10 +119,11 @@ pub fn model_with_rate_left_side_amount_parsed_test() {
 
 pub fn model_with_rate_right_side_amount_parsed_test() {
   let model = empty_model()
-  let new_rate = 2.0
+  let new_rate = positive_float.from_float_unsafe(2.0)
 
-  let parsed_right_amount = 10.0
-  let expected_left_amount = parsed_right_amount /. new_rate
+  let parsed_right_amount = positive_float.from_float_unsafe(10.0)
+  let assert Ok(expected_left_amount) =
+    positive_float.try_divide(parsed_right_amount, new_rate)
 
   let model =
     Model(
@@ -126,7 +135,10 @@ pub fn model_with_rate_right_side_amount_parsed_test() {
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
             // should be overwritten
-            amount_input: AmountInput("3.0", Some(3.0)),
+            amount_input: AmountInput(
+              "3.0",
+              Some(positive_float.from_float_unsafe(3.0)),
+            ),
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
@@ -152,7 +164,7 @@ pub fn model_with_rate_right_side_amount_parsed_test() {
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
             amount_input: AmountInput(
-              raw: formatting.format_amount_str(
+              raw: currency_formatting.format_currency_amount(
                 left_currency,
                 expected_left_amount,
               ),
@@ -174,11 +186,17 @@ pub fn model_with_amount_parse_failure_test() {
       conversion: Conversion(..model.conversion, conversion_inputs: #(
         ConversionInput(
           ..model.conversion.conversion_inputs.0,
-          amount_input: AmountInput("1.0", Some(1.0)),
+          amount_input: AmountInput(
+            "1.0",
+            Some(positive_float.from_float_unsafe(1.0)),
+          ),
         ),
         ConversionInput(
           ..model.conversion.conversion_inputs.1,
-          amount_input: AmountInput("2.0", Some(2.0)),
+          amount_input: AmountInput(
+            "2.0",
+            Some(positive_float.from_float_unsafe(2.0)),
+          ),
         ),
       )),
     )
@@ -216,14 +234,20 @@ pub fn model_with_amount_parse_success_on_left_side_with_rate_test() {
         conversion_inputs: #(
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
-            amount_input: AmountInput("1.0", Some(1.0)),
+            amount_input: AmountInput(
+              "1.0",
+              Some(positive_float.from_float_unsafe(1.0)),
+            ),
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
-            amount_input: AmountInput("2.0", Some(2.0)),
+            amount_input: AmountInput(
+              "2.0",
+              Some(positive_float.from_float_unsafe(2.0)),
+            ),
           ),
         ),
-        rate: Some(rate),
+        rate: Some(positive_float.from_float_unsafe(rate)),
       ),
     )
 
@@ -242,13 +266,19 @@ pub fn model_with_amount_parse_success_on_left_side_with_rate_test() {
         conversion_inputs: #(
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
-            amount_input: AmountInput("3.0", Some(3.0)),
+            amount_input: AmountInput(
+              "3.0",
+              Some(positive_float.from_float_unsafe(3.0)),
+            ),
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
             amount_input: AmountInput(
-              raw: formatting.format_amount_str(right_currency, 6.0),
-              parsed: Some(6.0),
+              raw: currency_formatting.format_currency_amount(
+                right_currency,
+                positive_float.from_float_unsafe(6.0),
+              ),
+              parsed: Some(positive_float.from_float_unsafe(6.0)),
             ),
           ),
         ),
@@ -269,14 +299,20 @@ pub fn model_with_amount_parse_success_on_right_side_with_rate_test() {
         conversion_inputs: #(
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
-            amount_input: AmountInput("1.0", Some(1.0)),
+            amount_input: AmountInput(
+              "1.0",
+              Some(positive_float.from_float_unsafe(1.0)),
+            ),
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
-            amount_input: AmountInput("2.0", Some(2.0)),
+            amount_input: AmountInput(
+              "2.0",
+              Some(positive_float.from_float_unsafe(2.0)),
+            ),
           ),
         ),
-        rate: Some(rate),
+        rate: Some(positive_float.from_float_unsafe(rate)),
       ),
     )
 
@@ -296,14 +332,20 @@ pub fn model_with_amount_parse_success_on_right_side_with_rate_test() {
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
             amount_input: AmountInput(
-              raw: formatting.format_amount_str(left_currency, 3.0),
-              parsed: Some(3.0),
+              raw: currency_formatting.format_currency_amount(
+                left_currency,
+                positive_float.from_float_unsafe(3.0),
+              ),
+              parsed: Some(positive_float.from_float_unsafe(3.0)),
             ),
             // 6.0 / 2.0 = 3.0
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
-            amount_input: AmountInput("6.0", Some(6.0)),
+            amount_input: AmountInput(
+              "6.0",
+              Some(positive_float.from_float_unsafe(6.0)),
+            ),
           ),
         ),
         last_edited: Right,
@@ -322,11 +364,17 @@ pub fn model_with_amount_parse_success_with_no_rate_test() {
         conversion_inputs: #(
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
-            amount_input: AmountInput("1.0", Some(1.0)),
+            amount_input: AmountInput(
+              "1.0",
+              Some(positive_float.from_float_unsafe(1.0)),
+            ),
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,
-            amount_input: AmountInput("2.0", Some(2.0)),
+            amount_input: AmountInput(
+              "2.0",
+              Some(positive_float.from_float_unsafe(2.0)),
+            ),
           ),
         ),
         rate: None,
@@ -345,7 +393,10 @@ pub fn model_with_amount_parse_success_with_no_rate_test() {
         conversion_inputs: #(
           ConversionInput(
             ..model.conversion.conversion_inputs.0,
-            amount_input: AmountInput("3.0", Some(3.0)),
+            amount_input: AmountInput(
+              "3.0",
+              Some(positive_float.from_float_unsafe(3.0)),
+            ),
           ),
           ConversionInput(
             ..model.conversion.conversion_inputs.1,

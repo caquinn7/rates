@@ -1,90 +1,50 @@
-import gleam/float
-import gleam/int
+import client/positive_float.{type PositiveFloat}
 import gleam/list
-import gleam/result
 import gleam/string
 import shared/currency.{type Currency, Crypto, Fiat}
 
-/// Parses a string representing a numeric amount into a `Float`.
+/// Formats a `PositiveFloat` amount as a human-readable string with appropriate
+/// precision and comma grouping, based on the given `Currency`.
 ///
-/// This function handles strings that may contain commas as thousands separators,
-/// optional leading or trailing decimal points, and both integer and float representations.
-/// If the string ends with a decimal point (e.g., "123."), the trailing dot is removed.
-/// If the string starts with a decimal point (e.g., ".45"), a leading zero is added.
-/// Returns `Result(Float, Nil)`, where `Ok(Float)` is the parsed value, or `Error(Nil)` if parsing fails.
+/// - For fiat currencies, the amount is always formatted with 2 decimal places.
+/// - For cryptocurrencies, the decimal precision varies based on the size of the amount:
+///     - 0.0 → 0 decimal places
+///     - ≥ 1.0 → 4 decimal places
+///     - ≥ 0.01 → 6 decimal places
+///     - < 0.01 → 8 decimal places
 ///
-/// # Examples
+/// The integer portion of the result is grouped with commas (e.g., `1,234.56`).
+/// Trailing zeroes in the decimal portion are removed (e.g., `1.2300` becomes `1.23`).
 ///
+/// ## Examples
 /// ```gleam
-/// parse_amount("1,234.56") // Ok(1234.56)
-/// parse_amount(".99")      // Ok(0.99)
-/// parse_amount("1000")     // Ok(1000.0)
-/// parse_amount("abc")      // Error(Nil)
+/// format_currency_amount(Fiat(..), PositiveFloat(1234.567)) // => "1,234.57"
+/// format_currency_amount(Crypto(..), PositiveFloat(0.00000123)) // => "0.00000123"
+/// format_currency_amount(Crypto(..), PositiveFloat(1.2300)) // => "1.23"
 /// ```
-pub fn parse_amount(str: String) -> Result(Float, Nil) {
-  let drop_trailing_decimal = fn(str) {
-    case string.ends_with(str, ".") {
-      False -> str
-      True -> string.drop_end(str, 1)
-    }
-  }
-
-  let add_zero_if_starts_with_decimal = fn(str) {
-    case string.starts_with(str, ".") {
-      False -> str
-      True -> "0" <> str
-    }
-  }
-
-  let remove_commas = string.replace(_, ",", "")
-
-  let parse_float = fn(str) {
-    str
-    |> float.parse
-    |> result.lazy_or(fn() {
-      str
-      |> int.parse
-      |> result.map(int.to_float)
-    })
-  }
-
-  str
-  |> remove_commas
-  |> drop_trailing_decimal
-  |> add_zero_if_starts_with_decimal
-  |> parse_float
-}
-
-/// Formats a floating-point `amount` as a string according to the given `currency`.
-/// The determines the appropriate decimal precision, and groups the integer part
-/// for readability. If the fractional part consists only of zeroes, it is omitted from the result.
-/// Otherwise, the fractional part is included after a decimal point.
-///
-/// ## Arguments
-/// - `currency`: The currency used to determine formatting rules.
-/// - `amount`: The floating-point number to format.
-///
-/// ## Returns
-/// A string representation of the formatted amount, suitable for display.
-pub fn format_amount_str(currency: Currency, amount: Float) -> String {
-  let amount = float.absolute_value(amount)
-
+pub fn format_currency_amount(
+  currency: Currency,
+  amount: PositiveFloat,
+) -> String {
   let precision = determine_max_precision(currency, amount)
-  let rounded = float.to_precision(amount, precision)
-  let rounded_str = float.to_string(rounded)
+  let assert Ok(result) = positive_float.to_fixed_string(amount, precision)
 
-  let assert [int_str, frac_str] = string.split(rounded_str, ".")
-  let int_str = group_digits_with_commas(int_str)
+  case string.split(result, ".") {
+    [int_part, frac_part] -> {
+      let trimmed_frac =
+        frac_part
+        |> string.to_graphemes
+        |> list.reverse
+        |> list.drop_while(fn(c) { c == "0" })
+        |> list.reverse
+        |> string.join("")
 
-  let frac_str_all_zeroes =
-    frac_str
-    |> string.replace("0", "")
-    |> string.length
-    == 0
-
-  case frac_str_all_zeroes && amount >. 0.0 {
-    True -> int_str
-    False -> int_str <> "." <> frac_str
+      case trimmed_frac {
+        "" -> int_part
+        _ -> int_part <> "." <> trimmed_frac
+      }
+    }
+    _ -> result
   }
 }
 
@@ -105,30 +65,18 @@ pub fn format_amount_str(currency: Currency, amount: Float) -> String {
 ///
 /// # Returns
 /// The maximum number of decimal places to use for formatting the amount.
-pub fn determine_max_precision(currency: Currency, amount: Float) -> Int {
+pub fn determine_max_precision(currency: Currency, amount: PositiveFloat) -> Int {
   case currency {
     Fiat(..) -> 2
 
     Crypto(..) ->
-      case amount {
-        a if a == 0.0 -> 0
-        a if a >=. 1.0 -> 4
-        a if a >=. 0.01 -> 6
-        _ -> 8
-      }
+      positive_float.with_value(amount, fn(a) {
+        case a {
+          a if a == 0.0 -> 0
+          a if a >=. 1.0 -> 4
+          a if a >=. 0.01 -> 6
+          _ -> 8
+        }
+      })
   }
-}
-
-fn group_digits_with_commas(int_str: String) -> String {
-  int_str
-  |> string.to_graphemes
-  |> list.reverse
-  |> list.sized_chunk(3)
-  |> list.map(fn(chunk) {
-    chunk
-    |> list.reverse
-    |> string.join("")
-  })
-  |> list.reverse
-  |> string.join(",")
 }
