@@ -40,7 +40,7 @@ pub fn button(text, on_click) -> Element(msg) {
       attribute.class("inline-flex items-center px-3 py-3"),
       attribute.class("w-full rounded-r-lg cursor-pointer"),
       attribute.class(
-        "font-light text-4xl text-left bg-primary text-primary-content",
+        "font-normal text-4xl text-left bg-base-content text-secondary-content",
       ),
       event.on_click(on_click),
     ],
@@ -75,7 +75,8 @@ fn dropdown(
 ) -> Element(msg) {
   let filter_elem =
     currency_filter_input(filter, on_filter, on_keydown_in_dropdown)
-  let option_group_elems = option_groups(options, on_option_click)
+
+  let option_group_elems = list.map(options, option_group(_, on_option_click))
 
   html.div(
     [
@@ -100,7 +101,7 @@ fn currency_filter_input(
     svg.svg(
       [
         attribute.class(
-          "absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50 pointer-events-none",
+          "absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none",
         ),
         attribute.attribute("xmlns", "http://www.w3.org/2000/svg"),
         attribute.attribute("fill", "none"),
@@ -124,7 +125,7 @@ fn currency_filter_input(
     html.input([
       attribute.type_("text"),
       attribute.class(
-        "w-full p-2 pl-8 border-b focus:outline-none caret-accent bg-base-100 text-base-content",
+        "w-full p-2 pl-8 border-b focus:outline-none bg-base-100 text-base-content",
       ),
       attribute.value(value),
       event.on_input(on_input),
@@ -132,14 +133,6 @@ fn currency_filter_input(
     ]),
     search_icon,
   ])
-}
-
-fn option_groups(
-  groups: List(#(String, List(DropdownOption(msg)))),
-  on_option_click: fn(String) -> msg,
-) -> List(Element(msg)) {
-  groups
-  |> list.map(option_group(_, on_option_click))
 }
 
 fn option_group(
@@ -177,10 +170,10 @@ fn option(
     [
       attribute.attribute("data-value", option.value),
       attribute.class("dd-option px-6 py-1 cursor-pointer"),
-      attribute.class("hover:bg-primary hover:text-primary-content"),
+      attribute.class("hover:bg-base-content hover:text-secondary-content"),
       case option.is_focused {
         False -> attribute.none()
-        True -> attribute.class("bg-primary text-primary-content")
+        True -> attribute.class("bg-base-content text-secondary-content")
       },
       event.on_click(on_click(option.value)),
     ],
