@@ -429,7 +429,10 @@ pub fn select_currency_via_enter_key(
 /// currency_matches_filter(usd, "dollar") // Returns: True
 /// currency_matches_filter(usd, "eur") // Returns: False
 /// ```
-pub fn currency_matches_filter(currency: Currency, filter_str: String) -> Bool {
+pub fn name_or_symbol_contains_filter(
+  currency: Currency,
+  filter_str: String,
+) -> Bool {
   let is_match = fn(str) {
     str
     |> string.lowercase
@@ -479,16 +482,31 @@ pub fn model_with_currency_filter(
   currency_matcher: fn(Currency, String) -> Bool,
   default_currency_picker: fn(List(Currency)) -> List(Currency),
 ) -> Model {
-  let currencies =
+  let filter_or_get_defaults = fn(currencies, filter_str) {
     case filter_str {
       "" ->
-        model.currencies
+        currencies
         |> default_currency_picker
 
       _ ->
-        model.currencies
+        currencies
         |> list.filter(currency_matcher(_, filter_str))
     }
+  }
+
+  let remove_selected_currency = fn(currencies) {
+    let selected_currency =
+      map_conversion_input(model, side, fn(input) {
+        input.currency_selector.selected_currency
+      })
+
+    list.filter(currencies, fn(currency) { currency != selected_currency })
+  }
+
+  let currencies =
+    model.currencies
+    |> remove_selected_currency
+    |> filter_or_get_defaults(filter_str)
     |> currency_collection.from_list
 
   let conversion_inputs =
@@ -577,13 +595,13 @@ pub fn model_from_start_data(start_data: StartData) {
     start_data.currencies
     |> currency_collection.from_list
 
-  let make_selector = fn(side: Side, currency: Currency) {
+  let make_selector = fn(side: Side, selected_currency: Currency) {
     CurrencySelector(
       id: "currency-selector-" <> side.to_string(side),
       show_dropdown: False,
       currency_filter: "",
       currencies:,
-      selected_currency: currency,
+      selected_currency:,
       focused_index: None,
     )
   }
@@ -609,6 +627,16 @@ pub fn model_from_start_data(start_data: StartData) {
       currency_selector: make_selector(Right, to_currency),
     )
 
+  let filter_currencies = fn(model, side) {
+    model_with_currency_filter(
+      model,
+      side,
+      "",
+      name_or_symbol_contains_filter,
+      get_default_currencies,
+    )
+  }
+
   Model(
     currencies: start_data.currencies,
     conversion: Conversion(
@@ -618,6 +646,8 @@ pub fn model_from_start_data(start_data: StartData) {
     ),
     socket: None,
   )
+  |> filter_currencies(Left)
+  |> filter_currencies(Right)
 }
 
 pub type Msg {
@@ -684,7 +714,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         |> model_with_currency_filter(
           side,
           "",
-          currency_matches_filter,
+          name_or_symbol_contains_filter,
           get_default_currencies,
         )
         |> model_with_focused_index(side, fn() { None })
@@ -724,7 +754,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         model,
         side,
         filter_str,
-        currency_matches_filter,
+        name_or_symbol_contains_filter,
         get_default_currencies,
       ),
       effect.none(),
