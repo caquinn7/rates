@@ -1,4 +1,5 @@
 import gleam/list
+import gleam/pair
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -10,12 +11,18 @@ pub type DropdownOption(msg) {
   DropdownOption(value: String, display: Element(msg), is_focused: Bool)
 }
 
+pub type DropdownMode {
+  Grouped
+  Flat
+}
+
 pub fn view(
   id: String,
   btn_text: String,
   show_dropdown: Bool,
   filter: String,
   options: List(#(String, List(DropdownOption(msg)))),
+  dropdown_mode: DropdownMode,
   on_btn_click: msg,
   on_filter: fn(String) -> msg,
   on_keydown_in_dropdown: fn(String) -> msg,
@@ -27,6 +34,7 @@ pub fn view(
       show_dropdown,
       filter,
       options,
+      dropdown_mode,
       on_filter,
       on_keydown_in_dropdown,
       on_option_click,
@@ -69,6 +77,7 @@ fn dropdown(
   visible: Bool,
   filter: String,
   options: List(#(String, List(DropdownOption(msg)))),
+  mode: DropdownMode,
   on_filter: fn(String) -> msg,
   on_keydown_in_dropdown: fn(String) -> msg,
   on_option_click: fn(String) -> msg,
@@ -76,7 +85,17 @@ fn dropdown(
   let filter_elem =
     currency_filter_input(filter, on_filter, on_keydown_in_dropdown)
 
-  let option_group_elems = list.map(options, option_group(_, on_option_click))
+  let options_elem = case mode {
+    Flat ->
+      options
+      |> list.flat_map(pair.second)
+      |> options_container(on_option_click)
+
+    Grouped ->
+      options
+      |> list.map(option_group(_, on_option_click))
+      |> element.fragment
+  }
 
   html.div(
     [
@@ -88,7 +107,7 @@ fn dropdown(
       ),
       attribute.hidden(!visible),
     ],
-    [filter_elem, element.fragment(option_group_elems)],
+    [filter_elem, options_elem],
   )
 }
 

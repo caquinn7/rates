@@ -464,7 +464,67 @@ pub fn currency_matches_filter_when_no_match_test() {
   assert !client.currency_matches_filter(currency, "euro")
 }
 
-pub fn model_with_currency_filter_test() {
+pub fn get_default_currencies_returns_expected_currencies_test() {
+  let expected_currencies = [
+    Crypto(1, "", "", Some(1)),
+    Crypto(2, "", "", Some(2)),
+    Crypto(3, "", "", Some(3)),
+    Crypto(4, "", "", Some(4)),
+    Crypto(5, "", "", Some(5)),
+    Crypto(2781, "", "", None),
+  ]
+
+  let model_currencies = [
+    Crypto(1, "", "", Some(1)),
+    Crypto(2, "", "", Some(2)),
+    Crypto(3, "", "", Some(3)),
+    Crypto(4, "", "", Some(4)),
+    Crypto(5, "", "", Some(5)),
+    Crypto(6, "", "", Some(6)),
+    Crypto(2781, "", "", None),
+  ]
+
+  assert expected_currencies == client.get_default_currencies(model_currencies)
+}
+
+pub fn model_with_currency_filter_empty_string_test() {
+  let model = empty_model()
+
+  let expected_currencies = [Crypto(1, "", "", Some(1))]
+  let get_default_currencies = fn(_) { expected_currencies }
+
+  let result =
+    model
+    |> client.model_with_currency_filter(
+      Left,
+      "",
+      fn(_, _) { False },
+      get_default_currencies,
+    )
+
+  let expected_selector =
+    CurrencySelector(
+      ..{ model.conversion.conversion_inputs.0 }.currency_selector,
+      currencies: expected_currencies
+        |> currency_collection.from_list,
+    )
+
+  let expected_model =
+    Model(
+      ..model,
+      conversion: Conversion(..model.conversion, conversion_inputs: #(
+        ConversionInput(
+          ..model.conversion.conversion_inputs.0,
+          currency_selector: expected_selector,
+        ),
+        model.conversion.conversion_inputs.1,
+      )),
+    )
+
+  assert expected_model == result
+}
+
+pub fn model_with_currency_filter_non_empty_string_test() {
   let model =
     Model(..empty_model(), currencies: [
       Crypto(1, "abc", "abc", None),
@@ -479,26 +539,35 @@ pub fn model_with_currency_filter_test() {
     }
   }
 
+  let filter = "filter"
+
   let result =
     model
-    |> client.model_with_currency_filter(Left, "", filter_fun)
+    |> client.model_with_currency_filter(Left, filter, filter_fun, fn(_) {
+      model.currencies
+    })
 
-  assert result
-    == Model(
+  let expected_selector =
+    CurrencySelector(
+      ..{ model.conversion.conversion_inputs.0 }.currency_selector,
+      currency_filter: filter,
+      currencies: expected_currencies
+        |> currency_collection.from_list,
+    )
+
+  let expected_model =
+    Model(
       ..model,
       conversion: Conversion(..model.conversion, conversion_inputs: #(
         ConversionInput(
           ..model.conversion.conversion_inputs.0,
-          currency_selector: CurrencySelector(
-            ..{ model.conversion.conversion_inputs.0 }.currency_selector,
-            currency_filter: "",
-            currencies: expected_currencies
-              |> currency_collection.from_list,
-          ),
+          currency_selector: expected_selector,
         ),
         model.conversion.conversion_inputs.1,
       )),
     )
+
+  assert expected_model == result
 }
 
 pub fn model_with_selected_currency_test() {

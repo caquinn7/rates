@@ -12,7 +12,7 @@ import client/socket.{
   OnTextMessage,
 }
 import client/start_data.{type StartData}
-import client/ui/button_dropdown.{DropdownOption}
+import client/ui/button_dropdown.{DropdownOption, Flat, Grouped}
 import client/ui/components/auto_resize_input
 import gleam/bool
 import gleam/int
@@ -30,7 +30,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/element/svg
 import lustre/event
-import shared/currency.{type Currency} as _shared_currency
+import shared/currency.{type Currency, Crypto, Fiat} as _shared_currency
 import shared/rates/rate_request.{type RateRequest, RateRequest} as _shared_rate_request
 import shared/rates/rate_response.{RateResponse} as _shared_rate_response
 
@@ -439,23 +439,56 @@ pub fn currency_matches_filter(currency: Currency, filter_str: String) -> Bool {
   is_match(currency.name) || is_match(currency.symbol)
 }
 
-/// Updates the given `model` by applying a currency filter to its currencies and conversion inputs.
-/// 
+/// Returns a list of default currencies for display in selectors.
+/// Includes a small set of popular cryptocurrencies and the US Dollar.
+pub fn get_default_currencies(all_currencies: List(Currency)) -> List(Currency) {
+  // want top 5 ranked cryptos
+  let cryptos =
+    all_currencies
+    |> list.filter(fn(currency) {
+      case currency {
+        Crypto(..) -> True
+        Fiat(..) -> False
+      }
+    })
+    |> list.take(5)
+
+  // just want USD
+  let fiats =
+    all_currencies
+    |> list.filter(fn(currency) { currency.id == 2781 })
+
+  cryptos
+  |> list.append(fiats)
+}
+
+/// Updates the given `model` by applying a currency filter to the specified side's `CurrencySelector`.
+///
 /// - `model`: The current `Model` to update.
-/// - `side`: The `Side` to use for conversion input mapping.
-/// - `filter_str`: The string used to filter currencies.
-/// - `match_fun`: A function that determines if a `Currency` matches the filter string.
-/// 
-/// Returns a new `Model` with filtered currencies and updated conversion inputs reflecting the filter.
+/// - `side`: Indicates which `ConversionInput` (left or right) should be updated.
+/// - `filter_str`: The string used to filter currencies. An empty string triggers default currency selection.
+/// - `currency_matcher`: A predicate function used to filter currencies when `filter_str` is non-empty.
+/// - `default_currency_picker`: A function that returns a default subset of currencies when no filter is applied.
+///
+/// Returns a new `Model` where the specified conversion input has an updated `CurrencySelector`
+/// containing either the filtered or default currencies.
 pub fn model_with_currency_filter(
   model: Model,
   side: Side,
   filter_str: String,
-  currency_matches: fn(Currency, String) -> Bool,
+  currency_matcher: fn(Currency, String) -> Bool,
+  default_currency_picker: fn(List(Currency)) -> List(Currency),
 ) -> Model {
   let currencies =
-    model.currencies
-    |> list.filter(currency_matches(_, filter_str))
+    case filter_str {
+      "" ->
+        model.currencies
+        |> default_currency_picker
+
+      _ ->
+        model.currencies
+        |> list.filter(currency_matcher(_, filter_str))
+    }
     |> currency_collection.from_list
 
   let conversion_inputs =
@@ -648,7 +681,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UserClickedCurrencySelector(side) -> {
       let model =
         model
-        |> model_with_currency_filter(side, "", currency_matches_filter)
+        |> model_with_currency_filter(
+          side,
+          "",
+          currency_matches_filter,
+          get_default_currencies,
+        )
         |> model_with_focused_index(side, fn() { None })
         |> toggle_currency_selector_dropdown(side)
 
@@ -687,6 +725,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         side,
         filter_str,
         currency_matches_filter,
+        get_default_currencies,
       ),
       effect.none(),
     )
@@ -948,12 +987,18 @@ fn currency_selector(
       },
     )
 
+  let dropdown_mode = case currency_selector.currency_filter {
+    "" -> Flat
+    _ -> Grouped
+  }
+
   button_dropdown.view(
     currency_selector.id,
     currency_selector.selected_currency.symbol,
     currency_selector.show_dropdown,
     currency_selector.currency_filter,
     dropdown_options,
+    dropdown_mode,
     on_btn_click,
     on_filter,
     on_keydown_in_dropdown,

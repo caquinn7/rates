@@ -100,11 +100,12 @@ pub fn length(collection: CurrencyCollection) -> Int {
   |> int.sum
 }
 
-/// Maps over each currency in the `CurrencyCollection`, passing both its flat index
-/// and its group type. Returns a grouped result with the original structure preserved.
+/// Maps over each currency in the `CurrencyCollection`, passing its flat index to
+/// `map_currency`, and applies `map_type` to each group tag. Returns a grouped result
+/// with the original structure preserved.
 ///
 /// - `map_type` transforms the group tag (e.g., `CryptoCurrency` → `"Crypto"`)
-/// - `map_currency` transforms each currency with its flat index
+/// - `map_currency` transforms each currency, given its flat index across the entire collection
 pub fn index_map(
   collection: CurrencyCollection,
   map_type: fn(CurrencyType) -> a,
