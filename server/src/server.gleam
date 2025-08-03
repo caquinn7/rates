@@ -40,24 +40,28 @@ pub fn main() {
   let ctx = Context(cmc_api_key:, crypto_limit:, supported_fiat_symbols:)
 
   // get CMC currencies
-  let cmc_currencies_result = {
+  let cmc_currencies = {
     let request_cryptos = cmc.get_crypto_currencies(ctx.cmc_api_key, _)
     let request_fiats = cmc.get_fiat_currencies(ctx.cmc_api_key, _)
-    cmc_currency_handler.get_currencies(
-      ctx,
-      request_cryptos,
-      request_fiats,
-      10_000,
-    )
-  }
-  let cmc_currencies = case cmc_currencies_result {
-    Ok(cmc_currencies) -> {
-      let count = list.length(cmc_currencies)
-      echo "fetched " <> int.to_string(count) <> " currencies from cmc"
-      cmc_currencies
+
+    let result =
+      cmc_currency_handler.get_currencies(
+        ctx,
+        request_cryptos,
+        request_fiats,
+        10_000,
+      )
+
+    case result {
+      Error(err) ->
+        panic as { "error getting currencies: " <> string.inspect(err) }
+
+      Ok(cmc_currencies) -> {
+        let count = list.length(cmc_currencies)
+        echo "fetched " <> int.to_string(count) <> " currencies from cmc"
+        cmc_currencies
+      }
     }
-    Error(err) ->
-      panic as { "error getting currencies: " <> string.inspect(err) }
   }
 
   // start kraken actor
