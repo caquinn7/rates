@@ -74,30 +74,6 @@ pub type CurrencySelector {
 
 // model utility functions
 
-pub fn map_conversion_input(
-  model: Model,
-  side: Side,
-  fun: fn(ConversionInput) -> a,
-) -> a {
-  let target = case side {
-    Left -> model.conversion.conversion_inputs.0
-    Right -> model.conversion.conversion_inputs.1
-  }
-  fun(target)
-}
-
-pub fn map_conversion_inputs(
-  inputs: #(ConversionInput, ConversionInput),
-  side: Side,
-  fun: fn(ConversionInput) -> ConversionInput,
-) -> #(ConversionInput, ConversionInput) {
-  let map_pair = case side {
-    Left -> pair.map_first
-    Right -> pair.map_second
-  }
-  map_pair(inputs, fun)
-}
-
 /// Updates the model in response to a new exchange rate.
 ///
 /// If the user previously entered a valid amount on one side (tracked by `last_edited`),
@@ -255,7 +231,7 @@ pub fn model_with_amount(model: Model, side: Side, raw_amount: String) -> Model 
 }
 
 /// Toggles the visibility of the currency selector dropdown for the given side.
-pub fn toggle_currency_selector_dropdown(model: Model, side: Side) -> Model {
+pub fn model_with_toggled_dropdown(model: Model, side: Side) -> Model {
   let conversion_inputs =
     model.conversion.conversion_inputs
     |> map_conversion_inputs(side, fn(conversion_input) {
@@ -302,36 +278,6 @@ pub type NavKey {
   ArrowDown
   Enter
   Other(String)
-}
-
-/// Calculates the next focused index for keyboard navigation in a currency selector dropdown.
-///
-/// Given the current index, a navigation key (`ArrowDown`, `ArrowUp`, etc.), and the number of options,
-/// returns the new focused index according to the following rules:
-/// - If `option_count` is zero, returns `None`.
-/// - If the current index is set, moves up or down (with wrap-around) for arrow keys.
-/// - If the current index is `None`, sets to `0` for `ArrowDown` or to the last index for `ArrowUp`.
-/// - For other keys, returns the current index unchanged.
-pub fn calculate_next_focused_index(
-  current_index: Option(Int),
-  key: NavKey,
-  option_count: Int,
-) -> Option(Int) {
-  use <- bool.guard(option_count == 0, None)
-
-  current_index
-  |> option.map(fn(index) {
-    case key {
-      ArrowDown -> { index + 1 } % option_count
-      ArrowUp -> { index - 1 + option_count } % option_count
-      _ -> index
-    }
-  })
-  |> option.or(case key {
-    ArrowDown -> Some(0)
-    ArrowUp -> Some(option_count - 1)
-    _ -> None
-  })
 }
 
 pub fn navigate_currency_selector(
@@ -385,6 +331,36 @@ pub fn navigate_currency_selector(
   #(model, effect)
 }
 
+/// Calculates the next focused index for keyboard navigation in a currency selector dropdown.
+///
+/// Given the current index, a navigation key (`ArrowDown`, `ArrowUp`, etc.), and the number of options,
+/// returns the new focused index according to the following rules:
+/// - If `option_count` is zero, returns `None`.
+/// - If the current index is set, moves up or down (with wrap-around) for arrow keys.
+/// - If the current index is `None`, sets to `0` for `ArrowDown` or to the last index for `ArrowUp`.
+/// - For other keys, returns the current index unchanged.
+pub fn calculate_next_focused_index(
+  current_index: Option(Int),
+  key: NavKey,
+  option_count: Int,
+) -> Option(Int) {
+  use <- bool.guard(option_count == 0, None)
+
+  current_index
+  |> option.map(fn(index) {
+    case key {
+      ArrowDown -> { index + 1 } % option_count
+      ArrowUp -> { index - 1 + option_count } % option_count
+      _ -> index
+    }
+  })
+  |> option.or(case key {
+    ArrowDown -> Some(0)
+    ArrowUp -> Some(option_count - 1)
+    _ -> None
+  })
+}
+
 pub fn select_currency_via_enter_key(
   model: Model,
   side: Side,
@@ -405,64 +381,13 @@ pub fn select_currency_via_enter_key(
 
       model
       |> model_with_selected_currency(side, selected_currency)
-      |> toggle_currency_selector_dropdown(side)
+      |> model_with_toggled_dropdown(side)
     }
   }
 
   let effect = try_subscribe_to_rate_updates(model)
 
   #(model, effect)
-}
-
-/// Checks if the given currency matches the provided filter string.
-/// The match is case-insensitive and is performed against both the currency's name and symbol.
-/// Returns `True` if either the name or symbol contains the filter string, otherwise returns `False`.
-///
-/// # Arguments
-/// - `currency`: The currency to check.
-/// - `filter_str`: The filter string to match against the currency's name and symbol.
-///
-/// # Example
-/// ```gleam
-/// let usd = Fiat(id: 2781, name: "US Dollar", symbol: "USD", sign: "$")
-/// currency_matches_filter(usd, "usd") // Returns: True
-/// currency_matches_filter(usd, "dollar") // Returns: True
-/// currency_matches_filter(usd, "eur") // Returns: False
-/// ```
-pub fn name_or_symbol_contains_filter(
-  currency: Currency,
-  filter_str: String,
-) -> Bool {
-  let is_match = fn(str) {
-    str
-    |> string.lowercase
-    |> string.contains(string.lowercase(filter_str))
-  }
-
-  is_match(currency.name) || is_match(currency.symbol)
-}
-
-/// Returns a list of default currencies for display in selectors.
-/// Includes a small set of popular cryptocurrencies and the US Dollar.
-pub fn get_default_currencies(all_currencies: List(Currency)) -> List(Currency) {
-  // want top 5 ranked cryptos
-  let cryptos =
-    all_currencies
-    |> list.filter(fn(currency) {
-      case currency {
-        Crypto(..) -> True
-        Fiat(..) -> False
-      }
-    })
-    |> list.take(5)
-
-  // just want USD
-  let fiats =
-    all_currencies
-    |> list.filter(fn(currency) { currency.id == 2781 })
-
-  cryptos
-  |> list.append(fiats)
 }
 
 /// Updates the given `model` by applying a currency filter to the specified side's `CurrencySelector`.
@@ -525,6 +450,57 @@ pub fn model_with_currency_filter(
   Model(..model, conversion: Conversion(..model.conversion, conversion_inputs:))
 }
 
+/// Returns a list of default currencies for display in selectors.
+/// Includes a small set of popular cryptocurrencies and the US Dollar.
+pub fn get_default_currencies(all_currencies: List(Currency)) -> List(Currency) {
+  // want top 5 ranked cryptos
+  let cryptos =
+    all_currencies
+    |> list.filter(fn(currency) {
+      case currency {
+        Crypto(..) -> True
+        Fiat(..) -> False
+      }
+    })
+    |> list.take(5)
+
+  // just want USD
+  let fiats =
+    all_currencies
+    |> list.filter(fn(currency) { currency.id == 2781 })
+
+  cryptos
+  |> list.append(fiats)
+}
+
+/// Checks if the given currency matches the provided filter string.
+/// The match is case-insensitive and is performed against both the currency's name and symbol.
+/// Returns `True` if either the name or symbol contains the filter string, otherwise returns `False`.
+///
+/// # Arguments
+/// - `currency`: The currency to check.
+/// - `filter_str`: The filter string to match against the currency's name and symbol.
+///
+/// # Example
+/// ```gleam
+/// let usd = Fiat(id: 2781, name: "US Dollar", symbol: "USD", sign: "$")
+/// currency_matches_filter(usd, "usd") // Returns: True
+/// currency_matches_filter(usd, "dollar") // Returns: True
+/// currency_matches_filter(usd, "eur") // Returns: False
+/// ```
+pub fn name_or_symbol_contains_filter(
+  currency: Currency,
+  filter_str: String,
+) -> Bool {
+  let is_match = fn(str) {
+    str
+    |> string.lowercase
+    |> string.contains(string.lowercase(filter_str))
+  }
+
+  is_match(currency.name) || is_match(currency.symbol)
+}
+
 /// Updates the selected currency for the specified side.
 ///
 /// Replaces the currently selected currency in the `currency_selector`
@@ -549,6 +525,30 @@ pub fn model_with_selected_currency(
     })
 
   Model(..model, conversion: Conversion(..model.conversion, conversion_inputs:))
+}
+
+pub fn map_conversion_input(
+  model: Model,
+  side: Side,
+  fun: fn(ConversionInput) -> a,
+) -> a {
+  let target = case side {
+    Left -> model.conversion.conversion_inputs.0
+    Right -> model.conversion.conversion_inputs.1
+  }
+  fun(target)
+}
+
+pub fn map_conversion_inputs(
+  inputs: #(ConversionInput, ConversionInput),
+  side: Side,
+  fun: fn(ConversionInput) -> ConversionInput,
+) -> #(ConversionInput, ConversionInput) {
+  let map_pair = case side {
+    Left -> pair.map_first
+    Right -> pair.map_second
+  }
+  map_pair(inputs, fun)
 }
 
 // end model utility functions
@@ -718,7 +718,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           get_default_currencies,
         )
         |> model_with_focused_index(side, fn() { None })
-        |> toggle_currency_selector_dropdown(side)
+        |> model_with_toggled_dropdown(side)
 
       let effect = {
         let dropdown_visible =
@@ -777,7 +777,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let model =
         model
         |> model_with_selected_currency(side, currency)
-        |> toggle_currency_selector_dropdown(side)
+        |> model_with_toggled_dropdown(side)
 
       let effect = try_subscribe_to_rate_updates(model)
 
@@ -811,7 +811,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           False -> model
           True ->
             model
-            |> toggle_currency_selector_dropdown(side)
+            |> model_with_toggled_dropdown(side)
         }
       }
 
@@ -839,6 +839,14 @@ fn try_subscribe_to_rate_updates(model: Model) -> Effect(Msg) {
   }
 }
 
+fn build_rate_request(model: Model) -> RateRequest {
+  let #(left_input, right_input) = model.conversion.conversion_inputs
+  RateRequest(
+    left_input.currency_selector.selected_currency.id,
+    right_input.currency_selector.selected_currency.id,
+  )
+}
+
 fn subscribe_to_rate_updates(
   socket: WebSocket,
   rate_request: RateRequest,
@@ -847,14 +855,6 @@ fn subscribe_to_rate_updates(
   |> rate_request.encode
   |> json.to_string
   |> socket.send(socket, _)
-}
-
-fn build_rate_request(model: Model) -> RateRequest {
-  let #(left_input, right_input) = model.conversion.conversion_inputs
-  RateRequest(
-    left_input.currency_selector.selected_currency.id,
-    right_input.currency_selector.selected_currency.id,
-  )
 }
 
 pub fn view(model: Model) -> Element(Msg) {

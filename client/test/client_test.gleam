@@ -409,7 +409,7 @@ pub fn model_with_amount_parse_success_with_no_rate_test() {
     )
 }
 
-pub fn toggle_currency_selector_dropdown_test() {
+pub fn model_with_toggled_dropdown_test() {
   let model = empty_model()
 
   let initial_val =
@@ -419,7 +419,7 @@ pub fn toggle_currency_selector_dropdown_test() {
 
   let result =
     model
-    |> client.toggle_currency_selector_dropdown(Left)
+    |> client.model_with_toggled_dropdown(Left)
 
   assert result
     == Model(
