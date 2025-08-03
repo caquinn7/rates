@@ -93,6 +93,7 @@ fn dropdown(
 
     Grouped ->
       options
+      |> list.filter(fn(group) { !list.is_empty(pair.second(group)) })
       |> list.map(option_group(_, on_option_click))
       |> element.fragment
   }
