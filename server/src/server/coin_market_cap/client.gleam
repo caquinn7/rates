@@ -5,8 +5,9 @@ import gleam/http/request.{type Request}
 import gleam/httpc
 import gleam/int
 import gleam/json
-import gleam/option.{type Option, None}
+import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 
 pub type CmcRequestError {
   HttpError(httpc.HttpError)
@@ -56,21 +57,32 @@ const base_url = "https://pro-api.coinmarketcap.com"
 pub fn get_crypto_currencies(
   api_key: String,
   limit: Int,
+  symbol: Option(String),
 ) -> Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError) {
   // only fails if url can't be parsed
   let assert Ok(req) = request.to(base_url <> "/v1/cryptocurrency/map")
+
+  let params = [
+    #("sort", "cmc_rank"),
+    #("limit", int.to_string(limit)),
+    #("listing_status", "active"),
+    // empty string aux tells cmc to omit some properties
+    #("aux", ""),
+  ]
+
+  let params = case option.map(symbol, string.trim) {
+    Some("") | None -> params
+    Some(s) -> [#("symbol", s), ..params]
+  }
+
   let req =
     req
     |> set_headers(api_key)
-    |> request.set_query([
-      #("sort", "cmc_rank"),
-      #("limit", int.to_string(limit)),
-      #("listing_status", "active"),
-      #("aux", ""),
-    ])
+    |> request.set_query(params)
 
   use resp <- result.try(
-    httpc.send(req)
+    req
+    |> httpc.send
     |> result.map_error(HttpError),
   )
 
@@ -90,7 +102,8 @@ pub fn get_fiat_currencies(
     |> request.set_query([#("sort", "id"), #("limit", int.to_string(limit))])
 
   use resp <- result.try(
-    httpc.send(req)
+    req
+    |> httpc.send
     |> result.map_error(HttpError),
   )
 
@@ -116,7 +129,8 @@ pub fn get_conversion(
     ])
 
   use resp <- result.try(
-    httpc.send(req)
+    req
+    |> httpc.send
     |> result.map_error(HttpError),
   )
 

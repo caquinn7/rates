@@ -5,12 +5,13 @@ import gleam/http
 import gleam/http/request
 import gleam/int
 import gleam/list
+import gleam/option.{None}
 import gleam/result
 import gleam/string
 import mist
 import server/coin_market_cap/client as cmc
 import server/context.{Context}
-import server/currencies/cmc_currency_handler
+import server/currencies/currencies_fetcher
 import server/kraken/kraken
 import server/kraken/price_store
 import server/rates/actors/resolver as rate_resolver
@@ -41,11 +42,11 @@ pub fn main() {
 
   // get CMC currencies
   let cmc_currencies = {
-    let request_cryptos = cmc.get_crypto_currencies(ctx.cmc_api_key, _)
+    let request_cryptos = cmc.get_crypto_currencies(ctx.cmc_api_key, _, None)
     let request_fiats = cmc.get_fiat_currencies(ctx.cmc_api_key, _)
 
     let result =
-      cmc_currency_handler.get_currencies(
+      currencies_fetcher.get_currencies(
         ctx,
         request_cryptos,
         request_fiats,
