@@ -18,7 +18,7 @@ pub fn get_currencies_crypto_request_returns_handler_error_test() {
   let expected_error = HttpError(httpc.InvalidUtf8Response)
   let request_cryptos = fn() { Error(expected_error) }
 
-  let request_fiats = fn(_) {
+  let request_fiats = fn() {
     [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
     |> Some
     |> CmcListResponse(good_cmc_status, _)
@@ -48,7 +48,7 @@ pub fn get_currencies_crypto_request_returns_error_when_empty_list_received_test
     |> Ok
   }
 
-  let request_fiats = fn(_) {
+  let request_fiats = fn() {
     [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
     |> Some
     |> CmcListResponse(good_cmc_status, _)
@@ -75,7 +75,7 @@ pub fn get_currencies_fiat_request_returns_handler_error_test() {
   }
 
   let expected_error = HttpError(httpc.InvalidUtf8Response)
-  let request_fiats = fn(_) { Error(expected_error) }
+  let request_fiats = fn() { Error(expected_error) }
 
   let result =
     currencies_fetcher.get_currencies(
@@ -100,7 +100,7 @@ pub fn get_currencies_fiat_request_returns_error_when_empty_list_received_test()
     |> Ok
   }
 
-  let request_fiats = fn(_) {
+  let request_fiats = fn() {
     []
     |> Some
     |> CmcListResponse(good_cmc_status, _)
@@ -127,7 +127,7 @@ pub fn get_currencies_returns_error_when_request_times_out() {
   }
 
   let timeout = 25
-  let request_fiats = fn(_) {
+  let request_fiats = fn() {
     process.sleep(timeout)
 
     [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
@@ -155,7 +155,7 @@ pub fn get_currencies_returns_both_crypto_and_fiat_test() {
     |> Ok
   }
 
-  let request_fiats = fn(_) {
+  let request_fiats = fn() {
     [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
     |> Some
     |> CmcListResponse(good_cmc_status, _)

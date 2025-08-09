@@ -61,7 +61,7 @@ pub fn get_cryptos_error_status_test() {
 }
 
 pub fn get_fiats_filters_out_unsupported_symbols_test() {
-  let request_fiats = fn(_) {
+  let request_fiats = fn() {
     [
       CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
       CmcFiatCurrency(9999, "", "", "EUR"),
@@ -77,7 +77,7 @@ pub fn get_fiats_filters_out_unsupported_symbols_test() {
 }
 
 pub fn get_fiats_removes_duplicates_test() {
-  let request_fiats = fn(_) {
+  let request_fiats = fn() {
     [
       CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
       CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
@@ -93,7 +93,7 @@ pub fn get_fiats_removes_duplicates_test() {
 }
 
 pub fn get_fiats_does_not_filter_when_supported_symbols_is_empty_test() {
-  let request_fiats = fn(_) {
+  let request_fiats = fn() {
     [
       CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
       CmcFiatCurrency(9999, "Buck", "B", "BCK"),
@@ -114,7 +114,7 @@ pub fn get_fiats_does_not_filter_when_supported_symbols_is_empty_test() {
 
 pub fn get_fiats_client_error_test() {
   let expected_client_err = HttpError(httpc.InvalidUtf8Response)
-  let request_fiats = fn(_) { Error(expected_client_err) }
+  let request_fiats = fn() { Error(expected_client_err) }
 
   let result = cmc_currency_handler.get_fiats([], request_fiats)
 
@@ -122,7 +122,7 @@ pub fn get_fiats_client_error_test() {
 }
 
 pub fn get_fiats_error_status_test() {
-  let request_fiats = fn(_) {
+  let request_fiats = fn() {
     None
     |> CmcListResponse(bad_cmc_status, _)
     |> Ok

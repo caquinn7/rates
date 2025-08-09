@@ -11,7 +11,7 @@ pub type RequestCmcCryptos =
   fn() -> Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError)
 
 pub type RequestCmcFiats =
-  fn(Int) -> Result(CmcListResponse(CmcFiatCurrency), CmcRequestError)
+  fn() -> Result(CmcListResponse(CmcFiatCurrency), CmcRequestError)
 
 pub type FetchError {
   ClientError(CmcRequestError)
@@ -46,8 +46,7 @@ pub fn get_fiats(
   request_fiat: RequestCmcFiats,
 ) -> Result(List(Currency), FetchError) {
   use cmc_response <- result.try(
-    100
-    |> request_fiat
+    request_fiat()
     |> result.map_error(ClientError),
   )
 
