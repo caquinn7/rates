@@ -60,6 +60,20 @@ pub fn get_cryptos_error_status_test() {
   assert Error(ErrorStatusReceived(bad_cmc_status)) == result
 }
 
+pub fn get_cryptos_returns_empty_list_when_symbol_not_found_test() {
+  let request_cryptos = fn() {
+    let msg = "Invalid value for \"symbol\": \"XYZ\""
+
+    None
+    |> CmcListResponse(CmcStatus(400, Some(msg)), _)
+    |> Ok
+  }
+
+  let result = cmc_currency_handler.get_cryptos(request_cryptos)
+
+  assert Ok([]) == result
+}
+
 pub fn get_fiats_filters_out_unsupported_symbols_test() {
   let request_fiats = fn() {
     [

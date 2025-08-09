@@ -3,7 +3,7 @@ import gleam/option.{Some}
 import gleam/result
 import server/coin_market_cap/client.{
   type CmcCryptoCurrency, type CmcFiatCurrency, type CmcListResponse,
-  type CmcRequestError, type CmcStatus,
+  type CmcRequestError, type CmcStatus, CmcStatus,
 }
 import shared/currency.{type Currency, Crypto, Fiat}
 
@@ -28,7 +28,13 @@ pub fn get_cryptos(
 
   use data <- result.try(case cmc_response.status.error_code == 0 {
     True -> Ok(cmc_response.data)
-    False -> Error(ErrorStatusReceived(cmc_response.status))
+
+    False ->
+      case cmc_response.status {
+        CmcStatus(_, Some("Invalid value for \"symbol\"" <> _)) -> Ok(Some([]))
+
+        _ -> Error(ErrorStatusReceived(cmc_response.status))
+      }
   })
 
   let assert Some(cryptos) = data
