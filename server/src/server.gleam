@@ -4,20 +4,24 @@ import gleam/erlang/process
 import gleam/http
 import gleam/http/request
 import gleam/int
+import gleam/json
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
+import gleam/string_tree
 import mist
 import server/coin_market_cap/client as cmc
-import server/context.{Context}
+import server/context.{type Context, Context}
+import server/currencies/cmc_currency_handler
 import server/currencies/currencies_fetcher
 import server/kraken/kraken
 import server/kraken/price_store
 import server/rates/actors/resolver as rate_resolver
+import server/routes/currency
 import server/routes/home/home
 import server/ws/websocket
-import shared/currency.{type Currency}
+import shared/currency.{type Currency} as _shared_currency
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
 import wisp.{type Request, type Response}
@@ -42,7 +46,9 @@ pub fn main() {
 
   // get CMC currencies
   let cmc_currencies = {
-    let request_cryptos = cmc.get_crypto_currencies(ctx.cmc_api_key, _, None)
+    let request_cryptos = fn() {
+      cmc.get_crypto_currencies(ctx.cmc_api_key, ctx.crypto_limit, None)
+    }
     let request_fiats = cmc.get_fiat_currencies(ctx.cmc_api_key, _)
 
     let result =
@@ -128,7 +134,7 @@ pub fn main() {
 
           let handle_request =
             wisp_mist.handler(
-              handle_request(_, cmc_currencies, get_rate),
+              handle_request(ctx, _, cmc_currencies, get_rate),
               secret_key_base,
             )
           handle_request(req)
@@ -150,6 +156,7 @@ fn load_env() -> Nil {
 }
 
 fn handle_request(
+  ctx: Context,
   req: Request,
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
@@ -159,6 +166,45 @@ fn handle_request(
     [] -> {
       use <- wisp.require_method(req, http.Get)
       home.get(currencies, get_rate)
+    }
+
+    ["api", "currencies"] -> {
+      use <- wisp.require_method(req, http.Get)
+
+      let get_symbol_param = fn() {
+        req
+        |> wisp.get_query
+        |> list.key_find("symbol")
+        |> result.map(string.trim_end)
+      }
+
+      case get_symbol_param() {
+        Error(_) | Ok("") ->
+          wisp.response(400)
+          |> wisp.json_body(string_tree.from_string(
+            "{\"error\": \"Query parameter 'symbol' is required.\"}",
+          ))
+
+        Ok(symbol) -> {
+          let request_cryptos = fn() {
+            cmc.get_crypto_currencies(
+              ctx.cmc_api_key,
+              ctx.crypto_limit,
+              Some(symbol),
+            )
+          }
+
+          case cmc_currency_handler.get_cryptos(request_cryptos) {
+            Error(_) -> wisp.internal_server_error()
+
+            Ok(currencies) ->
+              currencies
+              |> json.array(currency.encode)
+              |> json.to_string_tree
+              |> wisp.json_response(200)
+          }
+        }
+      }
     }
 
     _ -> wisp.not_found()

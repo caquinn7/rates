@@ -1,7 +1,7 @@
 import birdie
 import gleam/json
 import gleam/option.{None, Some}
-import server/routes/home/currency
+import server/routes/currency
 import shared/currency.{Crypto, Fiat} as _shared_currency
 
 pub fn encode_crypto_currency_to_json_test() {

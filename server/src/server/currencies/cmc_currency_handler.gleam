@@ -8,7 +8,7 @@ import server/coin_market_cap/client.{
 import shared/currency.{type Currency, Crypto, Fiat}
 
 pub type RequestCmcCryptos =
-  fn(Int) -> Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError)
+  fn() -> Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError)
 
 pub type RequestCmcFiats =
   fn(Int) -> Result(CmcListResponse(CmcFiatCurrency), CmcRequestError)
@@ -19,12 +19,10 @@ pub type FetchError {
 }
 
 pub fn get_cryptos(
-  limit: Int,
   request_crypto: RequestCmcCryptos,
 ) -> Result(List(Currency), FetchError) {
   use cmc_response <- result.try(
-    limit
-    |> request_crypto
+    request_crypto()
     |> result.map_error(ClientError),
   )
 

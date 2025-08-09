@@ -16,7 +16,7 @@ const good_cmc_status = CmcStatus(0, None)
 
 pub fn get_currencies_crypto_request_returns_handler_error_test() {
   let expected_error = HttpError(httpc.InvalidUtf8Response)
-  let request_cryptos = fn(_) { Error(expected_error) }
+  let request_cryptos = fn() { Error(expected_error) }
 
   let request_fiats = fn(_) {
     [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
@@ -41,7 +41,7 @@ pub fn get_currencies_crypto_request_returns_handler_error_test() {
 }
 
 pub fn get_currencies_crypto_request_returns_error_when_empty_list_received_test() {
-  let request_cryptos = fn(_) {
+  let request_cryptos = fn() {
     []
     |> Some
     |> CmcListResponse(good_cmc_status, _)
@@ -67,7 +67,7 @@ pub fn get_currencies_crypto_request_returns_error_when_empty_list_received_test
 }
 
 pub fn get_currencies_fiat_request_returns_handler_error_test() {
-  let request_cryptos = fn(_) {
+  let request_cryptos = fn() {
     [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
     |> Some
     |> CmcListResponse(good_cmc_status, _)
@@ -93,7 +93,7 @@ pub fn get_currencies_fiat_request_returns_handler_error_test() {
 }
 
 pub fn get_currencies_fiat_request_returns_error_when_empty_list_received_test() {
-  let request_cryptos = fn(_) {
+  let request_cryptos = fn() {
     [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
     |> Some
     |> CmcListResponse(good_cmc_status, _)
@@ -119,7 +119,7 @@ pub fn get_currencies_fiat_request_returns_error_when_empty_list_received_test()
 }
 
 pub fn get_currencies_returns_error_when_request_times_out() {
-  let request_cryptos = fn(_) {
+  let request_cryptos = fn() {
     [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
     |> Some
     |> CmcListResponse(good_cmc_status, _)
@@ -148,7 +148,7 @@ pub fn get_currencies_returns_error_when_request_times_out() {
 }
 
 pub fn get_currencies_returns_both_crypto_and_fiat_test() {
-  let request_cryptos = fn(_) {
+  let request_cryptos = fn() {
     [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
     |> Some
     |> CmcListResponse(good_cmc_status, _)

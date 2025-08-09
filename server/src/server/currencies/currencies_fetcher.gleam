@@ -36,8 +36,7 @@ pub fn get_currencies(
   let try_fetch = fn(req_type) {
     let fetch =
       case req_type {
-        CryptoRequest ->
-          cmc_currency_handler.get_cryptos(ctx.crypto_limit, request_cryptos)
+        CryptoRequest -> cmc_currency_handler.get_cryptos(request_cryptos)
 
         FiatRequest ->
           cmc_currency_handler.get_fiats(
