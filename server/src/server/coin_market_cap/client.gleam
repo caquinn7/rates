@@ -56,7 +56,7 @@ const base_url = "https://pro-api.coinmarketcap.com"
 
 pub fn get_crypto_currencies(
   api_key: String,
-  limit: Int,
+  limit: Option(Int),
   symbol: Option(String),
 ) -> Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError) {
   // only fails if url can't be parsed
@@ -64,7 +64,7 @@ pub fn get_crypto_currencies(
 
   let params = [
     #("sort", "cmc_rank"),
-    #("limit", int.to_string(limit)),
+    #("limit", int.to_string(option.unwrap(limit, 100))),
     #("listing_status", "active"),
     // empty string aux tells cmc to omit some properties
     #("aux", ""),
@@ -93,13 +93,16 @@ pub fn get_crypto_currencies(
 
 pub fn get_fiat_currencies(
   api_key: String,
-  limit: Int,
+  limit: Option(Int),
 ) -> Result(CmcListResponse(CmcFiatCurrency), CmcRequestError) {
   let assert Ok(req) = request.to(base_url <> "/v1/fiat/map")
   let req =
     req
     |> set_headers(api_key)
-    |> request.set_query([#("sort", "id"), #("limit", int.to_string(limit))])
+    |> request.set_query([
+      #("sort", "id"),
+      #("limit", int.to_string(option.unwrap(limit, 100))),
+    ])
 
   use resp <- result.try(
     req

@@ -47,9 +47,11 @@ pub fn main() {
   // get CMC currencies
   let cmc_currencies = {
     let request_cryptos = fn() {
-      cmc.get_crypto_currencies(ctx.cmc_api_key, ctx.crypto_limit, None)
+      cmc.get_crypto_currencies(ctx.cmc_api_key, Some(ctx.crypto_limit), None)
     }
-    let request_fiats = fn() { cmc.get_fiat_currencies(ctx.cmc_api_key, 100) }
+    let request_fiats = fn() {
+      cmc.get_fiat_currencies(ctx.cmc_api_key, Some(100))
+    }
 
     let result =
       currencies_fetcher.get_currencies(
@@ -189,7 +191,7 @@ fn handle_request(
           let request_cryptos = fn() {
             cmc.get_crypto_currencies(
               ctx.cmc_api_key,
-              ctx.crypto_limit,
+              Some(ctx.crypto_limit),
               Some(symbol),
             )
           }
