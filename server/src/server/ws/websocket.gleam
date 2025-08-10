@@ -39,7 +39,7 @@ pub fn on_init(
       request_cmc_conversion,
       kraken_subject,
       get_price_store,
-      5000,
+      30_000,
     )
 
   #(rate_subscriber, Some(selector))
