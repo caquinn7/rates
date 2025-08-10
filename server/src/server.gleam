@@ -176,7 +176,7 @@ fn handle_request(
         req
         |> wisp.get_query
         |> list.key_find("symbol")
-        |> result.map(string.trim_end)
+        |> result.map(string.trim)
       }
 
       case get_symbol_param() {
