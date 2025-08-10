@@ -18,10 +18,9 @@ import server/currencies/currencies_fetcher
 import server/kraken/kraken
 import server/kraken/price_store
 import server/rates/actors/resolver as rate_resolver
-import server/routes/currency
 import server/routes/home/home
 import server/ws/websocket
-import shared/currency.{type Currency} as _shared_currency
+import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
 import wisp.{type Request, type Response}

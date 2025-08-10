@@ -11,6 +11,7 @@
 /// Usage
 /// - Use `new` to start the actor and begin polling.
 /// - Use `subscribe`to begin watching a specific pair.
+/// - Use `add_currencies` to add more currencies to the internal dictionary.
 /// - Use `unsubscribe` to stop the subscription and shut down the actor.
 ///
 /// Only one active subscription is supported at a time. A future enhancement could allow
@@ -39,6 +40,7 @@ pub opaque type RateSubscriber {
 type Msg {
   Subscribe(RateRequest)
   GetLatestRate
+  AddCurrencies(List(Currency))
   Stop
 }
 
@@ -71,10 +73,7 @@ pub fn new(
   get_price_store: fn() -> PriceStore,
   interval: Int,
 ) -> Result(RateSubscriber, StartError) {
-  let currency_dict =
-    cmc_currencies
-    |> list.map(fn(c) { #(c.id, c.symbol) })
-    |> dict.from_list
+  let currency_dict = currencies_to_dict(cmc_currencies)
 
   let initial_state = Idle(reply_to, currency_dict, kraken, get_price_store())
   let msg_loop = fn(state, msg) {
@@ -98,13 +97,21 @@ fn polling_loop(subject: Subject(Msg), interval: Int) -> Nil {
 }
 
 pub fn subscribe(subscriber: RateSubscriber, rate_request: RateRequest) -> Nil {
-  let RateSubscriber(rate_actor_subject) = subscriber
-  actor.send(rate_actor_subject, Subscribe(rate_request))
+  let RateSubscriber(subject) = subscriber
+  actor.send(subject, Subscribe(rate_request))
+}
+
+pub fn add_currencies(
+  subscriber: RateSubscriber,
+  currencies: List(Currency),
+) -> Nil {
+  let RateSubscriber(subject) = subscriber
+  actor.send(subject, AddCurrencies(currencies))
 }
 
 pub fn stop(subscriber: RateSubscriber) -> Nil {
-  let RateSubscriber(rate_actor_subject) = subscriber
-  actor.send(rate_actor_subject, Stop)
+  let RateSubscriber(subject) = subscriber
+  actor.send(subject, Stop)
 }
 
 fn handle_msg(
@@ -227,6 +234,18 @@ fn handle_msg(
       }
     }
 
+    AddCurrencies(currencies) -> {
+      let cmc_currencies =
+        currencies
+        |> currencies_to_dict
+        |> dict.merge(state.cmc_currencies, _)
+
+      actor.continue(case state {
+        Idle(..) -> Idle(..state, cmc_currencies:)
+        Subscribed(..) -> Subscribed(..state, cmc_currencies:)
+      })
+    }
+
     Stop -> {
       case state {
         Idle(..) -> actor.stop()
@@ -245,6 +264,12 @@ fn handle_msg(
       }
     }
   }
+}
+
+fn currencies_to_dict(currencies: List(Currency)) -> Dict(Int, String) {
+  currencies
+  |> list.map(fn(c) { #(c.id, c.symbol) })
+  |> dict.from_list
 }
 
 fn handle_cmc_fallback(

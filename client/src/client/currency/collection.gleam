@@ -41,8 +41,7 @@ pub fn from_list(currencies: List(Currency)) -> CurrencyCollection {
       }
     })
 
-  [#(CryptoCurrency, cryptos), #(FiatCurrency, fiats)]
-  |> CurrencyCollection
+  CurrencyCollection([#(CryptoCurrency, cryptos), #(FiatCurrency, fiats)])
 }
 
 pub fn to_list(

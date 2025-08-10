@@ -1,3 +1,4 @@
+import gleam/dynamic/decode.{type Decoder}
 import gleam/erlang/process.{type Selector}
 import gleam/function
 import gleam/json
@@ -13,6 +14,7 @@ import server/rates/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/rate_request
 import server/rates/rate_response
 import shared/currency.{type Currency}
+import shared/rates/rate_request.{type RateRequest} as _shared_rate_request
 import shared/rates/rate_response.{type RateResponse} as _shared_rate_response
 
 pub fn on_init(
@@ -43,6 +45,24 @@ pub fn on_init(
   #(rate_subscriber, Some(selector))
 }
 
+pub type WebsocketRequest {
+  GetRate(RateRequest)
+  AddCurrencies(List(Currency))
+}
+
+pub fn websocket_request_decoder() -> Decoder(WebsocketRequest) {
+  let get_rate_decoder =
+    rate_request.decoder()
+    |> decode.map(GetRate)
+
+  let add_currencies_decoder =
+    currency.decoder()
+    |> decode.list
+    |> decode.map(AddCurrencies)
+
+  decode.one_of(get_rate_decoder, [add_currencies_decoder])
+}
+
 pub fn handler(
   state: RateSubscriber,
   message: WebsocketMessage(Result(RateResponse, String)),
@@ -52,13 +72,20 @@ pub fn handler(
     Text(str) -> {
       echo "message received: " <> str
 
-      case json.parse(str, rate_request.decoder()) {
-        Ok(rate_req) -> {
+      case json.parse(str, websocket_request_decoder()) {
+        Ok(GetRate(rate_req)) -> {
           rate_subscriber.subscribe(state, rate_req)
           mist.continue(state)
         }
 
-        _ -> {
+        Ok(AddCurrencies([])) -> mist.continue(state)
+
+        Ok(AddCurrencies(currencies)) -> {
+          rate_subscriber.add_currencies(state, currencies)
+          mist.continue(state)
+        }
+
+        Error(_) -> {
           let _ = mist.send_text_frame(conn, "Failed to decode rate request")
           mist.continue(state)
         }
