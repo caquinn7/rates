@@ -1,7 +1,7 @@
 import client/start_data.{type StartData}
 import gleam/json.{type Json}
 import server/rates/rate_response
-import server/routes/home/currency
+import shared/currency
 
 pub fn encode(start_data: StartData) -> Json {
   json.object([

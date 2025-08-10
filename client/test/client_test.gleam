@@ -476,12 +476,12 @@ pub fn get_default_currencies_returns_expected_currencies_test() {
   ]
 
   let model_currencies = [
-    Crypto(1, "", "", Some(1)),
-    Crypto(2, "", "", Some(2)),
-    Crypto(3, "", "", Some(3)),
-    Crypto(4, "", "", Some(4)),
-    Crypto(5, "", "", Some(5)),
     Crypto(6, "", "", Some(6)),
+    Crypto(5, "", "", Some(5)),
+    Crypto(4, "", "", Some(4)),
+    Crypto(3, "", "", Some(3)),
+    Crypto(2, "", "", Some(2)),
+    Crypto(1, "", "", Some(1)),
     Crypto(2781, "", "", None),
   ]
 

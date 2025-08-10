@@ -1,3 +1,4 @@
+import client/api
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/event as browser_event
@@ -30,7 +31,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/element/svg
 import lustre/event
-import shared/currency.{type Currency, Crypto, Fiat} as _shared_currency
+import rsvp
+import shared/currency.{type Currency, Crypto, Fiat}
 import shared/rates/rate_request.{type RateRequest, RateRequest} as _shared_rate_request
 import shared/rates/rate_response.{RateResponse} as _shared_rate_response
 
@@ -409,13 +411,8 @@ pub fn model_with_currency_filter(
 ) -> Model {
   let filter_or_get_defaults = fn(currencies, filter_str) {
     case filter_str {
-      "" ->
-        currencies
-        |> default_currency_picker
-
-      _ ->
-        currencies
-        |> list.filter(currency_matcher(_, filter_str))
+      "" -> default_currency_picker(currencies)
+      _ -> list.filter(currencies, currency_matcher(_, filter_str))
     }
   }
 
@@ -462,6 +459,7 @@ pub fn get_default_currencies(all_currencies: List(Currency)) -> List(Currency) 
         Fiat(..) -> False
       }
     })
+    |> list.sort(currency_collection.compare_currencies)
     |> list.take(5)
 
   // just want USD
@@ -658,6 +656,7 @@ pub type Msg {
   UserPressedKeyInCurrencySelector(Side, NavKey)
   UserSelectedCurrency(Side, Int)
   UserClickedInDocument(browser_event.Event)
+  ApiReturnedMatchedCurrencies(Side, String, Result(List(Currency), rsvp.Error))
 }
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -749,16 +748,65 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect)
     }
 
-    UserFilteredCurrencies(side, filter_str) -> #(
-      model_with_currency_filter(
-        model,
-        side,
-        filter_str,
-        name_or_symbol_contains_filter,
-        get_default_currencies,
-      ),
-      effect.none(),
-    )
+    UserFilteredCurrencies(side, filter_str) -> {
+      let model =
+        model_with_currency_filter(
+          model,
+          side,
+          filter_str,
+          name_or_symbol_contains_filter,
+          get_default_currencies,
+        )
+
+      let effect = {
+        let #(currencies, filter_str) =
+          map_conversion_input(model, side, fn(input) {
+            #(
+              input.currency_selector.currencies,
+              input.currency_selector.currency_filter,
+            )
+          })
+
+        let no_match =
+          currencies
+          |> currency_collection.flatten
+          |> list.is_empty
+
+        case no_match {
+          False -> effect.none()
+          True ->
+            api.get_currency(filter_str, ApiReturnedMatchedCurrencies(
+              side,
+              filter_str,
+              _,
+            ))
+        }
+      }
+
+      #(model, effect)
+    }
+
+    ApiReturnedMatchedCurrencies(_, _, Error(err)) -> {
+      echo "error fetching currencies"
+      echo err
+      #(model, effect.none())
+    }
+
+    ApiReturnedMatchedCurrencies(side, filter_str, Ok(currencies)) -> {
+      let model =
+        Model(..model, currencies: list.append(currencies, model.currencies))
+        |> model_with_currency_filter(
+          side,
+          filter_str,
+          name_or_symbol_contains_filter,
+          get_default_currencies,
+        )
+
+      let effect =
+        try_add_currencies_for_future_subscriptions(model, currencies)
+
+      #(model, effect)
+    }
 
     UserPressedKeyInCurrencySelector(side, key) -> {
       case key {
@@ -855,6 +903,24 @@ fn subscribe_to_rate_updates(
   |> rate_request.encode
   |> json.to_string
   |> socket.send(socket, _)
+}
+
+fn try_add_currencies_for_future_subscriptions(
+  model: Model,
+  currencies: List(Currency),
+) -> Effect(Msg) {
+  case model.socket {
+    None -> {
+      echo "could not add currencies. socket not initialized."
+      effect.none()
+    }
+
+    Some(socket) ->
+      currencies
+      |> json.array(currency.encode)
+      |> json.to_string
+      |> socket.send(socket, _)
+  }
 }
 
 pub fn view(model: Model) -> Element(Msg) {
