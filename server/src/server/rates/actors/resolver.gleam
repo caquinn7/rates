@@ -20,6 +20,7 @@ import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
 import server/kraken/kraken.{type Kraken}
 import server/kraken/price_store.{type PriceStore}
+import server/rates/actors/kraken_symbol
 import server/rates/actors/utils
 import server/rates/cmc_rate_handler.{
   type RateRequestError, type RequestCmcConversion,
@@ -101,12 +102,12 @@ fn handle_msg(
         actor.stop()
       })
       |> result.map(fn(symbols) {
-        case utils.resolve_kraken_symbol(symbols) {
+        case kraken_symbol.new(symbols) {
           Error(_) ->
             handle_cmc_fallback(rate_req, request_cmc_conversion, reply_to)
 
           Ok(kraken_symbol) -> {
-            let symbol_str = utils.unwrap_kraken_symbol(kraken_symbol)
+            let symbol_str = kraken_symbol.to_string(kraken_symbol)
             kraken.subscribe(state.kraken, symbol_str)
 
             let kraken_price_result =

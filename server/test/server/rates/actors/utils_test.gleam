@@ -1,9 +1,8 @@
 import gleam/dict
-import gleam/set
 import gleeunit/should
-import server/kraken/pairs
 import server/kraken/price_store
-import server/rates/actors/utils.{CurrencyNotFound, SymbolDirect, SymbolReversed}
+import server/rates/actors/kraken_symbol
+import server/rates/actors/utils.{CurrencyNotFound}
 import server_test
 import shared/rates/rate_request.{RateRequest}
 
@@ -34,76 +33,31 @@ pub fn resolve_currency_symbols_test() {
   |> should.equal(#("BTC", "USD"))
 }
 
-pub fn resolve_kraken_symbol_direct_symbol_exists_test() {
-  pairs.clear()
-  pairs.set(set.from_list(["BASE/QUOTE"]))
-
-  let result =
-    #("BASE", "QUOTE")
-    |> utils.resolve_kraken_symbol
-    |> should.be_ok
-
-  result
-  |> utils.unwrap_kraken_symbol
-  |> should.equal("BASE/QUOTE")
-
-  result
-  |> utils.unwrap_kraken_symbol_direction
-  |> should.equal(SymbolDirect)
-}
-
-pub fn resolve_kraken_symbol_reversed_symbol_exists_test() {
-  pairs.clear()
-  pairs.set(set.from_list(["BASE/QUOTE"]))
-
-  let result =
-    #("QUOTE", "BASE")
-    |> utils.resolve_kraken_symbol
-    |> should.be_ok
-
-  result
-  |> utils.unwrap_kraken_symbol
-  |> should.equal("BASE/QUOTE")
-
-  result
-  |> utils.unwrap_kraken_symbol_direction
-  |> should.equal(SymbolReversed)
-}
-
-pub fn resolve_kraken_symbol_symbol_not_found_test() {
-  pairs.clear()
-  pairs.set(set.new())
-
-  #("BTC", "USD")
-  |> utils.resolve_kraken_symbol
-  |> should.be_error
-}
-
-pub fn wait_for_kraken_price_price_not_found_test() {
-  pairs.clear()
-  pairs.set(set.from_list(["BASE/QUOTE"]))
-  let assert Ok(kraken_symbol) = utils.resolve_kraken_symbol(#("BASE", "QUOTE"))
+pub fn wait_for_kraken_price_returns_error_when_price_not_found_test() {
+  let assert Ok(kraken_symbol) =
+    kraken_symbol.new_with_validator(#("BTC", "USD"), fn(_) { True })
 
   use store <- server_test.with_price_store
 
-  kraken_symbol
-  |> utils.wait_for_kraken_price(store, 1, 1)
-  |> should.be_error
-  |> should.equal(Nil)
+  let result =
+    kraken_symbol
+    |> utils.wait_for_kraken_price(store, 1, 1)
+
+  assert Error(Nil) == result
 }
 
-pub fn wait_for_kraken_price_price_found_test() {
-  pairs.clear()
-  pairs.set(set.from_list(["BASE/QUOTE"]))
-  let assert Ok(kraken_symbol) = utils.resolve_kraken_symbol(#("BASE", "QUOTE"))
+pub fn wait_for_kraken_price_returns_price_when_found_test() {
+  let assert Ok(kraken_symbol) =
+    kraken_symbol.new_with_validator(#("BTC", "USD"), fn(_) { True })
 
   use store <- server_test.with_price_store
 
   store
-  |> price_store.insert("BASE/QUOTE", 1.23)
+  |> price_store.insert("BTC/USD", 1.23)
 
-  kraken_symbol
-  |> utils.wait_for_kraken_price(store, 1, 1)
-  |> should.be_ok
-  |> should.equal(1.23)
+  let result =
+    kraken_symbol
+    |> utils.wait_for_kraken_price(store, 1, 1)
+
+  assert Ok(1.23) == result
 }

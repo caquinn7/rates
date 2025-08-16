@@ -1,36 +1,11 @@
 import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/result
-import server/kraken/pairs
 import server/kraken/price_store.{type PriceStore}
+import server/rates/actors/kraken_symbol.{
+  type KrakenSymbol, DirectSymbol, ReversedSymbol,
+}
 import shared/rates/rate_request.{type RateRequest}
-
-/// Represents a Kraken currency pair and whether it was found in the direct or reversed form.
-/// For example, `Direct("BTC/USD")` vs `Reversed("USD/BTC")`.
-pub opaque type KrakenSymbol {
-  Direct(symbol: String)
-  Reversed(symbol: String)
-}
-
-pub type SymbolDirection {
-  SymbolDirect
-  SymbolReversed
-}
-
-/// Retrieves the raw Kraken symbol string (e.g. "BTC/USD") from a `KrakenSymbol`.
-pub fn unwrap_kraken_symbol(kraken_symbol: KrakenSymbol) -> String {
-  kraken_symbol.symbol
-}
-
-/// Represents an error that occurred while resolving a currency ID to a symbol.
-pub fn unwrap_kraken_symbol_direction(
-  kraken_symbol: KrakenSymbol,
-) -> SymbolDirection {
-  case kraken_symbol {
-    Direct(_) -> SymbolDirect
-    Reversed(_) -> SymbolReversed
-  }
-}
 
 /// Represents an error that occurred while resolving a currency ID to a symbol.
 pub type SymbolResolutionError {
@@ -56,24 +31,6 @@ pub fn resolve_currency_symbols(
   Ok(#(from_symbol, to_symbol))
 }
 
-/// Attempts to resolve a Kraken-compatible symbol from the given currency pair symbols.
-/// Returns a `KrakenSymbol` indicating whether the direct or reversed form was matched.
-/// Returns an error if neither form exists in the Kraken pair list.
-pub fn resolve_kraken_symbol(
-  currency_symbols: #(String, String),
-) -> Result(KrakenSymbol, Nil) {
-  let #(from_symbol, to_symbol) = currency_symbols
-
-  let user_facing_symbol = from_symbol <> "/" <> to_symbol
-  let reverse_symbol = to_symbol <> "/" <> from_symbol
-
-  case pairs.exists(user_facing_symbol), pairs.exists(reverse_symbol) {
-    True, _ -> Ok(Direct(user_facing_symbol))
-    False, True -> Ok(Reversed(reverse_symbol))
-    _, _ -> Error(Nil)
-  }
-}
-
 /// Attempts to fetch the latest price for a given `KrakenSymbol` from the shared `PriceStore`.
 /// If the symbol is reversed, returns the inverse of the price.
 /// Retries the lookup up to `retries` times, sleeping `delay` ms between attempts.
@@ -83,13 +40,15 @@ pub fn wait_for_kraken_price(
   retries: Int,
   delay: Int,
 ) -> Result(Float, Nil) {
-  case price_store.get_price(price_store, kraken_symbol.symbol) {
+  let symbol_str = kraken_symbol.to_string(kraken_symbol)
+  let symbol_dir = kraken_symbol.direction(kraken_symbol)
+
+  case price_store.get_price(price_store, symbol_str) {
     Ok(price) -> {
-      case kraken_symbol {
-        Direct(..) -> price
-        Reversed(..) -> 1.0 /. price
-      }
-      |> Ok
+      Ok(case symbol_dir {
+        DirectSymbol -> price
+        ReversedSymbol -> 1.0 /. price
+      })
     }
 
     Error(_) if retries == 0 -> Error(Nil)

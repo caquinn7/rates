@@ -25,7 +25,8 @@ import gleam/result
 import gleam/string
 import server/kraken/kraken.{type Kraken}
 import server/kraken/price_store.{type PriceStore}
-import server/rates/actors/utils.{type KrakenSymbol}
+import server/rates/actors/kraken_symbol.{type KrakenSymbol}
+import server/rates/actors/utils
 import server/rates/cmc_rate_handler.{
   type RequestCmcConversion, RequestFailed, UnexpectedResponse, ValidationError,
 }
@@ -128,10 +129,10 @@ fn handle_msg(
           cmc_currencies,
           kraken,
           price_store,
-          Kraken(_, old_sym),
+          Kraken(_, old_symbol),
         ) -> {
-          let sym_str = utils.unwrap_kraken_symbol(old_sym)
-          kraken.unsubscribe(kraken, sym_str)
+          let symbol_str = kraken_symbol.to_string(old_symbol)
+          kraken.unsubscribe(kraken, symbol_str)
           Idle(reply_to, cmc_currencies, kraken, price_store)
         }
 
@@ -151,12 +152,12 @@ fn handle_msg(
         }
 
         Ok(symbols) -> {
-          case utils.resolve_kraken_symbol(symbols) {
+          case kraken_symbol.new(symbols) {
             Error(_) ->
               handle_cmc_fallback(state, rate_req, request_cmc_conversion)
 
             Ok(kraken_symbol) -> {
-              let symbol_str = utils.unwrap_kraken_symbol(kraken_symbol)
+              let symbol_str = kraken_symbol.to_string(kraken_symbol)
               kraken.subscribe(state.kraken, symbol_str)
 
               let kraken_price_result =
@@ -253,7 +254,7 @@ fn handle_msg(
         Subscribed(_, _, kraken, _, subscription) -> {
           case subscription {
             Kraken(_, symbol) -> {
-              let symbol_str = utils.unwrap_kraken_symbol(symbol)
+              let symbol_str = kraken_symbol.to_string(symbol)
               kraken.unsubscribe(kraken, symbol_str)
               actor.stop()
             }
