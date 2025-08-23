@@ -19,13 +19,17 @@ pub fn new_with_validator(
   symbol_exists: fn(String) -> Bool,
 ) -> Result(KrakenSymbol, Nil) {
   let #(from_symbol, to_symbol) = currency_symbols
-  let user_facing_symbol = from_symbol <> "/" <> to_symbol
-  let reverse_symbol = to_symbol <> "/" <> from_symbol
+  let direct_pair_symbol = from_symbol <> "/" <> to_symbol
 
-  case symbol_exists(user_facing_symbol), symbol_exists(reverse_symbol) {
-    True, _ -> Ok(Direct(user_facing_symbol))
-    False, True -> Ok(Reversed(reverse_symbol))
-    _, _ -> Error(Nil)
+  case symbol_exists(direct_pair_symbol) {
+    True -> Ok(Direct(direct_pair_symbol))
+    False -> {
+      let reverse_pair_symbol = to_symbol <> "/" <> from_symbol
+      case symbol_exists(reverse_pair_symbol) {
+        True -> Ok(Reversed(reverse_pair_symbol))
+        False -> Error(Nil)
+      }
+    }
   }
 }
 

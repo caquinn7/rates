@@ -3,6 +3,7 @@ import gleam/erlang/process.{type Selector}
 import gleam/function
 import gleam/json
 import gleam/option.{type Option, Some}
+import glight
 import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
@@ -24,22 +25,20 @@ pub fn on_init(
   kraken_subject: Kraken,
   get_price_store: fn() -> PriceStore,
 ) -> #(RateSubscriber, Option(Selector(Result(RateResponse, String)))) {
-  echo "socket initialized"
-
-  let self_subject = process.new_subject()
+  let subject = process.new_subject()
 
   let selector =
     process.new_selector()
-    |> process.select_map(self_subject, function.identity)
+    |> process.select_map(subject, function.identity)
 
   let assert Ok(rate_subscriber) =
     rate_subscriber.new(
-      self_subject,
+      subject,
       cmc_currencies,
       request_cmc_conversion,
       kraken_subject,
+      10_000,
       get_price_store,
-      30_000,
     )
 
   #(rate_subscriber, Some(selector))
@@ -70,8 +69,6 @@ pub fn handler(
 ) -> mist.Next(RateSubscriber, Result(RateResponse, String)) {
   case message {
     Text(str) -> {
-      echo "message received: " <> str
-
       case json.parse(str, websocket_request_decoder()) {
         Ok(GetRate(rate_req)) -> {
           rate_subscriber.subscribe(state, rate_req)
@@ -93,31 +90,32 @@ pub fn handler(
     }
 
     Custom(response) -> {
-      let response_str =
-        case response {
-          Ok(rate_resp) ->
-            rate_resp
-            |> rate_response.encode
-            |> json.to_string
+      let response_str = case response {
+        Ok(rate_resp) ->
+          rate_resp
+          |> rate_response.encode
+          |> json.to_string
 
-          Error(err) -> {
-            echo "Error getting rate: " <> err
-            "Unexpected error getting rate"
-          }
+        Error(err) -> {
+          glight.error(glight.logger(), "Error getting rate: " <> err)
+          "Unexpected error getting rate"
         }
-        |> echo
+      }
+
+      glight.debug(glight.logger(), "Sending to client: " <> response_str)
 
       let _ = mist.send_text_frame(conn, response_str)
       mist.continue(state)
     }
 
     Binary(_) -> mist.continue(state)
-    Closed | Shutdown -> mist.stop()
+    Closed | Shutdown -> {
+      mist.stop()
+    }
   }
 }
 
 pub fn on_close(state: RateSubscriber) -> Nil {
-  echo "socket closed"
   rate_subscriber.stop(state)
   Nil
 }

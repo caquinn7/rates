@@ -18,16 +18,14 @@ pub fn resolve_currency_symbols(
   rate_request: RateRequest,
   currencies: Dict(Int, String),
 ) -> Result(#(String, String), SymbolResolutionError) {
-  use from_symbol <- result.try(
+  let try_get_symbol = fn(id) {
     currencies
-    |> dict.get(rate_request.from)
-    |> result.replace_error(CurrencyNotFound(rate_request.from)),
-  )
-  use to_symbol <- result.try(
-    currencies
-    |> dict.get(rate_request.to)
-    |> result.replace_error(CurrencyNotFound(rate_request.to)),
-  )
+    |> dict.get(id)
+    |> result.replace_error(CurrencyNotFound(id))
+  }
+
+  use from_symbol <- result.try(try_get_symbol(rate_request.from))
+  use to_symbol <- result.try(try_get_symbol(rate_request.to))
   Ok(#(from_symbol, to_symbol))
 }
 
@@ -37,25 +35,24 @@ pub fn resolve_currency_symbols(
 pub fn wait_for_kraken_price(
   kraken_symbol: KrakenSymbol,
   price_store: PriceStore,
-  retries: Int,
+  retries_left: Int,
   delay: Int,
 ) -> Result(Float, Nil) {
   let symbol_str = kraken_symbol.to_string(kraken_symbol)
   let symbol_dir = kraken_symbol.direction(kraken_symbol)
 
   case price_store.get_price(price_store, symbol_str) {
-    Ok(price) -> {
+    Ok(price) ->
       Ok(case symbol_dir {
         DirectSymbol -> price
         ReversedSymbol -> 1.0 /. price
       })
-    }
 
-    Error(_) if retries == 0 -> Error(Nil)
+    Error(_) if retries_left == 0 -> Error(Nil)
 
-    _ -> {
+    Error(_) -> {
       process.sleep(delay)
-      wait_for_kraken_price(kraken_symbol, price_store, retries - 1, delay)
+      wait_for_kraken_price(kraken_symbol, price_store, retries_left - 1, delay)
     }
   }
 }

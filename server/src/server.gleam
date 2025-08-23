@@ -10,6 +10,7 @@ import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import gleam/string_tree
+import glight
 import mist
 import server/coin_market_cap/client as cmc
 import server/context.{type Context, Context}
@@ -27,7 +28,7 @@ import wisp.{type Request, type Response}
 import wisp/wisp_mist
 
 pub fn main() {
-  wisp.configure_logger()
+  configure_logging()
 
   // load env variables
   load_env()
@@ -66,7 +67,10 @@ pub fn main() {
 
       Ok(cmc_currencies) -> {
         let count = list.length(cmc_currencies)
-        echo "fetched " <> int.to_string(count) <> " currencies from cmc"
+        glight.info(
+          glight.logger(),
+          "fetched " <> int.to_string(count) <> " currencies from cmc",
+        )
         cmc_currencies
       }
     }
@@ -124,10 +128,13 @@ pub fn main() {
             resolver
             |> rate_resolver.get_rate(rate_req, 5000)
             |> result.map_error(fn(err) {
-              echo "error getting rate for "
-                <> string.inspect(rate_req)
-                <> ": "
-                <> string.inspect(err)
+              glight.error(
+                glight.logger(),
+                "error getting rate for "
+                  <> string.inspect(rate_req)
+                  <> ": "
+                  <> string.inspect(err),
+              )
 
               Nil
             })
@@ -146,6 +153,12 @@ pub fn main() {
     |> mist.start
 
   process.sleep_forever()
+}
+
+fn configure_logging() {
+  glight.configure([glight.Console, glight.File("server.log")])
+  glight.set_log_level(glight.Debug)
+  glight.set_is_color(True)
 }
 
 fn load_env() -> Nil {
