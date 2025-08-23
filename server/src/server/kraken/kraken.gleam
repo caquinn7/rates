@@ -26,6 +26,7 @@ import gleam/otp/actor.{type StartError, type Started}
 import gleam/result
 import gleam/set.{type Set}
 import gleam/string
+import glight
 import server/kraken/pairs
 import server/kraken/price_store.{type PriceStore}
 import server/kraken/request.{
@@ -123,7 +124,10 @@ fn kraken_loop(
 
     SetSupportedSymbols(symbols) -> {
       // Updates the set of supported symbols based on Kraken's latest Instruments response.
-      echo "received " <> int.to_string(set.size(symbols)) <> " kraken symbols"
+      glight.info(
+        glight.logger(),
+        "received " <> int.to_string(set.size(symbols)) <> " kraken symbols",
+      )
       pairs.set(symbols)
 
       let assert Some(websocket_subject) = maybe_websocket_subject
@@ -173,7 +177,8 @@ fn kraken_loop(
         Ok(count) -> {
           let active_subscriptions =
             dict.insert(active_subscriptions, symbol, count + 1)
-            |> echo
+
+          glight.debug(glight.logger(), string.inspect(active_subscriptions))
 
           actor.continue(State(..state, active_subscriptions:))
         }
@@ -189,7 +194,9 @@ fn kraken_loop(
       let assert Ok(pending_count) = dict.get(pending_subscriptions, symbol)
       let active_subscriptions =
         dict.insert(active_subscriptions, symbol, pending_count)
-        |> echo
+
+      glight.debug(glight.logger(), string.inspect(active_subscriptions))
+
       let pending_subscriptions = dict.delete(pending_subscriptions, symbol)
 
       actor.continue(
@@ -253,7 +260,11 @@ fn kraken_loop(
       case dict.get(active_subscriptions, symbol) {
         Error(_) -> actor.continue(state)
         Ok(_) -> {
-          echo UpdatePrice(symbol, price)
+          glight.debug(
+            glight.logger(),
+            string.inspect(UpdatePrice(symbol, price)),
+          )
+
           let assert Some(price_store) = maybe_price_store
           price_store.insert(price_store, symbol, price)
           actor.continue(state)
@@ -276,7 +287,7 @@ fn init_websocket(
     loop: websocket_loop,
   )
   |> stratus.on_close(fn(_state) {
-    echo "kraken socket closed"
+    glight.debug(glight.logger(), "kraken socket closed")
     Nil
   })
   |> stratus.initialize
@@ -322,7 +333,10 @@ fn websocket_loop(
 
       case stratus.send_text_message(conn, json_str) {
         Error(err) -> {
-          echo "failed to send message to kraken: " <> string.inspect(err)
+          glight.error(
+            glight.logger(),
+            "failed to send message to kraken: " <> string.inspect(err),
+          )
           stratus.continue(state)
         }
 
