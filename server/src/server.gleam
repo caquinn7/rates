@@ -17,7 +17,7 @@ import server/currencies/cmc_currency_handler
 import server/currencies/currencies_fetcher
 import server/kraken/kraken
 import server/kraken/price_store
-import server/rates/actors/resolver as rate_resolver
+import server/rates/actors/resolver.{type RateError} as rate_resolver
 import server/routes/home/home
 import server/ws/websocket
 import shared/currency.{type Currency}
@@ -62,10 +62,11 @@ pub fn main() {
         panic as { "error getting currencies: " <> string.inspect(err) }
 
       Ok(cmc_currencies) -> {
-        let count = list.length(cmc_currencies)
         glight.info(
-          glight.logger(),
-          "fetched " <> int.to_string(count) <> " currencies from cmc",
+          glight.logger()
+            |> glight.with("source", "server")
+            |> glight.with("count", int.to_string(list.length(cmc_currencies))),
+          "fetched currencies from cmc",
         )
         cmc_currencies
       }
@@ -121,19 +122,7 @@ pub fn main() {
                 get_price_store,
               )
 
-            resolver
-            |> rate_resolver.get_rate(rate_req, 5000)
-            |> result.map_error(fn(err) {
-              glight.error(
-                glight.logger(),
-                "error getting rate for "
-                  <> string.inspect(rate_req)
-                  <> ": "
-                  <> string.inspect(err),
-              )
-
-              Nil
-            })
+            rate_resolver.get_rate(resolver, rate_req, 5000)
           }
 
           let handle_request =
@@ -175,7 +164,7 @@ fn handle_request(
   ctx: Context,
   req: Request,
   currencies: List(Currency),
-  get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
+  get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
 ) -> Response {
   use req <- middleware(req)
   case wisp.path_segments(req) {

@@ -1,10 +1,14 @@
-import client/start_data.{StartData} as _client_start_data
+import client/start_data.{type StartData, StartData} as _client_start_data
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/result
+import gleam/string
+import glight
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
+import server/rates/actors/resolver.{type RateError}
 import server/routes/home/start_data
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest, RateRequest}
@@ -13,7 +17,7 @@ import wisp.{type Response}
 
 pub fn get(
   currencies: List(Currency),
-  get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
+  get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
 ) -> Response {
   currencies
   |> get_start_data(get_rate)
@@ -34,12 +38,31 @@ pub fn get(
 
 fn get_start_data(
   currencies: List(Currency),
-  get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
-) {
+  get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+) -> Result(StartData, Nil) {
   use btc <- result.try(list.find(currencies, fn(c) { c.symbol == "BTC" }))
   use usd <- result.try(list.find(currencies, fn(c) { c.symbol == "USD" }))
-  use rate_response <- result.try(get_rate(RateRequest(btc.id, usd.id)))
+
+  let rate_req = RateRequest(btc.id, usd.id)
+
+  use rate_response <- result.try(
+    get_rate(rate_req)
+    |> result.map_error(log_rate_request_error(rate_req, _)),
+  )
+
   Ok(StartData(currencies, rate_response))
+}
+
+fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {
+  glight.error(
+    glight.logger()
+      |> glight.with("source", "home")
+      |> glight.with("from", int.to_string(rate_req.from))
+      |> glight.with("to", int.to_string(rate_req.to))
+      |> glight.with("error", string.inspect(err)),
+    "error getting rate",
+  )
+  Nil
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {
@@ -96,10 +119,6 @@ fn page_scaffold(seed_json: String) -> Element(a) {
           [attribute.type_("application/json"), attribute.id("model")],
           seed_json,
         ),
-        // html.script(
-      //   [attribute.type_("text/javascript")],
-      //   "window.__ENV__ = " <> "\"" <> ctx.env <> "\"",
-      // ),
       ]),
       html.body([attribute.class("flex flex-col min-h-screen")], [
         html.div([attribute.id("app")], []),

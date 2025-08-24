@@ -367,7 +367,7 @@ fn kraken_logger() -> Dict(String, String) {
 fn log_symbols_received(symbols: Set(String)) -> Nil {
   glight.info(
     kraken_logger()
-      |> glight.with("symbol_count", int.to_string(set.size(symbols))),
+      |> glight.with("count", int.to_string(set.size(symbols))),
     "Received pair symbols from Kraken",
   )
   Nil
