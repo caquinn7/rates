@@ -28,7 +28,6 @@ import gleam/result
 import gleam/set.{type Set}
 import gleam/string
 import glight
-import glisten/socket
 import server/kraken/pairs
 import server/kraken/price_store.{type PriceStore}
 import server/kraken/request.{
