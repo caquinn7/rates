@@ -152,8 +152,20 @@ pub fn main() {
 }
 
 fn configure_logging() {
+  let env_str =
+    env.get_string_or("LOG_LEVEL", "info")
+    |> string.lowercase
+
+  let log_level = case env_str {
+    "error" -> glight.Error
+    "warn" -> glight.Warning
+    "info" -> glight.Info
+    "debug" -> glight.Debug
+    _ -> glight.Info
+  }
+
   glight.configure([glight.Console, glight.File("server.log")])
-  glight.set_log_level(glight.Debug)
+  glight.set_log_level(log_level)
   glight.set_is_color(True)
 }
 
