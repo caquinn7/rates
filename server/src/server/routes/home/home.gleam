@@ -8,7 +8,7 @@ import glight
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import server/rates/actors/resolver.{type RateError}
+import server/rates/actors/rate_error.{type RateError}
 import server/routes/home/start_data
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest, RateRequest}

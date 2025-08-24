@@ -17,7 +17,8 @@ import server/currencies/cmc_currency_handler
 import server/currencies/currencies_fetcher
 import server/kraken/kraken
 import server/kraken/price_store
-import server/rates/actors/resolver.{type RateError} as rate_resolver
+import server/rates/actors/rate_error.{type RateError}
+import server/rates/actors/resolver as rate_resolver
 import server/routes/home/home
 import server/ws/websocket
 import shared/currency.{type Currency}
