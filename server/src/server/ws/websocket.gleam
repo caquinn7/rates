@@ -1,8 +1,10 @@
+import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/erlang/process.{type Selector}
 import gleam/function
 import gleam/json
 import gleam/option.{type Option, Some}
+import gleam/string
 import glight
 import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
@@ -40,6 +42,8 @@ pub fn on_init(
       10_000,
       get_price_store,
     )
+
+  log_socket_init()
 
   #(rate_subscriber, Some(selector))
 }
@@ -97,12 +101,10 @@ pub fn handler(
           |> json.to_string
 
         Error(err) -> {
-          glight.error(glight.logger(), "Error getting rate: " <> err)
+          log_rate_response_error(err)
           "Unexpected error getting rate"
         }
       }
-
-      glight.debug(glight.logger(), "Sending to client: " <> response_str)
 
       let _ = mist.send_text_frame(conn, response_str)
       mist.continue(state)
@@ -117,5 +119,26 @@ pub fn handler(
 
 pub fn on_close(state: RateSubscriber) -> Nil {
   rate_subscriber.stop(state)
+  Nil
+}
+
+// logging
+
+fn websocket_logger() -> Dict(String, String) {
+  glight.logger()
+  |> glight.with("source", "websocket")
+}
+
+fn log_socket_init() -> Nil {
+  glight.debug(websocket_logger(), "socket initialized")
+  Nil
+}
+
+fn log_rate_response_error(error: a) -> Nil {
+  glight.error(
+    websocket_logger()
+      |> glight.with("error", string.inspect(error)),
+    "Error getting rate",
+  )
   Nil
 }

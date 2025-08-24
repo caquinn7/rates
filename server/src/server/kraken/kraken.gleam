@@ -359,48 +359,53 @@ fn websocket_loop(
 
 // logging
 
-fn kraken_logger() {
+fn kraken_logger() -> Dict(String, String) {
   glight.logger()
   |> glight.with("source", "kraken")
 }
 
-fn log_symbols_received(symbols: Set(String)) {
+fn log_symbols_received(symbols: Set(String)) -> Nil {
   glight.info(
     kraken_logger()
       |> glight.with("symbol_count", int.to_string(set.size(symbols))),
     "Received pair symbols from Kraken",
   )
+  Nil
 }
 
-fn log_subscription_debug(symbol: String, count: Int, message: String) {
+fn log_subscription_debug(symbol: String, count: Int, message: String) -> Nil {
   glight.debug(
     kraken_logger()
       |> glight.with("symbol", symbol)
       |> glight.with("count", int.to_string(count)),
     message,
   )
+  Nil
 }
 
-fn log_subscription_confirmed(symbol: String) {
+fn log_subscription_confirmed(symbol: String) -> Nil {
   glight.debug(
     kraken_logger() |> glight.with("symbol", symbol),
     "Subscription confirmed",
   )
+  Nil
 }
 
-fn log_price_update(symbol: String, price: Float) {
+fn log_price_update(symbol: String, price: Float) -> Nil {
   glight.debug(
     kraken_logger()
       |> glight.with("symbol", symbol)
       |> glight.with("price", float.to_string(price)),
     "Received price update",
   )
+  Nil
 }
 
-fn log_message_send_error(err) {
+fn log_message_send_error(err) -> Nil {
   glight.error(
     kraken_logger()
       |> glight.with("error", string.inspect(err)),
     "failed to send message to kraken",
   )
+  Nil
 }
