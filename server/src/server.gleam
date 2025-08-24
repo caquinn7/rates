@@ -1,4 +1,3 @@
-import dot_env
 import dot_env/env
 import gleam/erlang/process
 import gleam/http
@@ -29,9 +28,6 @@ import wisp/wisp_mist
 
 pub fn main() {
   configure_logging()
-
-  // load env variables
-  load_env()
 
   let assert Ok(secret_key_base) = env.get_string("SECRET_KEY_BASE")
   let assert Ok(cmc_api_key) = env.get_string("COIN_MARKET_CAP_API_KEY")
@@ -159,14 +155,6 @@ fn configure_logging() {
   glight.configure([glight.Console, glight.File("server.log")])
   glight.set_log_level(glight.Debug)
   glight.set_is_color(True)
-}
-
-fn load_env() -> Nil {
-  dot_env.new()
-  |> dot_env.set_path(".env")
-  |> dot_env.set_debug(True)
-  |> dot_env.set_ignore_missing_file(True)
-  |> dot_env.load
 }
 
 fn handle_request(

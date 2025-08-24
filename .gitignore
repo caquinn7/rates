@@ -3,6 +3,7 @@
 */build
 erl_crash.dump
 .env
+.envrc
 .DS_STORE
 */priv/static/client*
 node_modules
