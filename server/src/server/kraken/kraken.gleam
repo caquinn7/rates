@@ -299,7 +299,7 @@ fn init_websocket(
     loop: websocket_loop,
   )
   |> stratus.on_close(fn(_state) {
-    glight.debug(kraken_logger(), "kraken socket closed")
+    glight.info(kraken_logger(), "kraken socket closed")
     Nil
   })
   |> stratus.initialize
@@ -312,6 +312,8 @@ fn websocket_loop(
 ) -> stratus.Next(Subject(Msg), WebsocketMsg) {
   case msg {
     Text(str) -> {
+      log_message_from_kraken(str)
+
       case json.parse(str, response.decoder()) {
         Error(_) -> stratus.continue(state)
 
@@ -408,4 +410,12 @@ fn log_message_send_error(err) -> Nil {
     "failed to send message to kraken",
   )
   Nil
+}
+
+fn log_message_from_kraken(message) {
+  glight.debug(
+    kraken_logger()
+      |> glight.with("received", message),
+    "received message from kraken",
+  )
 }
