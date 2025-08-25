@@ -17,6 +17,7 @@
 /// `subscribe` and `unsubscribe` to manage interest in specific symbols.
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Subject}
+import gleam/float
 import gleam/http/request as http_request
 import gleam/int
 import gleam/json
@@ -124,10 +125,7 @@ fn kraken_loop(
 
     SetSupportedSymbols(symbols) -> {
       // Updates the set of supported symbols based on Kraken's latest Instruments response.
-      glight.info(
-        glight.logger(),
-        "received " <> int.to_string(set.size(symbols)) <> " kraken symbols",
-      )
+      log_symbols_received(symbols)
       pairs.set(symbols)
 
       let assert Some(websocket_subject) = maybe_websocket_subject
@@ -168,17 +166,34 @@ fn kraken_loop(
                   }
                 })
 
+              {
+                let assert Ok(pending_count) =
+                  dict.get(pending_subscriptions, symbol)
+
+                log_subscription_debug(
+                  symbol,
+                  pending_count,
+                  "Incremented pending subscription count",
+                )
+              }
+
               actor.continue(State(..state, pending_subscriptions:))
             }
           }
         }
 
         // someone is already subscribed. increment the count
-        Ok(count) -> {
-          let active_subscriptions =
-            dict.insert(active_subscriptions, symbol, count + 1)
+        Ok(current_count) -> {
+          let new_count = current_count + 1
 
-          glight.debug(glight.logger(), string.inspect(active_subscriptions))
+          let active_subscriptions =
+            dict.insert(active_subscriptions, symbol, new_count)
+
+          log_subscription_debug(
+            symbol,
+            new_count,
+            "Incremented active subscription count",
+          )
 
           actor.continue(State(..state, active_subscriptions:))
         }
@@ -195,9 +210,9 @@ fn kraken_loop(
       let active_subscriptions =
         dict.insert(active_subscriptions, symbol, pending_count)
 
-      glight.debug(glight.logger(), string.inspect(active_subscriptions))
-
       let pending_subscriptions = dict.delete(pending_subscriptions, symbol)
+
+      log_subscription_confirmed(symbol)
 
       actor.continue(
         State(..state, active_subscriptions:, pending_subscriptions:),
@@ -260,10 +275,7 @@ fn kraken_loop(
       case dict.get(active_subscriptions, symbol) {
         Error(_) -> actor.continue(state)
         Ok(_) -> {
-          glight.debug(
-            glight.logger(),
-            string.inspect(UpdatePrice(symbol, price)),
-          )
+          log_price_update(symbol, price)
 
           let assert Some(price_store) = maybe_price_store
           price_store.insert(price_store, symbol, price)
@@ -287,7 +299,7 @@ fn init_websocket(
     loop: websocket_loop,
   )
   |> stratus.on_close(fn(_state) {
-    glight.debug(glight.logger(), "kraken socket closed")
+    glight.info(kraken_logger(), "kraken socket closed")
     Nil
   })
   |> stratus.initialize
@@ -300,6 +312,8 @@ fn websocket_loop(
 ) -> stratus.Next(Subject(Msg), WebsocketMsg) {
   case msg {
     Text(str) -> {
+      log_message_from_kraken(str)
+
       case json.parse(str, response.decoder()) {
         Error(_) -> stratus.continue(state)
 
@@ -333,10 +347,7 @@ fn websocket_loop(
 
       case stratus.send_text_message(conn, json_str) {
         Error(err) -> {
-          glight.error(
-            glight.logger(),
-            "failed to send message to kraken: " <> string.inspect(err),
-          )
+          log_message_send_error(err)
           stratus.continue(state)
         }
 
@@ -346,4 +357,66 @@ fn websocket_loop(
 
     Binary(_) -> stratus.continue(state)
   }
+}
+
+// logging
+
+fn kraken_logger() -> Dict(String, String) {
+  glight.logger()
+  |> glight.with("source", "kraken")
+}
+
+fn log_symbols_received(symbols: Set(String)) -> Nil {
+  glight.info(
+    kraken_logger()
+      |> glight.with("count", int.to_string(set.size(symbols))),
+    "Received pair symbols from Kraken",
+  )
+  Nil
+}
+
+fn log_subscription_debug(symbol: String, count: Int, message: String) -> Nil {
+  glight.debug(
+    kraken_logger()
+      |> glight.with("symbol", symbol)
+      |> glight.with("count", int.to_string(count)),
+    message,
+  )
+  Nil
+}
+
+fn log_subscription_confirmed(symbol: String) -> Nil {
+  glight.debug(
+    kraken_logger() |> glight.with("symbol", symbol),
+    "Subscription confirmed",
+  )
+  Nil
+}
+
+fn log_price_update(symbol: String, price: Float) -> Nil {
+  glight.debug(
+    kraken_logger()
+      |> glight.with("symbol", symbol)
+      |> glight.with("price", float.to_string(price)),
+    "Received price update",
+  )
+  Nil
+}
+
+fn log_message_send_error(err: a) -> Nil {
+  glight.error(
+    kraken_logger()
+      |> glight.with("error", string.inspect(err)),
+    "failed to send message to kraken",
+  )
+  Nil
+}
+
+fn log_message_from_kraken(message) {
+  glight.debug(
+    kraken_logger()
+      |> glight.with("received", message),
+    "received message from kraken",
+  )
+  Nil
 }

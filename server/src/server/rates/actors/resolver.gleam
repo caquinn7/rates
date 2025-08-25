@@ -21,21 +21,17 @@ import gleam/result
 import server/kraken/kraken.{type Kraken}
 import server/kraken/price_store.{type PriceStore}
 import server/rates/actors/kraken_symbol
-import server/rates/actors/utils
-import server/rates/cmc_rate_handler.{
-  type RateRequestError, type RequestCmcConversion,
+import server/rates/actors/rate_error.{
+  type RateError, CmcError, CurrencyNotFound,
 }
+import server/rates/actors/utils
+import server/rates/cmc_rate_handler.{type RequestCmcConversion}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse, Kraken, RateResponse}
 
 pub opaque type RateResolver {
   RateResolver(Subject(Msg))
-}
-
-pub type RateError {
-  CurrencyNotFound(Int)
-  CmcError(RateRequestError)
 }
 
 type Msg {
@@ -98,7 +94,7 @@ fn handle_msg(
       |> utils.resolve_currency_symbols(state.cmc_currencies)
       |> result.map_error(fn(err) {
         let utils.CurrencyNotFound(id) = err
-        process.send(reply_to, Error(CurrencyNotFound(id)))
+        process.send(reply_to, Error(CurrencyNotFound(rate_req, id)))
         actor.stop()
       })
       |> result.map(fn(symbols) {
@@ -148,7 +144,7 @@ fn handle_cmc_fallback(
 ) -> Next(State, Msg) {
   case cmc_rate_handler.get_rate(rate_req, request_cmc_conversion) {
     Error(err) -> {
-      process.send(reply_to, Error(CmcError(err)))
+      process.send(reply_to, Error(CmcError(rate_req, err)))
       actor.stop()
     }
 

@@ -25,14 +25,12 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import gleam/string
 import server/kraken/kraken.{type Kraken}
 import server/kraken/price_store.{type PriceStore}
 import server/rates/actors/kraken_symbol.{type KrakenSymbol}
+import server/rates/actors/rate_error.{type RateError, CmcError}
 import server/rates/actors/utils
-import server/rates/cmc_rate_handler.{
-  type RequestCmcConversion, RequestFailed, UnexpectedResponse, ValidationError,
-}
+import server/rates/cmc_rate_handler.{type RequestCmcConversion}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse, RateResponse}
@@ -52,7 +50,7 @@ type Msg {
 type State {
   State(
     self: Option(Subject(Msg)),
-    reply_to: Subject(Result(RateResponse, String)),
+    reply_to: Subject(Result(RateResponse, RateError)),
     cmc_currencies: Dict(Int, String),
     kraken: Kraken,
     base_interval: Int,
@@ -93,7 +91,7 @@ type Subscription {
 /// automatically capped at 30 seconds due to API rate limits, regardless of the
 /// configured `interval` parameter.
 pub fn new(
-  reply_to: Subject(Result(RateResponse, String)),
+  reply_to: Subject(Result(RateResponse, RateError)),
   cmc_currencies: List(Currency),
   request_cmc_conversion: RequestCmcConversion,
   kraken: Kraken,
@@ -224,9 +222,8 @@ fn do_subscribe(
       utils.CurrencyNotFound(id) -> {
         process.send(
           state.reply_to,
-          Error("invalid currency id: " <> int.to_string(id)),
+          Error(rate_error.CurrencyNotFound(rate_req, id)),
         )
-
         actor.continue(State(..state, subscription: None))
       }
     }
@@ -350,7 +347,10 @@ fn handle_cmc_fallback(
   rate_req: RateRequest,
   request_cmc_conversion: RequestCmcConversion,
 ) -> State {
-  let result = get_cmc_rate(rate_req, request_cmc_conversion)
+  let result =
+    rate_req
+    |> cmc_rate_handler.get_rate(request_cmc_conversion)
+    |> result.map_error(CmcError(rate_req, _))
 
   process.send(state.reply_to, result)
 
@@ -360,27 +360,6 @@ fn handle_cmc_fallback(
     current_interval: int.max(state.base_interval, 30_000),
     subscription: Some(Cmc(rate_req)),
   )
-}
-
-fn get_cmc_rate(
-  rate_request: RateRequest,
-  request_cmc_conversion: RequestCmcConversion,
-) -> Result(RateResponse, String) {
-  rate_request
-  |> cmc_rate_handler.get_rate(request_cmc_conversion)
-  |> result.map_error(fn(rate_req_err) {
-    case rate_req_err {
-      ValidationError(msg) -> msg
-
-      cmc_rate_handler.CurrencyNotFound(id) ->
-        "currency id not found: " <> int.to_string(id)
-
-      RequestFailed(err) -> "cmc request failed: " <> string.inspect(err)
-
-      UnexpectedResponse(err) ->
-        "unexpected response from cmc: " <> string.inspect(err)
-    }
-  })
 }
 
 fn do_add_currencies(

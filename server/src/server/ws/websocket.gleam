@@ -1,8 +1,12 @@
+import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/erlang/process.{type Selector}
+import gleam/float
 import gleam/function
+import gleam/int
 import gleam/json
 import gleam/option.{type Option, Some}
+import gleam/string
 import glight
 import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
@@ -10,13 +14,16 @@ import mist.{
 }
 import server/kraken/kraken.{type Kraken}
 import server/kraken/price_store.{type PriceStore}
+import server/rates/actors/rate_error.{
+  type RateError, CmcError, CurrencyNotFound,
+}
 import server/rates/actors/subscriber.{type RateSubscriber} as rate_subscriber
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/rate_request
 import server/rates/rate_response
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest} as _shared_rate_request
-import shared/rates/rate_response.{type RateResponse} as _shared_rate_response
+import shared/rates/rate_response.{type RateResponse} as shared_rate_response
 
 pub fn on_init(
   _conn: WebsocketConnection,
@@ -24,7 +31,7 @@ pub fn on_init(
   request_cmc_conversion: RequestCmcConversion,
   kraken_subject: Kraken,
   get_price_store: fn() -> PriceStore,
-) -> #(RateSubscriber, Option(Selector(Result(RateResponse, String)))) {
+) -> #(RateSubscriber, Option(Selector(Result(RateResponse, RateError)))) {
   let subject = process.new_subject()
 
   let selector =
@@ -40,6 +47,8 @@ pub fn on_init(
       10_000,
       get_price_store,
     )
+
+  log_socket_init()
 
   #(rate_subscriber, Some(selector))
 }
@@ -64,9 +73,9 @@ pub fn websocket_request_decoder() -> Decoder(WebsocketRequest) {
 
 pub fn handler(
   state: RateSubscriber,
-  message: WebsocketMessage(Result(RateResponse, String)),
+  message: WebsocketMessage(Result(RateResponse, RateError)),
   conn: WebsocketConnection,
-) -> mist.Next(RateSubscriber, Result(RateResponse, String)) {
+) -> mist.Next(RateSubscriber, Result(RateResponse, RateError)) {
   case message {
     Text(str) -> {
       case json.parse(str, websocket_request_decoder()) {
@@ -91,18 +100,19 @@ pub fn handler(
 
     Custom(response) -> {
       let response_str = case response {
-        Ok(rate_resp) ->
+        Ok(rate_resp) -> {
+          log_rate_response(rate_resp)
+
           rate_resp
           |> rate_response.encode
           |> json.to_string
+        }
 
         Error(err) -> {
-          glight.error(glight.logger(), "Error getting rate: " <> err)
+          log_rate_response_error(err)
           "Unexpected error getting rate"
         }
       }
-
-      glight.debug(glight.logger(), "Sending to client: " <> response_str)
 
       let _ = mist.send_text_frame(conn, response_str)
       mist.continue(state)
@@ -117,5 +127,58 @@ pub fn handler(
 
 pub fn on_close(state: RateSubscriber) -> Nil {
   rate_subscriber.stop(state)
+  Nil
+}
+
+// logging
+
+fn websocket_logger() -> Dict(String, String) {
+  glight.logger()
+  |> glight.with("source", "websocket")
+}
+
+fn log_socket_init() -> Nil {
+  glight.debug(websocket_logger(), "socket initialized")
+  Nil
+}
+
+fn log_rate_response(rate_response: RateResponse) -> Nil {
+  glight.debug(
+    websocket_logger()
+      |> glight.with("from", int.to_string(rate_response.from))
+      |> glight.with("to", int.to_string(rate_response.to))
+      |> glight.with("rate", float.to_string(rate_response.rate))
+      |> glight.with(
+        "rate_source",
+        shared_rate_response.source_to_string(rate_response.source),
+      ),
+    "successfully fetched rate",
+  )
+
+  Nil
+}
+
+fn log_rate_response_error(error: RateError) -> Nil {
+  let #(rate_req, reason) = case error {
+    CurrencyNotFound(rate_req, id) -> #(
+      rate_req,
+      "currency id " <> int.to_string(id) <> " not found",
+    )
+
+    CmcError(rate_req, rate_req_err) -> #(
+      rate_req,
+      "error getting rate from cmc: " <> string.inspect(rate_req_err),
+    )
+  }
+
+  glight.error(
+    websocket_logger()
+      |> glight.with("error", string.inspect(error))
+      |> glight.with("reason", reason)
+      |> glight.with("rate_request.from", int.to_string(rate_req.from))
+      |> glight.with("rate_request.to", int.to_string(rate_req.to)),
+    "error getting rate",
+  )
+
   Nil
 }
