@@ -403,7 +403,7 @@ fn log_price_update(symbol: String, price: Float) -> Nil {
   Nil
 }
 
-fn log_message_send_error(err) -> Nil {
+fn log_message_send_error(err: a) -> Nil {
   glight.error(
     kraken_logger()
       |> glight.with("error", string.inspect(err)),
@@ -418,4 +418,5 @@ fn log_message_from_kraken(message) {
       |> glight.with("received", message),
     "received message from kraken",
   )
+  Nil
 }
