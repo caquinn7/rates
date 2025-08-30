@@ -5,10 +5,16 @@
 /// read access from any process, while write access is restricted to the owning process.
 import carpenter/table.{type Set as EtsSet, NoWriteConcurrency, Protected}
 import gleam/list
+import gleam/pair
 import gleam/result
+import server/time
 
 pub opaque type PriceStore {
-  PriceStore(EtsSet(String, Float))
+  PriceStore(EtsSet(String, PriceEntry))
+}
+
+pub type PriceEntry {
+  PriceEntry(Float, Int)
 }
 
 const table_name = "kraken_price_store"
@@ -25,7 +31,6 @@ const table_name = "kraken_price_store"
 pub fn new() -> Result(PriceStore, Nil) {
   table_name
   |> table.build
-  // Read available to all processes. Only writable by owner process.
   |> table.privacy(Protected)
   |> table.write_concurrency(NoWriteConcurrency)
   |> table.read_concurrency(True)
@@ -44,8 +49,14 @@ pub fn new() -> Result(PriceStore, Nil) {
 /// price_store.insert(store, "BTC/USD", 67350.25)
 /// ```
 pub fn insert(price_store: PriceStore, symbol: String, price: Float) -> Nil {
+  insert_with_timestamp(price_store, symbol, price, time.current_time_ms())
+}
+
+pub fn insert_with_timestamp(price_store, symbol, price, current_time_ms) {
   let PriceStore(table) = price_store
-  table.insert(table, [#(symbol, price)])
+
+  let price_entry = PriceEntry(price, current_time_ms)
+  table.insert(table, [#(symbol, price_entry)])
 }
 
 /// Retrieves the most recent price for a given symbol from the `PriceStore`.
@@ -57,13 +68,16 @@ pub fn insert(price_store: PriceStore, symbol: String, price: Float) -> Nil {
 /// let Ok(store) = price_store.get_store()
 /// let result = price_store.get_price(store, "BTC/USD")
 /// ```
-pub fn get_price(price_store: PriceStore, symbol: String) -> Result(Float, Nil) {
+pub fn get_price(
+  price_store: PriceStore,
+  symbol: String,
+) -> Result(PriceEntry, Nil) {
   let PriceStore(table) = price_store
 
   table
   |> table.lookup(symbol)
   |> list.first
-  |> result.map(fn(pair) { pair.1 })
+  |> result.map(pair.second)
 }
 
 /// Returns a reference to an already-initialized `PriceStore`.

@@ -1,7 +1,8 @@
 import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/result
-import server/kraken/price_store.{type PriceStore}
+import server/kraken/kraken.{type Kraken}
+import server/kraken/price_store.{type PriceEntry, type PriceStore, PriceEntry}
 import server/rates/actors/kraken_symbol.{
   type KrakenSymbol, DirectSymbol, ReversedSymbol,
 }
@@ -29,6 +30,19 @@ pub fn resolve_currency_symbols(
   Ok(#(from_symbol, to_symbol))
 }
 
+pub fn subscribe_to_kraken(kraken: Kraken, kraken_symbol: KrakenSymbol) -> Nil {
+  let symbol_str = kraken_symbol.to_string(kraken_symbol)
+  kraken.subscribe(kraken, symbol_str)
+}
+
+pub fn unsubscribe_from_kraken(
+  kraken: Kraken,
+  kraken_symbol: KrakenSymbol,
+) -> Nil {
+  let symbol_str = kraken_symbol.to_string(kraken_symbol)
+  kraken.unsubscribe(kraken, symbol_str)
+}
+
 /// Attempts to fetch the latest price for a given `KrakenSymbol` from the shared `PriceStore`.
 /// If the symbol is reversed, returns the inverse of the price.
 /// Retries the lookup up to `retries` times, sleeping `delay` ms between attempts.
@@ -37,16 +51,11 @@ pub fn wait_for_kraken_price(
   price_store: PriceStore,
   retries_left: Int,
   delay: Int,
-) -> Result(Float, Nil) {
+) -> Result(PriceEntry, Nil) {
   let symbol_str = kraken_symbol.to_string(kraken_symbol)
-  let symbol_dir = kraken_symbol.direction(kraken_symbol)
 
   case price_store.get_price(price_store, symbol_str) {
-    Ok(price) ->
-      Ok(case symbol_dir {
-        DirectSymbol -> price
-        ReversedSymbol -> 1.0 /. price
-      })
+    Ok(price_entry) -> Ok(price_entry)
 
     Error(_) if retries_left == 0 -> Error(Nil)
 
@@ -54,5 +63,19 @@ pub fn wait_for_kraken_price(
       process.sleep(delay)
       wait_for_kraken_price(kraken_symbol, price_store, retries_left - 1, delay)
     }
+  }
+}
+
+/// Helper function to extract and transform price from a PriceEntry based on symbol direction
+pub fn extract_price(
+  price_entry: PriceEntry,
+  kraken_symbol: KrakenSymbol,
+) -> Float {
+  let PriceEntry(price, _timestamp) = price_entry
+  let symbol_dir = kraken_symbol.direction(kraken_symbol)
+
+  case symbol_dir {
+    DirectSymbol -> price
+    ReversedSymbol -> 1.0 /. price
   }
 }

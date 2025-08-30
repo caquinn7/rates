@@ -18,6 +18,7 @@
 //// - **CMC subscriptions**: Capped at 30 seconds due to API rate limits
 //// - **Transitions**: Automatically restore optimal intervals when switching back to Kraken
 
+import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Pid, type Subject}
 import gleam/int
@@ -25,6 +26,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
+import glight
 import server/kraken/kraken.{type Kraken}
 import server/kraken/price_store.{type PriceStore}
 import server/rates/actors/kraken_symbol.{type KrakenSymbol}
@@ -261,6 +263,8 @@ fn get_latest_rate(
   scheduled_subscription: Subscription,
   request_cmc_conversion: RequestCmcConversion,
 ) -> Next(State, Msg) {
+  use <- bool.guard(option.is_none(state.subscription), actor.continue(state))
+
   let assert Some(current_subscription) = state.subscription
 
   case current_subscription == scheduled_subscription {
@@ -298,8 +302,7 @@ fn handle_kraken_subscription(
   kraken_symbol: KrakenSymbol,
   request_cmc_conversion: RequestCmcConversion,
 ) -> State {
-  let symbol_str = kraken_symbol.to_string(kraken_symbol)
-  kraken.subscribe(state.kraken, symbol_str)
+  utils.subscribe_to_kraken(state.kraken, kraken_symbol)
 
   check_kraken_price_and_respond(
     state,
@@ -319,8 +322,15 @@ fn check_kraken_price_and_respond(
     utils.wait_for_kraken_price(kraken_symbol, state.price_store, 5, 50)
 
   case kraken_price_result {
-    Error(_) -> handle_cmc_fallback(state, rate_req, request_cmc_conversion)
-    Ok(rate) -> handle_kraken_price_hit(state, rate_req, kraken_symbol, rate)
+    Error(_) -> {
+      log_wait_for_kraken_price_timeout(rate_req)
+      handle_cmc_fallback(state, rate_req, request_cmc_conversion)
+    }
+
+    Ok(price_entry) -> {
+      let rate = utils.extract_price(price_entry, kraken_symbol)
+      handle_kraken_price_hit(state, rate_req, kraken_symbol, rate)
+    }
   }
 }
 
@@ -381,8 +391,7 @@ fn do_stop(state: State) -> Next(State, Msg) {
     Some(subscription) -> {
       case subscription {
         Kraken(_, symbol) -> {
-          let symbol_str = kraken_symbol.to_string(symbol)
-          kraken.unsubscribe(state.kraken, symbol_str)
+          utils.unsubscribe_from_kraken(state.kraken, symbol)
           actor.stop()
         }
 
@@ -396,4 +405,25 @@ fn currencies_to_dict(currencies: List(Currency)) -> Dict(Int, String) {
   currencies
   |> list.map(fn(c) { #(c.id, c.symbol) })
   |> dict.from_list
+}
+
+// logging
+
+fn subscriber_logger() -> Dict(String, String) {
+  glight.logger()
+  |> glight.with("source", "subscriber")
+}
+
+fn rate_request_logger(rate_req: RateRequest) -> Dict(String, String) {
+  subscriber_logger()
+  |> glight.with("rate_request.from", int.to_string(rate_req.from))
+  |> glight.with("rate_request.to", int.to_string(rate_req.to))
+}
+
+fn log_wait_for_kraken_price_timeout(rate_req: RateRequest) -> Nil {
+  glight.warning(
+    rate_request_logger(rate_req),
+    "timed out waiting for kraken price",
+  )
+  Nil
 }

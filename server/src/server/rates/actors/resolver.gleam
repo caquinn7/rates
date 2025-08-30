@@ -103,8 +103,7 @@ fn handle_msg(
             handle_cmc_fallback(rate_req, request_cmc_conversion, reply_to)
 
           Ok(kraken_symbol) -> {
-            let symbol_str = kraken_symbol.to_string(kraken_symbol)
-            kraken.subscribe(state.kraken, symbol_str)
+            utils.subscribe_to_kraken(state.kraken, kraken_symbol)
 
             let kraken_price_result =
               utils.wait_for_kraken_price(
@@ -118,9 +117,10 @@ fn handle_msg(
               Error(_) ->
                 handle_cmc_fallback(rate_req, request_cmc_conversion, reply_to)
 
-              Ok(rate) -> {
-                kraken.unsubscribe(state.kraken, symbol_str)
+              Ok(price_entry) -> {
+                utils.unsubscribe_from_kraken(state.kraken, kraken_symbol)
 
+                let rate = utils.extract_price(price_entry, kraken_symbol)
                 process.send(
                   reply_to,
                   Ok(RateResponse(rate_req.from, rate_req.to, rate, Kraken)),

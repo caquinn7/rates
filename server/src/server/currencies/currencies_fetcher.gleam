@@ -1,4 +1,3 @@
-import gleam/erlang/atom
 import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -7,6 +6,7 @@ import server/context.{type Context}
 import server/currencies/cmc_currency_handler.{
   type FetchError, type RequestCmcCryptos, type RequestCmcFiats,
 }
+import server/time
 import shared/currency.{type Currency, Crypto, Fiat}
 
 pub type CurrenciesResult =
@@ -59,9 +59,9 @@ pub fn get_currencies(
     }
   }
 
-  let start_time = current_time_ms()
+  let start_time = time.current_time_ms()
   let get_remaining_time = fn() {
-    let now = current_time_ms()
+    let now = time.current_time_ms()
     let elapsed = now - start_time
     timeout - elapsed
   }
@@ -121,10 +121,3 @@ fn receive_both(
       }
   }
 }
-
-fn current_time_ms() -> Int {
-  monotonic_time(atom.create("millisecond"))
-}
-
-@external(erlang, "erlang", "monotonic_time")
-fn monotonic_time(unit: atom) -> Int

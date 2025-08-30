@@ -1,13 +1,10 @@
 import gleeunit/should
-import server/kraken/price_store
+import server/kraken/price_store.{PriceEntry}
 import server_test
 
 pub fn unable_to_create_twice_test() {
   use _ <- server_test.with_price_store
-
-  price_store.new()
-  |> should.be_error
-  |> should.equal(Nil)
+  assert Error(Nil) == price_store.new()
 }
 
 pub fn insert_symbol_that_does_not_exist_test() {
@@ -15,14 +12,18 @@ pub fn insert_symbol_that_does_not_exist_test() {
 
   let symbol = "BTC/USD"
   let expected_price = 90_000.0
+  let expected_timestamp = 1
 
-  store
-  |> price_store.insert(symbol, expected_price)
+  price_store.insert_with_timestamp(
+    store,
+    symbol,
+    expected_price,
+    expected_timestamp,
+  )
 
-  store
-  |> price_store.get_price(symbol)
-  |> should.be_ok
-  |> should.equal(expected_price)
+  let result = price_store.get_price(store, symbol)
+
+  assert Ok(PriceEntry(expected_price, expected_timestamp)) == result
 }
 
 pub fn insert_symbol_that_exists_test() {
@@ -30,33 +31,29 @@ pub fn insert_symbol_that_exists_test() {
 
   let symbol = "BTC/USD"
   let expected_price = 100_000.0
+  let expected_timestamp = 2
 
-  store
-  |> price_store.insert(symbol, 90_000.0)
+  price_store.insert_with_timestamp(store, symbol, 90_000.0, 1)
+  price_store.insert_with_timestamp(
+    store,
+    symbol,
+    expected_price,
+    expected_timestamp,
+  )
 
-  store
-  |> price_store.insert(symbol, expected_price)
+  let result = price_store.get_price(store, symbol)
 
-  store
-  |> price_store.get_price(symbol)
-  |> should.be_ok
-  |> should.equal(expected_price)
+  assert Ok(PriceEntry(expected_price, expected_timestamp)) == result
 }
 
 pub fn get_price_for_symbol_that_does_not_exist() {
   use store <- server_test.with_price_store
-
-  store
-  |> price_store.get_price("BTC/USD")
-  |> should.be_error
-  |> should.equal(Nil)
+  assert Error(Nil) == price_store.get_price(store, "BTC/USD")
 }
 
 pub fn get_store_test() {
   use _ <- server_test.with_price_store
-
-  price_store.get_store()
-  |> should.be_ok
+  let assert Ok(_) = price_store.get_store()
 }
 
 pub fn get_store_returns_error_when_not_initialized() {

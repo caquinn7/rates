@@ -57,8 +57,8 @@ fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {
   glight.error(
     glight.logger()
       |> glight.with("source", "home")
-      |> glight.with("from", int.to_string(rate_req.from))
-      |> glight.with("to", int.to_string(rate_req.to))
+      |> glight.with("rate_request.from", int.to_string(rate_req.from))
+      |> glight.with("rate_request.to", int.to_string(rate_req.to))
       |> glight.with("error", string.inspect(err)),
     "error getting rate",
   )

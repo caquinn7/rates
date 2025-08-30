@@ -76,6 +76,8 @@ pub fn handler(
   message: WebsocketMessage(Result(RateResponse, RateError)),
   conn: WebsocketConnection,
 ) -> mist.Next(RateSubscriber, Result(RateResponse, RateError)) {
+  log_message_received(message)
+
   case message {
     Text(str) -> {
       case json.parse(str, websocket_request_decoder()) {
@@ -110,7 +112,13 @@ pub fn handler(
 
         Error(err) -> {
           log_rate_response_error(err)
-          "Unexpected error getting rate"
+
+          case err {
+            CurrencyNotFound(_, id) ->
+              "currency id " <> int.to_string(id) <> " not found"
+
+            CmcError(..) -> "Unexpected error getting rate"
+          }
         }
       }
 
@@ -127,7 +135,7 @@ pub fn handler(
 
 pub fn on_close(state: RateSubscriber) -> Nil {
   rate_subscriber.stop(state)
-  Nil
+  log_socket_closed()
 }
 
 // logging
@@ -137,8 +145,24 @@ fn websocket_logger() -> Dict(String, String) {
   |> glight.with("source", "websocket")
 }
 
+fn log_message_received(
+  message: WebsocketMessage(Result(RateResponse, RateError)),
+) -> Nil {
+  glight.debug(
+    websocket_logger()
+      |> glight.with("received", string.inspect(message)),
+    "received websocket message",
+  )
+  Nil
+}
+
 fn log_socket_init() -> Nil {
   glight.debug(websocket_logger(), "socket initialized")
+  Nil
+}
+
+fn log_socket_closed() -> Nil {
+  glight.debug(websocket_logger(), "socket closed")
   Nil
 }
 
