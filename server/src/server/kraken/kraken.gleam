@@ -264,6 +264,9 @@ fn kraken_loop(
           let pending_subscriptions = dict.delete(pending_subscriptions, symbol)
           let active_subscriptions = dict.delete(active_subscriptions, symbol)
 
+          let assert Some(price_store) = state.price_store
+          price_store.delete_price(price_store, symbol)
+
           actor.continue(
             State(..state, pending_subscriptions:, active_subscriptions:),
           )

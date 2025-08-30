@@ -80,6 +80,15 @@ pub fn get_price(
   |> result.map(pair.second)
 }
 
+/// Removes a price record from the store for the specified currency pair symbol.
+/// 
+/// If the symbol does not exist in the store, the operation succeeds silently
+/// without any error.
+pub fn delete_price(price_store: PriceStore, symbol: String) -> Nil {
+  let PriceStore(table) = price_store
+  table.delete(table, symbol)
+}
+
 /// Returns a reference to an already-initialized `PriceStore`.
 ///
 /// This is intended for use by processes that did not create the store themselves,
