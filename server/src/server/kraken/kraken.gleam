@@ -170,7 +170,7 @@ fn kraken_loop(
                 let assert Ok(pending_count) =
                   dict.get(pending_subscriptions, symbol)
 
-                log_subscription_debug(
+                log_subscription_count(
                   symbol,
                   pending_count,
                   "Incremented pending subscription count",
@@ -189,7 +189,7 @@ fn kraken_loop(
           let active_subscriptions =
             dict.insert(active_subscriptions, symbol, new_count)
 
-          log_subscription_debug(
+          log_subscription_count(
             symbol,
             new_count,
             "Incremented active subscription count",
@@ -347,7 +347,7 @@ fn websocket_loop(
 
       case stratus.send_text_message(conn, json_str) {
         Error(err) -> {
-          log_message_send_error(err)
+          log_message_send_error(json_str, err)
           stratus.continue(state)
         }
 
@@ -375,7 +375,7 @@ fn log_symbols_received(symbols: Set(String)) -> Nil {
   Nil
 }
 
-fn log_subscription_debug(symbol: String, count: Int, message: String) -> Nil {
+fn log_subscription_count(symbol: String, count: Int, message: String) -> Nil {
   glight.debug(
     kraken_logger()
       |> glight.with("symbol", symbol)
@@ -403,9 +403,10 @@ fn log_price_update(symbol: String, price: Float) -> Nil {
   Nil
 }
 
-fn log_message_send_error(err: a) -> Nil {
+fn log_message_send_error(attempted_msg: String, err: a) -> Nil {
   glight.error(
     kraken_logger()
+      |> glight.with("attempted_msg", attempted_msg)
       |> glight.with("error", string.inspect(err)),
     "failed to send message to kraken",
   )
