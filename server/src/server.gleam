@@ -66,7 +66,6 @@ pub fn main() {
       Ok(cmc_currencies) -> {
         logger.info(
           logger.new()
-            |> logger.with_pid
             |> logger.with("source", "server")
             |> logger.with("count", int.to_string(list.length(cmc_currencies))),
           "fetched currencies from cmc",
@@ -82,7 +81,8 @@ pub fn main() {
     let assert Ok(store) = price_store.new()
     store
   }
-  let assert Ok(kraken) = kraken.new(create_price_store)
+  let kraken_logger = logger.with(logger.new(), "source", "kraken")
+  let assert Ok(kraken) = kraken.new(create_price_store, kraken_logger)
 
   // request handlers
   let assert Ok(_) =
@@ -100,6 +100,9 @@ pub fn main() {
       case request.path_segments(req) {
         // handle websocket connections
         ["ws"] -> {
+          let websocket_logger =
+            logger.with(logger.new(), "source", "websocket")
+
           mist.websocket(
             req,
             on_init: websocket.on_init(
@@ -108,6 +111,7 @@ pub fn main() {
               request_cmc_conversion,
               kraken,
               get_price_store,
+              websocket_logger,
             ),
             handler: websocket.handler,
             on_close: websocket.on_close,

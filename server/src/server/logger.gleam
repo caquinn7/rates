@@ -26,20 +26,21 @@ pub fn with(logger: Logger, key: String, value: String) -> Logger {
   |> Logger
 }
 
-pub fn with_pid(logger: Logger) -> Logger {
-  logger
-  |> with("pid", string.inspect(process.self()))
-}
-
 pub fn with_source(logger: Logger, source: String) -> Logger {
   logger
   |> with("source", source)
+}
+
+fn with_pid(logger: Logger) -> Logger {
+  logger
+  |> with("pid", string.inspect(process.self()))
 }
 
 // logging functions
 
 pub fn debug(logger: Logger, message: String) -> Nil {
   logger
+  |> with_pid
   |> unwrap
   |> glight.debug(message)
   Nil
@@ -47,6 +48,7 @@ pub fn debug(logger: Logger, message: String) -> Nil {
 
 pub fn info(logger: Logger, message: String) -> Nil {
   logger
+  |> with_pid
   |> unwrap
   |> glight.info(message)
   Nil
@@ -54,6 +56,7 @@ pub fn info(logger: Logger, message: String) -> Nil {
 
 pub fn warning(logger: Logger, message: String) -> Nil {
   logger
+  |> with_pid
   |> unwrap
   |> glight.warning(message)
   Nil
@@ -61,6 +64,7 @@ pub fn warning(logger: Logger, message: String) -> Nil {
 
 pub fn error(logger: Logger, message: String) -> Nil {
   logger
+  |> with_pid
   |> unwrap
   |> glight.error(message)
   Nil

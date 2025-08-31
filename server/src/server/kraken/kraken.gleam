@@ -60,11 +60,16 @@ type State {
     pending_subscriptions: Dict(String, Int),
     active_subscriptions: Dict(String, Int),
     price_store: Option(PriceStore),
+    logger: Logger,
   )
 }
 
-pub fn new(create_price_store: fn() -> PriceStore) -> Result(Kraken, StartError) {
-  let intitial_state = State(None, set.new(), dict.new(), dict.new(), None)
+pub fn new(
+  create_price_store: fn() -> PriceStore,
+  logger: Logger,
+) -> Result(Kraken, StartError) {
+  let intitial_state =
+    State(None, set.new(), dict.new(), dict.new(), None, logger)
   let msg_loop = fn(state, msg) { kraken_loop(state, msg, create_price_store) }
 
   use kraken_subject <- result.try(
@@ -76,8 +81,7 @@ pub fn new(create_price_store: fn() -> PriceStore) -> Result(Kraken, StartError)
   )
 
   use websocket_subject <- result.try(
-    kraken_subject
-    |> init_websocket
+    init_websocket(kraken_subject, logger)
     |> result.map(fn(started) { started.data }),
   )
 
@@ -106,6 +110,7 @@ fn kraken_loop(
     pending_subscriptions,
     active_subscriptions,
     maybe_price_store,
+    logger,
   ) = state
 
   case msg {
@@ -125,7 +130,7 @@ fn kraken_loop(
 
     SetSupportedSymbols(symbols) -> {
       // Updates the set of supported symbols based on Kraken's latest Instruments response.
-      log_symbols_received(symbols)
+      log_symbols_received(logger, symbols)
       pairs.set(symbols)
 
       let assert Some(websocket_subject) = maybe_websocket_subject
@@ -171,6 +176,7 @@ fn kraken_loop(
                   dict.get(pending_subscriptions, symbol)
 
                 log_subscription_count(
+                  logger,
                   symbol,
                   pending_count,
                   "Incremented pending subscription count",
@@ -190,6 +196,7 @@ fn kraken_loop(
             dict.insert(active_subscriptions, symbol, new_count)
 
           log_subscription_count(
+            logger,
             symbol,
             new_count,
             "Incremented active subscription count",
@@ -212,7 +219,7 @@ fn kraken_loop(
 
       let pending_subscriptions = dict.delete(pending_subscriptions, symbol)
 
-      log_subscription_confirmed(symbol)
+      log_subscription_confirmed(logger, symbol)
 
       actor.continue(
         State(..state, active_subscriptions:, pending_subscriptions:),
@@ -278,7 +285,7 @@ fn kraken_loop(
       case dict.get(active_subscriptions, symbol) {
         Error(_) -> actor.continue(state)
         Ok(_) -> {
-          log_price_update(symbol, price)
+          log_price_update(logger, symbol, price)
 
           let assert Some(price_store) = maybe_price_store
           price_store.insert(price_store, symbol, price)
@@ -294,28 +301,30 @@ type WebsocketMsg {
 
 fn init_websocket(
   reply_to: Subject(Msg),
+  logger: Logger,
 ) -> Result(Started(Subject(InternalMessage(WebsocketMsg))), StartError) {
   let assert Ok(req) = http_request.to("https://ws.kraken.com/v2")
   stratus.websocket(
     request: req,
-    init: fn() { #(reply_to, None) },
+    init: fn() { #(#(reply_to, logger), None) },
     loop: websocket_loop,
   )
   |> stratus.on_close(fn(_state) {
-    logger.info(kraken_logger(), "kraken socket closed")
+    logger.info(logger, "kraken socket closed")
     Nil
   })
   |> stratus.initialize
 }
 
 fn websocket_loop(
-  state: Subject(Msg),
+  state: #(Subject(Msg), Logger),
   msg: Message(WebsocketMsg),
   conn: Connection,
-) -> stratus.Next(Subject(Msg), WebsocketMsg) {
+) -> stratus.Next(#(Subject(Msg), Logger), WebsocketMsg) {
+  let #(reply_to, logger) = state
   case msg {
     Text(str) -> {
-      log_message_from_kraken(str)
+      log_message_from_kraken(logger, str)
 
       case json.parse(str, response.decoder()) {
         Error(_) -> stratus.continue(state)
@@ -326,17 +335,17 @@ fn websocket_loop(
             |> list.map(fn(p) { p.symbol })
             |> set.from_list
 
-          actor.send(state, SetSupportedSymbols(symbols))
+          actor.send(reply_to, SetSupportedSymbols(symbols))
           stratus.continue(state)
         }
 
         Ok(TickerSubscribeConfirmation(symbol)) -> {
-          actor.send(state, ConfirmSubscribe(symbol))
+          actor.send(reply_to, ConfirmSubscribe(symbol))
           stratus.continue(state)
         }
 
         Ok(TickerResponse(symbol, price)) -> {
-          actor.send(state, UpdatePrice(symbol, price))
+          actor.send(reply_to, UpdatePrice(symbol, price))
           stratus.continue(state)
         }
       }
@@ -350,7 +359,7 @@ fn websocket_loop(
 
       case stratus.send_text_message(conn, json_str) {
         Error(err) -> {
-          log_message_send_error(json_str, err)
+          log_message_send_error(logger, json_str, err)
           stratus.continue(state)
         }
 
@@ -364,58 +373,52 @@ fn websocket_loop(
 
 // logging
 
-fn kraken_logger() -> Logger {
-  logger.new()
-  |> logger.with_pid()
-  |> logger.with_source("kraken")
-}
-
-fn log_symbols_received(symbols: Set(String)) -> Nil {
+fn log_symbols_received(logger: Logger, symbols: Set(String)) -> Nil {
   logger.info(
-    kraken_logger()
-      |> logger.with("count", int.to_string(set.size(symbols))),
+    logger.with(logger, "count", int.to_string(set.size(symbols))),
     "Received pair symbols from Kraken",
   )
 }
 
-fn log_subscription_count(symbol: String, count: Int, message: String) -> Nil {
+fn log_subscription_count(
+  logger: Logger,
+  symbol: String,
+  count: Int,
+  message: String,
+) -> Nil {
   logger.debug(
-    kraken_logger()
+    logger
       |> logger.with("symbol", symbol)
       |> logger.with("count", int.to_string(count)),
     message,
   )
 }
 
-fn log_subscription_confirmed(symbol: String) -> Nil {
-  logger.debug(
-    kraken_logger() |> logger.with("symbol", symbol),
-    "Subscription confirmed",
-  )
+fn log_subscription_confirmed(logger: Logger, symbol: String) -> Nil {
+  logger.debug(logger.with(logger, "symbol", symbol), "Subscription confirmed")
 }
 
-fn log_price_update(symbol: String, price: Float) -> Nil {
+fn log_price_update(logger: Logger, symbol: String, price: Float) -> Nil {
   logger.debug(
-    kraken_logger()
+    logger
       |> logger.with("symbol", symbol)
       |> logger.with("price", float.to_string(price)),
     "Received price update",
   )
 }
 
-fn log_message_send_error(attempted_msg: String, err: a) -> Nil {
+fn log_message_send_error(logger: Logger, attempted_msg: String, err: a) -> Nil {
   logger.error(
-    kraken_logger()
+    logger
       |> logger.with("attempted_msg", attempted_msg)
       |> logger.with("error", string.inspect(err)),
     "Failed to send message to kraken",
   )
 }
 
-fn log_message_from_kraken(message: String) -> Nil {
+fn log_message_from_kraken(logger: Logger, message: String) -> Nil {
   logger.debug(
-    kraken_logger()
-      |> logger.with("received", message),
+    logger.with(logger, "received", message),
     "Received message from kraken",
   )
 }

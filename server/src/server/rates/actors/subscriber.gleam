@@ -59,6 +59,7 @@ type State {
     current_interval: Int,
     price_store: PriceStore,
     subscription: Option(Subscription),
+    logger: Logger,
   )
 }
 
@@ -99,6 +100,7 @@ pub fn new(
   kraken: Kraken,
   interval: Int,
   get_price_store: fn() -> PriceStore,
+  logger: Logger,
 ) -> Result(RateSubscriber, StartError) {
   let state =
     State(
@@ -110,6 +112,7 @@ pub fn new(
       interval,
       get_price_store(),
       None,
+      logger,
     )
 
   use rate_subscriber <- result.try(
@@ -323,7 +326,7 @@ fn check_kraken_price_and_respond(
 
   case kraken_price_result {
     Error(_) -> {
-      log_wait_for_kraken_price_timeout(rate_req)
+      log_wait_for_kraken_price_timeout(state.logger, rate_req)
       handle_cmc_fallback(state, rate_req, request_cmc_conversion)
     }
 
@@ -409,21 +412,18 @@ fn currencies_to_dict(currencies: List(Currency)) -> Dict(Int, String) {
 
 // logging
 
-fn subscriber_logger() -> Logger {
-  logger.new()
-  |> logger.with_pid()
-  |> logger.with_source("subscriber")
-}
-
-fn rate_request_logger(rate_req: RateRequest) -> Logger {
-  subscriber_logger()
+fn rate_request_logger(logger: Logger, rate_req: RateRequest) -> Logger {
+  logger
   |> logger.with("rate_request.from", int.to_string(rate_req.from))
   |> logger.with("rate_request.to", int.to_string(rate_req.to))
 }
 
-fn log_wait_for_kraken_price_timeout(rate_req: RateRequest) -> Nil {
+fn log_wait_for_kraken_price_timeout(
+  logger: Logger,
+  rate_req: RateRequest,
+) -> Nil {
   logger.warning(
-    rate_request_logger(rate_req),
+    rate_request_logger(logger, rate_req),
     "Timed out waiting for kraken price",
   )
 }

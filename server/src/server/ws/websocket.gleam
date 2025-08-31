@@ -30,12 +30,18 @@ pub fn on_init(
   request_cmc_conversion: RequestCmcConversion,
   kraken_subject: Kraken,
   get_price_store: fn() -> PriceStore,
-) -> #(RateSubscriber, Option(Selector(Result(RateResponse, RateError)))) {
+  logger: Logger,
+) -> #(
+  #(RateSubscriber, Logger),
+  Option(Selector(Result(RateResponse, RateError))),
+) {
   let subject = process.new_subject()
 
   let selector =
     process.new_selector()
     |> process.select_map(subject, function.identity)
+
+  let subscriber_logger = logger.with(logger.new(), "source", "subscriber")
 
   let assert Ok(rate_subscriber) =
     rate_subscriber.new(
@@ -45,11 +51,12 @@ pub fn on_init(
       kraken_subject,
       10_000,
       get_price_store,
+      subscriber_logger,
     )
 
-  log_socket_init()
+  log_socket_init(logger)
 
-  #(rate_subscriber, Some(selector))
+  #(#(rate_subscriber, logger), Some(selector))
 }
 
 pub type WebsocketRequest {
@@ -71,24 +78,25 @@ pub fn websocket_request_decoder() -> Decoder(WebsocketRequest) {
 }
 
 pub fn handler(
-  state: RateSubscriber,
+  state: #(RateSubscriber, Logger),
   message: WebsocketMessage(Result(RateResponse, RateError)),
   conn: WebsocketConnection,
-) -> mist.Next(RateSubscriber, Result(RateResponse, RateError)) {
-  log_message_received(message)
+) -> mist.Next(#(RateSubscriber, Logger), Result(RateResponse, RateError)) {
+  let #(rate_subscriber, logger) = state
+  log_message_received(logger, message)
 
   case message {
     Text(str) -> {
       case json.parse(str, websocket_request_decoder()) {
         Ok(GetRate(rate_req)) -> {
-          rate_subscriber.subscribe(state, rate_req)
+          rate_subscriber.subscribe(rate_subscriber, rate_req)
           mist.continue(state)
         }
 
         Ok(AddCurrencies([])) -> mist.continue(state)
 
         Ok(AddCurrencies(currencies)) -> {
-          rate_subscriber.add_currencies(state, currencies)
+          rate_subscriber.add_currencies(rate_subscriber, currencies)
           mist.continue(state)
         }
 
@@ -102,7 +110,7 @@ pub fn handler(
     Custom(response) -> {
       let response_str = case response {
         Ok(rate_resp) -> {
-          log_rate_response_success(rate_resp)
+          log_rate_response_success(logger, rate_resp)
 
           rate_resp
           |> rate_response.encode
@@ -110,7 +118,7 @@ pub fn handler(
         }
 
         Error(err) -> {
-          log_rate_response_error(err)
+          log_rate_response_error(logger, err)
 
           case err {
             CurrencyNotFound(_, id) ->
@@ -126,58 +134,51 @@ pub fn handler(
     }
 
     Binary(_) -> mist.continue(state)
-    Closed | Shutdown -> {
-      mist.stop()
-    }
+    Closed | Shutdown -> mist.stop()
   }
 }
 
-pub fn on_close(state: RateSubscriber) -> Nil {
-  rate_subscriber.stop(state)
-  log_socket_closed()
+pub fn on_close(state: #(RateSubscriber, Logger)) -> Nil {
+  let #(rate_subscriber, logger) = state
+  rate_subscriber.stop(rate_subscriber)
+  log_socket_closed(logger)
 }
 
 // logging
 
-fn websocket_logger() -> Logger {
-  logger.new()
-  |> logger.with_pid()
-  |> logger.with_source("websocket")
-}
-
 fn log_message_received(
+  logger: Logger,
   message: WebsocketMessage(Result(RateResponse, RateError)),
 ) -> Nil {
   logger.debug(
-    websocket_logger()
-      |> logger.with("received", string.inspect(message)),
+    logger.with(logger, "received", string.inspect(message)),
     "Received websocket message",
   )
 }
 
-fn log_socket_init() -> Nil {
-  logger.debug(websocket_logger(), "Socket initialized")
+fn log_socket_init(logger: Logger) -> Nil {
+  logger.debug(logger, "Socket initialized")
 }
 
-fn log_socket_closed() -> Nil {
-  logger.debug(websocket_logger(), "Socket closed")
+fn log_socket_closed(logger: Logger) -> Nil {
+  logger.debug(logger, "Socket closed")
 }
 
-fn log_rate_response_success(rate_response: RateResponse) -> Nil {
+fn log_rate_response_success(logger: Logger, rate_response: RateResponse) -> Nil {
   logger.debug(
-    websocket_logger()
+    logger
       |> logger.with("rate_response.from", int.to_string(rate_response.from))
       |> logger.with("rate_response.to", int.to_string(rate_response.to))
       |> logger.with("rate_response.rate", float.to_string(rate_response.rate))
       |> logger.with(
-        "rate_source",
+        "rate_response.source",
         shared_rate_response.source_to_string(rate_response.source),
       ),
     "Successfully fetched rate",
   )
 }
 
-fn log_rate_response_error(error: RateError) -> Nil {
+fn log_rate_response_error(logger: Logger, error: RateError) -> Nil {
   let #(rate_req, reason) = case error {
     CurrencyNotFound(rate_req, id) -> #(
       rate_req,
@@ -191,7 +192,7 @@ fn log_rate_response_error(error: RateError) -> Nil {
   }
 
   logger.error(
-    websocket_logger()
+    logger
       |> logger.with("error", string.inspect(error))
       |> logger.with("reason", reason)
       |> logger.with("rate_request.from", int.to_string(rate_req.from))
