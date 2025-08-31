@@ -46,7 +46,9 @@ pub fn button(text, on_click) -> Element(msg) {
   html.button(
     [
       attribute.class("inline-flex items-center px-3 py-3"),
-      attribute.class("w-full rounded-r-lg cursor-pointer"),
+      attribute.class(
+        "w-full rounded-r-lg border-2 border-base-content cursor-pointer",
+      ),
       attribute.class(
         "font-normal text-4xl text-left bg-base-content text-secondary-content",
       ),
