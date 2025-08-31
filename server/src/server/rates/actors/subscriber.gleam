@@ -27,7 +27,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
 import server/kraken/kraken.{type Kraken}
-import server/kraken/price_store.{type PriceStore}
+import server/kraken/price_store.{type PriceEntry, type PriceStore}
 import server/logger.{type Logger}
 import server/rates/actors/kraken_symbol.{type KrakenSymbol}
 import server/rates/actors/rate_error.{type RateError, CmcError}
@@ -100,6 +100,7 @@ pub fn new(
   kraken: Kraken,
   interval: Int,
   get_price_store: fn() -> PriceStore,
+  get_current_time_ms: fn() -> Int,
   logger: Logger,
 ) -> Result(RateSubscriber, StartError) {
   let state =
@@ -119,7 +120,7 @@ pub fn new(
     state
     |> actor.new
     |> actor.on_message(fn(state, msg) {
-      handle_msg(state, msg, request_cmc_conversion)
+      handle_msg(state, msg, request_cmc_conversion, get_current_time_ms)
     })
     |> actor.start
     |> result.map(fn(started) { RateSubscriber(started.pid, started.data) }),
@@ -185,14 +186,21 @@ fn handle_msg(
   state: State,
   msg: Msg,
   request_cmc_conversion: RequestCmcConversion,
+  get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
   case msg {
     Init(self_subject) -> init(state, self_subject)
 
-    Subscribe(rate_req) -> do_subscribe(state, rate_req, request_cmc_conversion)
+    Subscribe(rate_req) ->
+      do_subscribe(state, rate_req, request_cmc_conversion, get_current_time_ms)
 
     GetLatestRate(scheduled_subscription) ->
-      get_latest_rate(state, scheduled_subscription, request_cmc_conversion)
+      get_latest_rate(
+        state,
+        scheduled_subscription,
+        request_cmc_conversion,
+        get_current_time_ms,
+      )
 
     AddCurrencies(currencies) -> do_add_currencies(state, currencies)
 
@@ -209,6 +217,7 @@ fn do_subscribe(
   state: State,
   rate_req: RateRequest,
   request_cmc_conversion: RequestCmcConversion,
+  get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
   // If we were already subscribed via Kraken, first unsubscribe from the old symbol
   let state = case state.subscription {
@@ -235,7 +244,13 @@ fn do_subscribe(
   })
   |> result.map(fn(symbols) {
     case kraken_symbol.new(symbols) {
-      Error(_) -> handle_cmc_fallback(state, rate_req, request_cmc_conversion)
+      Error(_) ->
+        handle_cmc_fallback(
+          state,
+          rate_req,
+          request_cmc_conversion,
+          get_current_time_ms,
+        )
 
       Ok(kraken_symbol) ->
         handle_kraken_subscription(
@@ -243,6 +258,7 @@ fn do_subscribe(
           rate_req,
           kraken_symbol,
           request_cmc_conversion,
+          get_current_time_ms,
         )
     }
   })
@@ -265,6 +281,7 @@ fn get_latest_rate(
   state: State,
   scheduled_subscription: Subscription,
   request_cmc_conversion: RequestCmcConversion,
+  get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
   use <- bool.guard(option.is_none(state.subscription), actor.continue(state))
 
@@ -276,7 +293,12 @@ fn get_latest_rate(
     True -> {
       let state = case current_subscription {
         Cmc(rate_req) ->
-          handle_cmc_fallback(state, rate_req, request_cmc_conversion)
+          handle_cmc_fallback(
+            state,
+            rate_req,
+            request_cmc_conversion,
+            get_current_time_ms,
+          )
 
         Kraken(rate_req, symbol) ->
           check_kraken_price_and_respond(
@@ -284,6 +306,7 @@ fn get_latest_rate(
             rate_req,
             symbol,
             request_cmc_conversion,
+            get_current_time_ms,
           )
       }
 
@@ -304,6 +327,7 @@ fn handle_kraken_subscription(
   rate_req: RateRequest,
   kraken_symbol: KrakenSymbol,
   request_cmc_conversion: RequestCmcConversion,
+  get_current_time_ms: fn() -> Int,
 ) -> State {
   utils.subscribe_to_kraken(state.kraken, kraken_symbol)
 
@@ -312,6 +336,7 @@ fn handle_kraken_subscription(
     rate_req,
     kraken_symbol,
     request_cmc_conversion,
+    get_current_time_ms,
   )
 }
 
@@ -320,6 +345,7 @@ fn check_kraken_price_and_respond(
   rate_req: RateRequest,
   kraken_symbol: KrakenSymbol,
   request_cmc_conversion: RequestCmcConversion,
+  get_current_time_ms: fn() -> Int,
 ) -> State {
   let kraken_price_result =
     utils.wait_for_kraken_price(kraken_symbol, state.price_store, 5, 50)
@@ -327,13 +353,17 @@ fn check_kraken_price_and_respond(
   case kraken_price_result {
     Error(_) -> {
       log_wait_for_kraken_price_timeout(state.logger, rate_req)
-      handle_cmc_fallback(state, rate_req, request_cmc_conversion)
+
+      handle_cmc_fallback(
+        state,
+        rate_req,
+        request_cmc_conversion,
+        get_current_time_ms,
+      )
     }
 
-    Ok(price_entry) -> {
-      let rate = utils.extract_price(price_entry, kraken_symbol)
-      handle_kraken_price_hit(state, rate_req, kraken_symbol, rate)
-    }
+    Ok(price_entry) ->
+      handle_kraken_price_hit(state, rate_req, kraken_symbol, price_entry)
   }
 }
 
@@ -341,10 +371,18 @@ fn handle_kraken_price_hit(
   state: State,
   rate_req: RateRequest,
   kraken_symbol: KrakenSymbol,
-  rate: Float,
+  price_entry: PriceEntry,
 ) -> State {
+  let rate = utils.extract_price(price_entry, kraken_symbol)
+
   let rate_resp =
-    RateResponse(rate_req.from, rate_req.to, rate, rate_response.Kraken)
+    RateResponse(
+      rate_req.from,
+      rate_req.to,
+      rate,
+      rate_response.Kraken,
+      price_entry.timestamp,
+    )
 
   process.send(state.reply_to, Ok(rate_resp))
 
@@ -359,10 +397,11 @@ fn handle_cmc_fallback(
   state: State,
   rate_req: RateRequest,
   request_cmc_conversion: RequestCmcConversion,
+  get_current_time_ms: fn() -> Int,
 ) -> State {
   let result =
     rate_req
-    |> cmc_rate_handler.get_rate(request_cmc_conversion)
+    |> cmc_rate_handler.get_rate(request_cmc_conversion, get_current_time_ms)
     |> result.map_error(CmcError(rate_req, _))
 
   process.send(state.reply_to, result)

@@ -59,9 +59,9 @@ pub fn get_currencies(
     }
   }
 
-  let start_time = time.current_time_ms()
+  let start_time = time.monotonic_time_ms()
   let get_remaining_time = fn() {
-    let now = time.current_time_ms()
+    let now = time.monotonic_time_ms()
     let elapsed = now - start_time
     timeout - elapsed
   }

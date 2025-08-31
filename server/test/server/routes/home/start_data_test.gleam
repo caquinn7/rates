@@ -12,7 +12,7 @@ pub fn encode_start_data_to_json_test() {
       Crypto(1, "Bitcoin", "BTC", Some(1)),
       Fiat(2781, "United States Dollar", "USD", "$"),
     ],
-    RateResponse(1, 2781, 100_000.0, Kraken),
+    RateResponse(1, 2781, 100_000.0, Kraken, 1_756_654_456),
   )
   |> start_data.encode
   |> json.to_string

@@ -52,6 +52,7 @@ pub fn new(
   kraken: Kraken,
   request_cmc_conversion: RequestCmcConversion,
   get_price_store: fn() -> PriceStore,
+  get_current_time_ms: fn() -> Int,
 ) -> Result(RateResolver, StartError) {
   let currency_dict =
     cmc_currencies
@@ -64,7 +65,7 @@ pub fn new(
     State(currency_dict, kraken, price_store, request_cmc_conversion)
 
   let msg_loop = fn(state, msg) {
-    handle_msg(state, msg, request_cmc_conversion)
+    handle_msg(state, msg, request_cmc_conversion, get_current_time_ms)
   }
 
   initial_state
@@ -87,6 +88,7 @@ fn handle_msg(
   state: State,
   msg: Msg,
   request_cmc_conversion: RequestCmcConversion,
+  get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
   case msg {
     GetRate(reply_to, rate_req) -> {
@@ -100,7 +102,12 @@ fn handle_msg(
       |> result.map(fn(symbols) {
         case kraken_symbol.new(symbols) {
           Error(_) ->
-            handle_cmc_fallback(rate_req, request_cmc_conversion, reply_to)
+            handle_cmc_fallback(
+              rate_req,
+              request_cmc_conversion,
+              reply_to,
+              get_current_time_ms,
+            )
 
           Ok(kraken_symbol) -> {
             utils.subscribe_to_kraken(state.kraken, kraken_symbol)
@@ -115,7 +122,12 @@ fn handle_msg(
 
             case kraken_price_result {
               Error(_) ->
-                handle_cmc_fallback(rate_req, request_cmc_conversion, reply_to)
+                handle_cmc_fallback(
+                  rate_req,
+                  request_cmc_conversion,
+                  reply_to,
+                  get_current_time_ms,
+                )
 
               Ok(price_entry) -> {
                 utils.unsubscribe_from_kraken(state.kraken, kraken_symbol)
@@ -123,7 +135,13 @@ fn handle_msg(
                 let rate = utils.extract_price(price_entry, kraken_symbol)
                 process.send(
                   reply_to,
-                  Ok(RateResponse(rate_req.from, rate_req.to, rate, Kraken)),
+                  Ok(RateResponse(
+                    rate_req.from,
+                    rate_req.to,
+                    rate,
+                    Kraken,
+                    price_entry.timestamp,
+                  )),
                 )
 
                 actor.stop()
@@ -141,8 +159,16 @@ fn handle_cmc_fallback(
   rate_req: RateRequest,
   request_cmc_conversion: RequestCmcConversion,
   reply_to: Subject(Result(RateResponse, RateError)),
+  get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
-  case cmc_rate_handler.get_rate(rate_req, request_cmc_conversion) {
+  let result =
+    cmc_rate_handler.get_rate(
+      rate_req,
+      request_cmc_conversion,
+      get_current_time_ms,
+    )
+
+  case result {
     Error(err) -> {
       process.send(reply_to, Error(CmcError(rate_req, err)))
       actor.stop()

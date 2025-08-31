@@ -1,5 +1,5 @@
 pub type RateResponse {
-  RateResponse(from: Int, to: Int, rate: Float, source: Source)
+  RateResponse(from: Int, to: Int, rate: Float, source: Source, timestamp: Int)
 }
 
 pub type Source {

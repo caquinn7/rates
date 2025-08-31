@@ -25,6 +25,7 @@ pub type RateRequestError {
 pub fn get_rate(
   rate_request: RateRequest,
   request_conversion: RequestCmcConversion,
+  get_current_time_ms: fn() -> Int,
 ) -> Result(RateResponse, RateRequestError) {
   let validate_currency_id = fn(i) {
     case i > 0 {
@@ -45,12 +46,13 @@ pub fn get_rate(
   )
 
   cmc_response
-  |> map_cmc_response(rate_request, _)
+  |> map_cmc_response(rate_request, get_current_time_ms)
 }
 
 fn map_cmc_response(
-  rate_request: RateRequest,
   cmc_response: CmcResponse(CmcConversion),
+  rate_request: RateRequest,
+  get_current_time_ms: fn() -> Int,
 ) -> Result(RateResponse, RateRequestError) {
   let CmcResponse(CmcStatus(err_code, err_msg), data) = cmc_response
 
@@ -70,6 +72,7 @@ fn map_cmc_response(
           to: rate_request.to,
           rate: quote_item.price,
           source: CoinMarketCap,
+          timestamp: get_current_time_ms(),
         )
       })
       |> result.map_error(fn(_) { UnexpectedResponse(cmc_response) })

@@ -20,6 +20,7 @@ import server/rates/actors/subscriber.{type RateSubscriber} as rate_subscriber
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/rate_request
 import server/rates/rate_response
+import server/time
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest} as _shared_rate_request
 import shared/rates/rate_response.{type RateResponse} as shared_rate_response
@@ -51,6 +52,7 @@ pub fn on_init(
       kraken_subject,
       10_000,
       get_price_store,
+      time.system_time_ms,
       subscriber_logger,
     )
 
@@ -165,17 +167,21 @@ fn log_socket_closed(logger: Logger) -> Nil {
 }
 
 fn log_rate_response_success(logger: Logger, rate_response: RateResponse) -> Nil {
-  logger.debug(
+  let logger =
     logger
-      |> logger.with("rate_response.from", int.to_string(rate_response.from))
-      |> logger.with("rate_response.to", int.to_string(rate_response.to))
-      |> logger.with("rate_response.rate", float.to_string(rate_response.rate))
-      |> logger.with(
-        "rate_response.source",
-        shared_rate_response.source_to_string(rate_response.source),
-      ),
-    "Successfully fetched rate",
-  )
+    |> logger.with("rate_response.from", int.to_string(rate_response.from))
+    |> logger.with("rate_response.to", int.to_string(rate_response.to))
+    |> logger.with("rate_response.rate", float.to_string(rate_response.rate))
+    |> logger.with(
+      "rate_response.source",
+      shared_rate_response.source_to_string(rate_response.source),
+    )
+    |> logger.with(
+      "rate_response.timestamp",
+      int.to_string(rate_response.timestamp),
+    )
+
+  logger.debug(logger, "Successfully fetched rate")
 }
 
 fn log_rate_response_error(logger: Logger, error: RateError) -> Nil {
@@ -191,12 +197,12 @@ fn log_rate_response_error(logger: Logger, error: RateError) -> Nil {
     )
   }
 
-  logger.error(
+  let logger =
     logger
-      |> logger.with("error", string.inspect(error))
-      |> logger.with("reason", reason)
-      |> logger.with("rate_request.from", int.to_string(rate_req.from))
-      |> logger.with("rate_request.to", int.to_string(rate_req.to)),
-    "Error getting rate",
-  )
+    |> logger.with("error", string.inspect(error))
+    |> logger.with("reason", reason)
+    |> logger.with("rate_request.from", int.to_string(rate_req.from))
+    |> logger.with("rate_request.to", int.to_string(rate_req.to))
+
+  logger.error(logger, "Error getting rate")
 }

@@ -70,6 +70,7 @@ pub fn new(
 ) -> Result(Kraken, StartError) {
   let intitial_state =
     State(None, set.new(), dict.new(), dict.new(), None, logger)
+
   let msg_loop = fn(state, msg) { kraken_loop(state, msg, create_price_store) }
 
   use kraken_subject <- result.try(

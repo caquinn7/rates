@@ -579,7 +579,7 @@ pub fn init(flags: StartData) -> #(Model, Effect(Msg)) {
 }
 
 pub fn model_from_start_data(start_data: StartData) {
-  let RateResponse(from, to, rate, _source) = start_data.rate
+  let RateResponse(from, to, rate, _source, _timestamp) = start_data.rate
 
   let assert Ok(from_currency) =
     start_data.currencies
@@ -685,7 +685,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           #(model, effect.none())
         }
 
-        Ok(RateResponse(from, to, rate, _source)) -> {
+        Ok(RateResponse(from, to, rate, _source, _timestamp)) -> {
           let assert Ok(_from_currency) =
             model.currencies
             |> list.find(fn(currency) { currency.id == from })

@@ -14,7 +14,7 @@ pub opaque type PriceStore {
 }
 
 pub type PriceEntry {
-  PriceEntry(Float, Int)
+  PriceEntry(price: Float, timestamp: Int)
 }
 
 const table_name = "kraken_price_store"
@@ -49,7 +49,7 @@ pub fn new() -> Result(PriceStore, Nil) {
 /// price_store.insert(store, "BTC/USD", 67350.25)
 /// ```
 pub fn insert(price_store: PriceStore, symbol: String, price: Float) -> Nil {
-  insert_with_timestamp(price_store, symbol, price, time.current_time_ms())
+  insert_with_timestamp(price_store, symbol, price, time.system_time_ms())
 }
 
 pub fn insert_with_timestamp(price_store, symbol, price, current_time_ms) {

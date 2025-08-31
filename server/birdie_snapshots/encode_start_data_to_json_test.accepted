@@ -1,7 +1,7 @@
 ---
-version: 1.2.7
+version: 1.4.0
 title: encode_start_data_to_json_test
 file: ./test/server/routes/home/start_data_test.gleam
 test_name: encode_start_data_to_json_test
 ---
-{"currencies":[{"type":"crypto","id":1,"name":"Bitcoin","symbol":"BTC","rank":1},{"type":"fiat","id":2781,"name":"United States Dollar","symbol":"USD","sign":"$"}],"rate":{"from":1,"to":2781,"rate":1.0e5,"source":"Kraken"}}
+{"currencies":[{"type":"crypto","id":1,"name":"Bitcoin","symbol":"BTC","rank":1},{"type":"fiat","id":2781,"name":"United States Dollar","symbol":"USD","sign":"$"}],"rate":{"from":1,"to":2781,"rate":1.0e5,"source":"Kraken","timestamp":1756654456}}

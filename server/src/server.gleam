@@ -21,6 +21,7 @@ import server/logger
 import server/rates/actors/rate_error.{type RateError}
 import server/rates/actors/resolver as rate_resolver
 import server/routes/home/home
+import server/time
 import server/ws/websocket
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
@@ -127,6 +128,7 @@ pub fn main() {
                 kraken,
                 request_cmc_conversion,
                 get_price_store,
+                time.system_time_ms,
               )
 
             rate_resolver.get_rate(resolver, rate_req, 5000)

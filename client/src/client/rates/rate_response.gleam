@@ -17,5 +17,6 @@ pub fn decoder() -> Decoder(RateResponse) {
   use to <- decode.field("to", decode.int)
   use rate <- decode.field("rate", decode.float)
   use source <- decode.field("source", source_decoder)
-  decode.success(RateResponse(from:, to:, rate:, source:))
+  use timestamp <- decode.field("timestamp", decode.int)
+  decode.success(RateResponse(from:, to:, rate:, source:, timestamp:))
 }

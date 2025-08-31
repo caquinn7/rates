@@ -2,7 +2,7 @@ import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/result
 import server/kraken/kraken.{type Kraken}
-import server/kraken/price_store.{type PriceEntry, type PriceStore, PriceEntry}
+import server/kraken/price_store.{type PriceEntry, type PriceStore}
 import server/rates/actors/kraken_symbol.{
   type KrakenSymbol, DirectSymbol, ReversedSymbol,
 }
@@ -71,11 +71,9 @@ pub fn extract_price(
   price_entry: PriceEntry,
   kraken_symbol: KrakenSymbol,
 ) -> Float {
-  let PriceEntry(price, _timestamp) = price_entry
   let symbol_dir = kraken_symbol.direction(kraken_symbol)
-
   case symbol_dir {
-    DirectSymbol -> price
-    ReversedSymbol -> 1.0 /. price
+    DirectSymbol -> price_entry.price
+    ReversedSymbol -> 1.0 /. price_entry.price
   }
 }

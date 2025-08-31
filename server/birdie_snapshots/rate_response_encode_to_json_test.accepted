@@ -1,7 +1,7 @@
 ---
-version: 1.2.7
+version: 1.4.0
 title: rate_response_encode_to_json_test
 file: ./test/server/rates/rate_response_test.gleam
 test_name: rate_response_encode_to_json_test
 ---
-{"from":1,"to":2781,"rate":1.0e5,"source":"Kraken"}
+{"from":1,"to":2781,"rate":1.0e5,"source":"Kraken","timestamp":1756654456}
