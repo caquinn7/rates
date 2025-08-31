@@ -461,8 +461,7 @@ fn log_wait_for_kraken_price_timeout(
   logger: Logger,
   rate_req: RateRequest,
 ) -> Nil {
-  logger.warning(
-    rate_request_logger(logger, rate_req),
-    "Timed out waiting for kraken price",
-  )
+  logger
+  |> rate_request_logger(rate_req)
+  |> logger.warning("Timed out waiting for kraken price")
 }

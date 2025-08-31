@@ -65,12 +65,11 @@ pub fn main() {
         panic as { "error getting currencies: " <> string.inspect(err) }
 
       Ok(cmc_currencies) -> {
-        logger.info(
-          logger.new()
-            |> logger.with("source", "server")
-            |> logger.with("count", int.to_string(list.length(cmc_currencies))),
-          "fetched currencies from cmc",
-        )
+        logger.new()
+        |> logger.with("source", "server")
+        |> logger.with("count", int.to_string(list.length(cmc_currencies)))
+        |> logger.info("fetched currencies from cmc")
+
         cmc_currencies
       }
     }
@@ -82,8 +81,11 @@ pub fn main() {
     let assert Ok(store) = price_store.new()
     store
   }
-  let kraken_logger = logger.with(logger.new(), "source", "kraken")
-  let assert Ok(kraken) = kraken.new(create_price_store, kraken_logger)
+  let assert Ok(kraken) =
+    kraken.new(
+      create_price_store,
+      logger.with(logger.new(), "source", "kraken"),
+    )
 
   // request handlers
   let assert Ok(_) =
@@ -139,6 +141,7 @@ pub fn main() {
               handle_request(ctx, _, cmc_currencies, get_rate),
               secret_key_base,
             )
+
           handle_request(req)
         }
       }

@@ -42,8 +42,6 @@ pub fn on_init(
     process.new_selector()
     |> process.select_map(subject, function.identity)
 
-  let subscriber_logger = logger.with(logger.new(), "source", "subscriber")
-
   let assert Ok(rate_subscriber) =
     rate_subscriber.new(
       subject,
@@ -53,7 +51,7 @@ pub fn on_init(
       10_000,
       get_price_store,
       time.system_time_ms,
-      subscriber_logger,
+      logger.with(logger.new(), "source", "subscriber"),
     )
 
   log_socket_init(logger)
@@ -152,36 +150,35 @@ fn log_message_received(
   logger: Logger,
   message: WebsocketMessage(Result(RateResponse, RateError)),
 ) -> Nil {
-  logger.debug(
-    logger.with(logger, "received", string.inspect(message)),
-    "Received websocket message",
-  )
+  logger
+  |> logger.with("received", string.inspect(message))
+  |> logger.debug("Received websocket message")
 }
 
 fn log_socket_init(logger: Logger) -> Nil {
-  logger.debug(logger, "Socket initialized")
+  logger
+  |> logger.debug("Socket initialized")
 }
 
 fn log_socket_closed(logger: Logger) -> Nil {
-  logger.debug(logger, "Socket closed")
+  logger
+  |> logger.debug("Socket closed")
 }
 
 fn log_rate_response_success(logger: Logger, rate_response: RateResponse) -> Nil {
-  let logger =
-    logger
-    |> logger.with("rate_response.from", int.to_string(rate_response.from))
-    |> logger.with("rate_response.to", int.to_string(rate_response.to))
-    |> logger.with("rate_response.rate", float.to_string(rate_response.rate))
-    |> logger.with(
-      "rate_response.source",
-      shared_rate_response.source_to_string(rate_response.source),
-    )
-    |> logger.with(
-      "rate_response.timestamp",
-      int.to_string(rate_response.timestamp),
-    )
-
-  logger.debug(logger, "Successfully fetched rate")
+  logger
+  |> logger.with("rate_response.from", int.to_string(rate_response.from))
+  |> logger.with("rate_response.to", int.to_string(rate_response.to))
+  |> logger.with("rate_response.rate", float.to_string(rate_response.rate))
+  |> logger.with(
+    "rate_response.source",
+    shared_rate_response.source_to_string(rate_response.source),
+  )
+  |> logger.with(
+    "rate_response.timestamp",
+    int.to_string(rate_response.timestamp),
+  )
+  |> logger.debug("Successfully fetched rate")
 }
 
 fn log_rate_response_error(logger: Logger, error: RateError) -> Nil {
@@ -197,12 +194,10 @@ fn log_rate_response_error(logger: Logger, error: RateError) -> Nil {
     )
   }
 
-  let logger =
-    logger
-    |> logger.with("error", string.inspect(error))
-    |> logger.with("reason", reason)
-    |> logger.with("rate_request.from", int.to_string(rate_req.from))
-    |> logger.with("rate_request.to", int.to_string(rate_req.to))
-
-  logger.error(logger, "Error getting rate")
+  logger
+  |> logger.with("error", string.inspect(error))
+  |> logger.with("reason", reason)
+  |> logger.with("rate_request.from", int.to_string(rate_req.from))
+  |> logger.with("rate_request.to", int.to_string(rate_req.to))
+  |> logger.error("Error getting rate")
 }

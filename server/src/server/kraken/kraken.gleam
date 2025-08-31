@@ -375,10 +375,9 @@ fn websocket_loop(
 // logging
 
 fn log_symbols_received(logger: Logger, symbols: Set(String)) -> Nil {
-  logger.info(
-    logger.with(logger, "count", int.to_string(set.size(symbols))),
-    "Received pair symbols from Kraken",
-  )
+  logger
+  |> logger.with("count", int.to_string(set.size(symbols)))
+  |> logger.info("Received pair symbols from Kraken")
 }
 
 fn log_subscription_count(
@@ -387,39 +386,34 @@ fn log_subscription_count(
   count: Int,
   message: String,
 ) -> Nil {
-  logger.debug(
-    logger
-      |> logger.with("symbol", symbol)
-      |> logger.with("count", int.to_string(count)),
-    message,
-  )
+  logger
+  |> logger.with("symbol", symbol)
+  |> logger.with("count", int.to_string(count))
+  |> logger.debug(message)
 }
 
 fn log_subscription_confirmed(logger: Logger, symbol: String) -> Nil {
-  logger.debug(logger.with(logger, "symbol", symbol), "Subscription confirmed")
+  logger
+  |> logger.with("symbol", symbol)
+  |> logger.debug("Subscription confirmed")
 }
 
 fn log_price_update(logger: Logger, symbol: String, price: Float) -> Nil {
-  logger.debug(
-    logger
-      |> logger.with("symbol", symbol)
-      |> logger.with("price", float.to_string(price)),
-    "Received price update",
-  )
+  logger
+  |> logger.with("symbol", symbol)
+  |> logger.with("price", float.to_string(price))
+  |> logger.debug("Received price update")
 }
 
 fn log_message_send_error(logger: Logger, attempted_msg: String, err: a) -> Nil {
-  logger.error(
-    logger
-      |> logger.with("attempted_msg", attempted_msg)
-      |> logger.with("error", string.inspect(err)),
-    "Failed to send message to kraken",
-  )
+  logger
+  |> logger.with("attempted_msg", attempted_msg)
+  |> logger.with("error", string.inspect(err))
+  |> logger.error("Failed to send message to kraken")
 }
 
 fn log_message_from_kraken(logger: Logger, message: String) -> Nil {
-  logger.debug(
-    logger.with(logger, "received", message),
-    "Received message from kraken",
-  )
+  logger
+  |> logger.with("received", message)
+  |> logger.debug("Received message from kraken")
 }
