@@ -16,6 +16,7 @@ import server/context.{type Context, Context}
 import server/currencies/cmc_currency_handler
 import server/currencies/currencies_fetcher
 import server/kraken/kraken
+import server/kraken/pairs
 import server/kraken/price_store
 import server/logger
 import server/rates/actors/rate_error.{type RateError}
@@ -75,8 +76,6 @@ pub fn main() {
     }
   }
 
-  // start kraken actor
-  // todo? wait for instruments before proceeding
   let create_price_store = fn() {
     let assert Ok(store) = price_store.new()
     store
@@ -86,6 +85,8 @@ pub fn main() {
       create_price_store,
       logger.with(logger.new(), "source", "kraken"),
     )
+
+  wait_for_kraken_symbols_loop(time.monotonic_time_ms(), 10_000)
 
   // request handlers
   let assert Ok(_) =
@@ -170,6 +171,23 @@ fn configure_logging() {
   glight.configure([glight.Console, glight.File("server.log")])
   glight.set_log_level(log_level)
   glight.set_is_color(True)
+}
+
+fn wait_for_kraken_symbols_loop(start_time: Int, timeout_ms: Int) -> Nil {
+  case pairs.count() > 0 {
+    True -> Nil
+
+    False -> {
+      let elapsed = time.monotonic_time_ms() - start_time
+      case elapsed >= timeout_ms {
+        True -> panic as "Timeout waiting for Kraken symbols"
+        False -> {
+          process.sleep(100)
+          wait_for_kraken_symbols_loop(start_time, timeout_ms)
+        }
+      }
+    }
+  }
 }
 
 fn handle_request(

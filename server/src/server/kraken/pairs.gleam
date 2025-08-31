@@ -37,6 +37,13 @@ pub fn exists(symbol: String) -> Bool {
   |> set.contains(symbol)
 }
 
+/// Returns the total number of symbols stored in persistent memory.
+pub fn count() -> Int {
+  key
+  |> get(set.new())
+  |> set.size
+}
+
 /// Removes the stored Kraken symbol set from persistent memory.
 pub fn clear() -> Nil {
   erase(key)
