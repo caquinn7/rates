@@ -26,9 +26,9 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import glight
 import server/kraken/kraken.{type Kraken}
 import server/kraken/price_store.{type PriceStore}
+import server/logger.{type Logger}
 import server/rates/actors/kraken_symbol.{type KrakenSymbol}
 import server/rates/actors/rate_error.{type RateError, CmcError}
 import server/rates/actors/utils
@@ -409,21 +409,21 @@ fn currencies_to_dict(currencies: List(Currency)) -> Dict(Int, String) {
 
 // logging
 
-fn subscriber_logger() -> Dict(String, String) {
-  glight.logger()
-  |> glight.with("source", "subscriber")
+fn subscriber_logger() -> Logger {
+  logger.new()
+  |> logger.with_pid()
+  |> logger.with_source("subscriber")
 }
 
-fn rate_request_logger(rate_req: RateRequest) -> Dict(String, String) {
+fn rate_request_logger(rate_req: RateRequest) -> Logger {
   subscriber_logger()
-  |> glight.with("rate_request.from", int.to_string(rate_req.from))
-  |> glight.with("rate_request.to", int.to_string(rate_req.to))
+  |> logger.with("rate_request.from", int.to_string(rate_req.from))
+  |> logger.with("rate_request.to", int.to_string(rate_req.to))
 }
 
 fn log_wait_for_kraken_price_timeout(rate_req: RateRequest) -> Nil {
-  glight.warning(
+  logger.warning(
     rate_request_logger(rate_req),
-    "timed out waiting for kraken price",
+    "Timed out waiting for kraken price",
   )
-  Nil
 }

@@ -4,10 +4,10 @@ import gleam/json
 import gleam/list
 import gleam/result
 import gleam/string
-import glight
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
+import server/logger
 import server/rates/actors/rate_error.{type RateError}
 import server/routes/home/start_data
 import shared/currency.{type Currency}
@@ -54,15 +54,14 @@ fn get_start_data(
 }
 
 fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {
-  glight.error(
-    glight.logger()
-      |> glight.with("source", "home")
-      |> glight.with("rate_request.from", int.to_string(rate_req.from))
-      |> glight.with("rate_request.to", int.to_string(rate_req.to))
-      |> glight.with("error", string.inspect(err)),
-    "error getting rate",
+  logger.error(
+    logger.new()
+      |> logger.with("source", "home")
+      |> logger.with("rate_request.from", int.to_string(rate_req.from))
+      |> logger.with("rate_request.to", int.to_string(rate_req.to))
+      |> logger.with("error", string.inspect(err)),
+    "Error getting rate",
   )
-  Nil
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {

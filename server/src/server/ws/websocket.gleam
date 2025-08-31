@@ -1,4 +1,3 @@
-import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/erlang/process.{type Selector}
 import gleam/float
@@ -7,13 +6,13 @@ import gleam/int
 import gleam/json
 import gleam/option.{type Option, Some}
 import gleam/string
-import glight
 import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
 }
 import server/kraken/kraken.{type Kraken}
 import server/kraken/price_store.{type PriceStore}
+import server/logger.{type Logger}
 import server/rates/actors/rate_error.{
   type RateError, CmcError, CurrencyNotFound,
 }
@@ -103,7 +102,7 @@ pub fn handler(
     Custom(response) -> {
       let response_str = case response {
         Ok(rate_resp) -> {
-          log_rate_response(rate_resp)
+          log_rate_response_success(rate_resp)
 
           rate_resp
           |> rate_response.encode
@@ -115,7 +114,7 @@ pub fn handler(
 
           case err {
             CurrencyNotFound(_, id) ->
-              "currency id " <> int.to_string(id) <> " not found"
+              "Currency id " <> int.to_string(id) <> " not found"
 
             CmcError(..) -> "Unexpected error getting rate"
           }
@@ -140,69 +139,63 @@ pub fn on_close(state: RateSubscriber) -> Nil {
 
 // logging
 
-fn websocket_logger() -> Dict(String, String) {
-  glight.logger()
-  |> glight.with("source", "websocket")
+fn websocket_logger() -> Logger {
+  logger.new()
+  |> logger.with_pid()
+  |> logger.with_source("websocket")
 }
 
 fn log_message_received(
   message: WebsocketMessage(Result(RateResponse, RateError)),
 ) -> Nil {
-  glight.debug(
+  logger.debug(
     websocket_logger()
-      |> glight.with("received", string.inspect(message)),
-    "received websocket message",
+      |> logger.with("received", string.inspect(message)),
+    "Received websocket message",
   )
-  Nil
 }
 
 fn log_socket_init() -> Nil {
-  glight.debug(websocket_logger(), "socket initialized")
-  Nil
+  logger.debug(websocket_logger(), "Socket initialized")
 }
 
 fn log_socket_closed() -> Nil {
-  glight.debug(websocket_logger(), "socket closed")
-  Nil
+  logger.debug(websocket_logger(), "Socket closed")
 }
 
-fn log_rate_response(rate_response: RateResponse) -> Nil {
-  glight.debug(
+fn log_rate_response_success(rate_response: RateResponse) -> Nil {
+  logger.debug(
     websocket_logger()
-      |> glight.with("from", int.to_string(rate_response.from))
-      |> glight.with("to", int.to_string(rate_response.to))
-      |> glight.with("rate", float.to_string(rate_response.rate))
-      |> glight.with(
+      |> logger.with("rate_response.from", int.to_string(rate_response.from))
+      |> logger.with("rate_response.to", int.to_string(rate_response.to))
+      |> logger.with("rate_response.rate", float.to_string(rate_response.rate))
+      |> logger.with(
         "rate_source",
         shared_rate_response.source_to_string(rate_response.source),
       ),
-    "successfully fetched rate",
+    "Successfully fetched rate",
   )
-
-  Nil
 }
 
 fn log_rate_response_error(error: RateError) -> Nil {
   let #(rate_req, reason) = case error {
     CurrencyNotFound(rate_req, id) -> #(
       rate_req,
-      "currency id " <> int.to_string(id) <> " not found",
+      "Currency id " <> int.to_string(id) <> " not found",
     )
 
     CmcError(rate_req, rate_req_err) -> #(
       rate_req,
-      "error getting rate from cmc: " <> string.inspect(rate_req_err),
+      "Error getting rate from cmc: " <> string.inspect(rate_req_err),
     )
   }
 
-  glight.error(
+  logger.error(
     websocket_logger()
-      |> glight.with("error", string.inspect(error))
-      |> glight.with("reason", reason)
-      |> glight.with("rate_request.from", int.to_string(rate_req.from))
-      |> glight.with("rate_request.to", int.to_string(rate_req.to)),
-    "error getting rate",
+      |> logger.with("error", string.inspect(error))
+      |> logger.with("reason", reason)
+      |> logger.with("rate_request.from", int.to_string(rate_req.from))
+      |> logger.with("rate_request.to", int.to_string(rate_req.to)),
+    "Error getting rate",
   )
-
-  Nil
 }

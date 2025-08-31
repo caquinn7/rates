@@ -27,7 +27,6 @@ import gleam/otp/actor.{type StartError, type Started}
 import gleam/result
 import gleam/set.{type Set}
 import gleam/string
-import glight
 import server/kraken/pairs
 import server/kraken/price_store.{type PriceStore}
 import server/kraken/request.{
@@ -36,6 +35,7 @@ import server/kraken/request.{
 import server/kraken/response.{
   InstrumentsResponse, TickerResponse, TickerSubscribeConfirmation,
 }
+import server/logger.{type Logger}
 import stratus.{
   type Connection, type InternalMessage, type Message, Binary, Text, User,
 }
@@ -302,7 +302,7 @@ fn init_websocket(
     loop: websocket_loop,
   )
   |> stratus.on_close(fn(_state) {
-    glight.info(kraken_logger(), "kraken socket closed")
+    logger.info(kraken_logger(), "kraken socket closed")
     Nil
   })
   |> stratus.initialize
@@ -364,63 +364,58 @@ fn websocket_loop(
 
 // logging
 
-fn kraken_logger() -> Dict(String, String) {
-  glight.logger()
-  |> glight.with("source", "kraken")
+fn kraken_logger() -> Logger {
+  logger.new()
+  |> logger.with_pid()
+  |> logger.with_source("kraken")
 }
 
 fn log_symbols_received(symbols: Set(String)) -> Nil {
-  glight.info(
+  logger.info(
     kraken_logger()
-      |> glight.with("count", int.to_string(set.size(symbols))),
+      |> logger.with("count", int.to_string(set.size(symbols))),
     "Received pair symbols from Kraken",
   )
-  Nil
 }
 
 fn log_subscription_count(symbol: String, count: Int, message: String) -> Nil {
-  glight.debug(
+  logger.debug(
     kraken_logger()
-      |> glight.with("symbol", symbol)
-      |> glight.with("count", int.to_string(count)),
+      |> logger.with("symbol", symbol)
+      |> logger.with("count", int.to_string(count)),
     message,
   )
-  Nil
 }
 
 fn log_subscription_confirmed(symbol: String) -> Nil {
-  glight.debug(
-    kraken_logger() |> glight.with("symbol", symbol),
+  logger.debug(
+    kraken_logger() |> logger.with("symbol", symbol),
     "Subscription confirmed",
   )
-  Nil
 }
 
 fn log_price_update(symbol: String, price: Float) -> Nil {
-  glight.debug(
+  logger.debug(
     kraken_logger()
-      |> glight.with("symbol", symbol)
-      |> glight.with("price", float.to_string(price)),
+      |> logger.with("symbol", symbol)
+      |> logger.with("price", float.to_string(price)),
     "Received price update",
   )
-  Nil
 }
 
 fn log_message_send_error(attempted_msg: String, err: a) -> Nil {
-  glight.error(
+  logger.error(
     kraken_logger()
-      |> glight.with("attempted_msg", attempted_msg)
-      |> glight.with("error", string.inspect(err)),
-    "failed to send message to kraken",
+      |> logger.with("attempted_msg", attempted_msg)
+      |> logger.with("error", string.inspect(err)),
+    "Failed to send message to kraken",
   )
-  Nil
 }
 
-fn log_message_from_kraken(message) {
-  glight.debug(
+fn log_message_from_kraken(message: String) -> Nil {
+  logger.debug(
     kraken_logger()
-      |> glight.with("received", message),
-    "received message from kraken",
+      |> logger.with("received", message),
+    "Received message from kraken",
   )
-  Nil
 }

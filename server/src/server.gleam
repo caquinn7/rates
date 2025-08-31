@@ -17,6 +17,7 @@ import server/currencies/cmc_currency_handler
 import server/currencies/currencies_fetcher
 import server/kraken/kraken
 import server/kraken/price_store
+import server/logger
 import server/rates/actors/rate_error.{type RateError}
 import server/rates/actors/resolver as rate_resolver
 import server/routes/home/home
@@ -63,10 +64,11 @@ pub fn main() {
         panic as { "error getting currencies: " <> string.inspect(err) }
 
       Ok(cmc_currencies) -> {
-        glight.info(
-          glight.logger()
-            |> glight.with("source", "server")
-            |> glight.with("count", int.to_string(list.length(cmc_currencies))),
+        logger.info(
+          logger.new()
+            |> logger.with_pid
+            |> logger.with("source", "server")
+            |> logger.with("count", int.to_string(list.length(cmc_currencies))),
           "fetched currencies from cmc",
         )
         cmc_currencies
