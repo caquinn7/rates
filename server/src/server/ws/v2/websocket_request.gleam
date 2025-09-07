@@ -3,11 +3,10 @@ import server/subscriptions/subscription_request
 import shared/currency.{type Currency}
 import shared/subscriptions/subscription_id.{type SubscriptionId}
 import shared/subscriptions/subscription_request.{type SubscriptionRequest} as _shared_sub_request
-import shared/subscriptions/subscription_response.{type SubscriptionResponse} as _shared_sub_response
 
 pub type WebsocketRequest {
   Subscribe(List(SubscriptionRequest))
-  Unsubscribe(subscription_id: SubscriptionId)
+  Unsubscribe(SubscriptionId)
   AddCurrencies(List(Currency))
 }
 
@@ -38,9 +37,4 @@ pub fn decoder() -> Decoder(WebsocketRequest) {
 
     _ -> decode.failure(Subscribe([]), "WebsocketRequest")
   }
-}
-
-pub type WebsocketResponse {
-  Subscribed(List(SubscriptionResponse))
-  Unsubscribed(subscription_id: String)
 }
