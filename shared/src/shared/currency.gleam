@@ -1,6 +1,6 @@
 import gleam/dynamic/decode
 import gleam/json.{type Json}
-import gleam/option.{type Option}
+import gleam/option.{type Option, None}
 
 pub type Currency {
   Crypto(id: Int, name: String, symbol: String, rank: Option(Int))
@@ -24,7 +24,7 @@ pub fn decoder() {
       use sign <- decode.field("sign", decode.string)
       decode.success(Fiat(id:, name:, symbol:, sign:))
     }
-    _ -> panic as "invalid currency type"
+    _ -> decode.failure(Crypto(0, "", "", None), "Currency")
   }
 }
 

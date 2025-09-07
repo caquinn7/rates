@@ -1,5 +1,4 @@
 import gleam/dict.{type Dict}
-import gleam/dynamic/decode.{type Decoder}
 import gleam/erlang/process.{type Selector}
 import gleam/float
 import gleam/function
@@ -22,13 +21,12 @@ import server/rates/actors/subscriber_v2.{
   type RateSubscriber, type SubscriptionResult,
 } as rate_subscriber
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
-import server/subscriptions/subscription_request
 import server/subscriptions/subscription_response
 import server/time
+import server/ws/v2/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
 import shared/currency.{type Currency}
 import shared/rates/rate_request as _shared_rate_request
 import shared/rates/rate_response.{RateResponse} as shared_rate_response
-import shared/subscriptions/subscription_request.{type SubscriptionRequest} as _shared_sub_request
 import shared/subscriptions/subscription_response.{
   type SubscriptionResponse, SubscriptionResponse,
 } as _shared_sub_response
@@ -68,7 +66,6 @@ pub fn on_init(
         time.system_time_ms,
         logger.with(logger.new(), "source", "subscriber"),
       )
-      |> echo
 
     rate_subscriber
   }
@@ -76,35 +73,6 @@ pub fn on_init(
   log_socket_init(logger)
 
   #(State(create_rate_subscriber, dict.new(), logger), Some(selector))
-}
-
-pub type WebsocketRequest {
-  Subscribe(List(SubscriptionRequest))
-  Unsubscribe(subscription_id: String)
-  AddCurrencies(List(Currency))
-}
-
-pub type WebsocketResponse {
-  Subscribed(List(SubscriptionResponse))
-  Unsubscribed(subscription_id: String)
-}
-
-pub fn websocket_request_decoder() -> Decoder(WebsocketRequest) {
-  let subscribe_decoder =
-    subscription_request.decoder()
-    |> decode.list
-    |> decode.map(Subscribe)
-
-  let unsubscribe_decoder =
-    decode.string
-    |> decode.map(Unsubscribe)
-
-  let add_currencies_decoder =
-    currency.decoder()
-    |> decode.list
-    |> decode.map(AddCurrencies)
-
-  decode.one_of(subscribe_decoder, [unsubscribe_decoder, add_currencies_decoder])
 }
 
 pub fn handler(
@@ -118,7 +86,7 @@ pub fn handler(
 
   case message {
     Text(str) -> {
-      case json.parse(str, websocket_request_decoder()) |> echo {
+      case json.parse(str, websocket_request.decoder()) {
         Ok(Subscribe(subscription_reqs)) -> {
           // Updates the rate subscribers dictionary by processing a list of subscription requests.
           // For existing subscriber IDs, reuses the subscriber and updates their subscription.
