@@ -36,17 +36,18 @@ import server/rates/cmc_rate_handler.{type RequestCmcConversion}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse, RateResponse}
+import shared/subscriptions/subscription_id.{type SubscriptionId}
 
 pub opaque type RateSubscriber {
   RateSubscriber(
     // id specified by client
-    id: String,
+    id: SubscriptionId,
     subject: Subject(Msg),
   )
 }
 
 pub type SubscriptionResult =
-  #(String, Result(RateResponse, RateError))
+  #(SubscriptionId, Result(RateResponse, RateError))
 
 type Msg {
   Init(Subject(Msg))
@@ -109,7 +110,7 @@ type Subscription {
 /// `#(subscription_id, Ok(rate_response))` for successful rate fetches
 /// `#(subscription_id, Error(rate_error))` for failed rate fetches
 pub fn new(
-  subscription_id: String,
+  subscription_id: SubscriptionId,
   reply_to: Subject(SubscriptionResult),
   cmc_currencies: List(Currency),
   request_cmc_conversion: RequestCmcConversion,
@@ -206,7 +207,7 @@ pub fn stop(subscriber: RateSubscriber) -> Nil {
 }
 
 fn handle_msg(
-  subscription_id: String,
+  subscription_id: SubscriptionId,
   state: State,
   msg: Msg,
   request_cmc_conversion: RequestCmcConversion,
@@ -245,7 +246,7 @@ fn init(state: State, subject: Subject(Msg)) -> Next(State, Msg) {
 }
 
 fn do_subscribe(
-  subscription_id: String,
+  subscription_id: SubscriptionId,
   state: State,
   rate_request: RateRequest,
   request_cmc_conversion: RequestCmcConversion,
@@ -312,7 +313,7 @@ fn do_subscribe(
 }
 
 fn get_latest_rate(
-  subscription_id: String,
+  subscription_id: SubscriptionId,
   state: State,
   scheduled_subscription: Subscription,
   request_cmc_conversion: RequestCmcConversion,
@@ -360,7 +361,7 @@ fn get_latest_rate(
 }
 
 fn handle_kraken_subscription(
-  subscription_id: String,
+  subscription_id: SubscriptionId,
   state: State,
   rate_req: RateRequest,
   kraken_symbol: KrakenSymbol,
@@ -380,7 +381,7 @@ fn handle_kraken_subscription(
 }
 
 fn check_kraken_price_and_respond(
-  subscription_id: String,
+  subscription_id: SubscriptionId,
   state: State,
   rate_req: RateRequest,
   kraken_symbol: KrakenSymbol,
@@ -415,7 +416,7 @@ fn check_kraken_price_and_respond(
 }
 
 fn handle_kraken_price_hit(
-  subscription_id: String,
+  subscription_id: SubscriptionId,
   state: State,
   rate_req: RateRequest,
   kraken_symbol: KrakenSymbol,
@@ -442,7 +443,7 @@ fn handle_kraken_price_hit(
 }
 
 fn handle_cmc_fallback(
-  subscription_id: String,
+  subscription_id: SubscriptionId,
   state: State,
   rate_request: RateRequest,
   request_cmc_conversion: RequestCmcConversion,
@@ -502,11 +503,11 @@ fn currencies_to_dict(currencies: List(Currency)) -> Dict(Int, String) {
 
 fn log_wait_for_kraken_price_timeout(
   logger: Logger,
-  subscription_id: String,
+  subscription_id: SubscriptionId,
   rate_req: RateRequest,
 ) -> Nil {
   logger
-  |> logger.with("subscription_id", subscription_id)
+  |> logger.with("subscription_id", subscription_id.to_string(subscription_id))
   |> logger.with("rate_request.from", int.to_string(rate_req.from))
   |> logger.with("rate_request.to", int.to_string(rate_req.to))
   |> logger.warning("Timed out waiting for kraken price")

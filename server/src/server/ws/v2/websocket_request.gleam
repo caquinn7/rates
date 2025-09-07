@@ -1,12 +1,13 @@
 import gleam/dynamic/decode.{type Decoder}
 import server/subscriptions/subscription_request
 import shared/currency.{type Currency}
+import shared/subscriptions/subscription_id.{type SubscriptionId}
 import shared/subscriptions/subscription_request.{type SubscriptionRequest} as _shared_sub_request
 import shared/subscriptions/subscription_response.{type SubscriptionResponse} as _shared_sub_response
 
 pub type WebsocketRequest {
   Subscribe(List(SubscriptionRequest))
-  Unsubscribe(subscription_id: String)
+  Unsubscribe(subscription_id: SubscriptionId)
   AddCurrencies(List(Currency))
 }
 
@@ -23,7 +24,10 @@ pub fn decoder() -> Decoder(WebsocketRequest) {
     }
 
     "unsubscribe" -> {
-      use subscription_id <- decode.subfield(["body", "id"], decode.string)
+      use subscription_id <- decode.subfield(
+        ["body", "id"],
+        subscription_id.decoder(),
+      )
       decode.success(Unsubscribe(subscription_id))
     }
 

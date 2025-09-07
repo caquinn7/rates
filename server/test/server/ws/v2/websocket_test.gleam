@@ -3,14 +3,19 @@ import gleam/option.{Some}
 import server/ws/v2/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
 import shared/currency.{Crypto}
 import shared/rates/rate_request.{RateRequest}
+import shared/subscriptions/subscription_id
 import shared/subscriptions/subscription_request.{SubscriptionRequest}
 
 pub fn decoder_decodes_subscribe_test() {
   let json =
     "{\"action\":\"subscribe\",\"body\":[{\"id\":\"1\",\"rate_request\":{\"from\":2,\"to\":3}}]}"
 
-  assert Ok(Subscribe([SubscriptionRequest("1", RateRequest(2, 3))]))
-    == json.parse(json, websocket_request.decoder())
+  let result = json.parse(json, websocket_request.decoder())
+
+  let assert Ok(Subscribe([SubscriptionRequest(id, RateRequest(2, 3))])) =
+    result
+
+  assert "1" == subscription_id.to_string(id)
 }
 
 pub fn decoder_decodes_subscribe_when_body_is_empty_list_test() {
@@ -20,7 +25,11 @@ pub fn decoder_decodes_subscribe_when_body_is_empty_list_test() {
 
 pub fn decoder_decodes_unsubscribe_test() {
   let json = "{\"action\":\"unsubscribe\",\"body\":{\"id\":\"1\"}}"
-  assert Ok(Unsubscribe("1")) == json.parse(json, websocket_request.decoder())
+
+  let result = json.parse(json, websocket_request.decoder())
+
+  let assert Ok(Unsubscribe(id)) = result
+  assert "1" == subscription_id.to_string(id)
 }
 
 pub fn decoder_decodes_add_currencies_test() {

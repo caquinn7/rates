@@ -27,14 +27,15 @@ import server/ws/v2/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
 import shared/currency.{type Currency}
 import shared/rates/rate_request as _shared_rate_request
 import shared/rates/rate_response.{RateResponse} as shared_rate_response
+import shared/subscriptions/subscription_id.{type SubscriptionId}
 import shared/subscriptions/subscription_response.{
   type SubscriptionResponse, SubscriptionResponse,
 } as _shared_sub_response
 
 pub type State {
   State(
-    create_rate_subscriber: fn(String) -> RateSubscriber,
-    rate_subscribers: Dict(String, RateSubscriber),
+    create_rate_subscriber: fn(SubscriptionId) -> RateSubscriber,
+    rate_subscribers: Dict(SubscriptionId, RateSubscriber),
     logger: Logger,
   )
 }
@@ -226,7 +227,7 @@ fn log_subscription_response_success(
   ) = subscription_resp
 
   logger
-  |> logger.with("subscription_id", subscription_id)
+  |> logger.with("subscription_id", subscription_id.to_string(subscription_id))
   |> logger.with("rate_response.from", int.to_string(from))
   |> logger.with("rate_response.to", int.to_string(to))
   |> logger.with("rate_response.rate", float.to_string(rate))
@@ -240,7 +241,7 @@ fn log_subscription_response_success(
 
 fn log_rate_response_error(
   logger: Logger,
-  subscription_id: String,
+  subscription_id: SubscriptionId,
   error: RateError,
 ) -> Nil {
   let #(rate_req, reason) = case error {
@@ -256,7 +257,7 @@ fn log_rate_response_error(
   }
 
   logger
-  |> logger.with("subscription_id", subscription_id)
+  |> logger.with("subscription_id", subscription_id.to_string(subscription_id))
   |> logger.with("error", string.inspect(error))
   |> logger.with("reason", reason)
   |> logger.with("rate_request.from", int.to_string(rate_req.from))
