@@ -16,7 +16,7 @@ import server/integrations/kraken/price_store.{type PriceStore}
 import server/rates/actors/rate_error.{
   type RateError, CmcError, CurrencyNotFound,
 }
-import server/rates/actors/subscriber_v2.{
+import server/rates/actors/subscriber.{
   type RateSubscriber, type SubscriptionResult,
 } as rate_subscriber
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
