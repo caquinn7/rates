@@ -1,0 +1,7 @@
+---
+version: 1.4.0
+title: encode_add_currencies_test
+file: ./test/shared/websocket_request_test.gleam
+test_name: encode_add_currencies_test
+---
+{"action":"add_currencies","body":[{"type":"crypto","id":22354,"name":"Quai Network","symbol":"QUAI","rank":3568}]}

@@ -21,16 +21,14 @@ import server/rates/actors/subscriber_v2.{
   type RateSubscriber, type SubscriptionResult,
 } as rate_subscriber
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
-import server/subscriptions/subscription_response
 import server/time
-import server/ws/v2/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
 import shared/currency.{type Currency}
-import shared/rates/rate_request as _shared_rate_request
 import shared/rates/rate_response.{RateResponse} as shared_rate_response
 import shared/subscriptions/subscription_id.{type SubscriptionId}
 import shared/subscriptions/subscription_response.{
   type SubscriptionResponse, SubscriptionResponse,
-} as _shared_sub_response
+}
+import shared/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
 
 pub type State {
   State(

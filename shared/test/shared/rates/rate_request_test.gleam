@@ -1,7 +1,11 @@
 import birdie
-import client/rates/rate_request
 import gleam/json
-import shared/rates/rate_request.{RateRequest} as _shared_rate_request
+import shared/rates/rate_request.{RateRequest}
+
+pub fn decode_rate_request_json_test() {
+  assert Ok(RateRequest(1, 2781))
+    == json.parse("{\"from\":1,\"to\":2781}", rate_request.decoder())
+}
 
 pub fn rate_request_encode_to_json_test() {
   RateRequest(1, 2781)

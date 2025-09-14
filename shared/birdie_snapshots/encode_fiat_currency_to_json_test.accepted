@@ -1,7 +1,7 @@
 ---
-version: 1.3.2
+version: 1.4.0
 title: encode_fiat_currency_to_json_test
-file: ./test/currency_test.gleam
+file: ./test/shared/currency_test.gleam
 test_name: encode_fiat_currency_to_json_test
 ---
 {"type":"fiat","id":2781,"name":"United States Dollar","symbol":"USD","sign":"$"}

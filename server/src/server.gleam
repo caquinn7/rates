@@ -21,7 +21,7 @@ import server/kraken/price_store
 import server/logger
 import server/rates/actors/rate_error.{type RateError}
 import server/rates/actors/resolver as rate_resolver
-import server/routes/home/home
+import server/routes/home
 import server/time
 import server/ws/v2/websocket as websocket_v2
 import server/ws/websocket

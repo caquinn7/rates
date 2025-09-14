@@ -1,4 +1,3 @@
-import client/start_data.{type StartData, StartData} as _client_start_data
 import gleam/int
 import gleam/json
 import gleam/list
@@ -9,8 +8,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import server/logger
 import server/rates/actors/rate_error.{type RateError}
-import server/routes/home/start_data
 import shared/currency.{type Currency}
+import shared/page_data.{type PageData, PageData}
 import shared/rates/rate_request.{type RateRequest, RateRequest}
 import shared/rates/rate_response.{type RateResponse}
 import wisp.{type Response}
@@ -20,15 +19,15 @@ pub fn get(
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
 ) -> Response {
   currencies
-  |> get_start_data(get_rate)
+  |> get_page_data(get_rate)
   |> result.map_error(fn(_) { wisp.internal_server_error() })
-  |> result.map(fn(start_data) {
-    let start_data_json =
-      start_data
-      |> start_data.encode
+  |> result.map(fn(page_data) {
+    let page_data_json =
+      page_data
+      |> page_data.encode
       |> json.to_string
 
-    start_data_json
+    page_data_json
     |> page_scaffold
     |> element.to_document_string_tree
     |> wisp.html_body(wisp.response(200), _)
@@ -36,10 +35,10 @@ pub fn get(
   |> result.unwrap_both
 }
 
-fn get_start_data(
+fn get_page_data(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
-) -> Result(StartData, Nil) {
+) -> Result(PageData, Nil) {
   use btc <- result.try(list.find(currencies, fn(c) { c.symbol == "BTC" }))
   use usd <- result.try(list.find(currencies, fn(c) { c.symbol == "USD" }))
 
@@ -50,7 +49,7 @@ fn get_start_data(
     |> result.map_error(log_rate_request_error(rate_req, _)),
   )
 
-  Ok(StartData(currencies, rate_response))
+  Ok(PageData(currencies, rate_response))
 }
 
 fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {

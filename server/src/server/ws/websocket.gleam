@@ -18,12 +18,10 @@ import server/rates/actors/rate_error.{
 }
 import server/rates/actors/subscriber.{type RateSubscriber} as rate_subscriber
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
-import server/rates/rate_request
-import server/rates/rate_response
 import server/time
 import shared/currency.{type Currency}
-import shared/rates/rate_request.{type RateRequest} as _shared_rate_request
-import shared/rates/rate_response.{type RateResponse} as shared_rate_response
+import shared/rates/rate_request.{type RateRequest}
+import shared/rates/rate_response.{type RateResponse}
 
 pub fn on_init(
   _conn: WebsocketConnection,
@@ -172,7 +170,7 @@ fn log_rate_response_success(logger: Logger, rate_response: RateResponse) -> Nil
   |> logger.with("rate_response.rate", float.to_string(rate_response.rate))
   |> logger.with(
     "rate_response.source",
-    shared_rate_response.source_to_string(rate_response.source),
+    rate_response.source_to_string(rate_response.source),
   )
   |> logger.with(
     "rate_response.timestamp",

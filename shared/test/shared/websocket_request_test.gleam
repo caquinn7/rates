@@ -1,10 +1,39 @@
+import birdie
 import gleam/json
 import gleam/option.{Some}
-import server/ws/v2/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
 import shared/currency.{Crypto}
 import shared/rates/rate_request.{RateRequest}
 import shared/subscriptions/subscription_id
 import shared/subscriptions/subscription_request.{SubscriptionRequest}
+import shared/websocket_request.{AddCurrencies, Subscribe, Unsubscribe, encode}
+
+pub fn encode_subscribe_test() {
+  let assert Ok(sub_id) = subscription_id.new("1")
+  let subscription_request = SubscriptionRequest(sub_id, RateRequest(2, 3))
+
+  Subscribe([subscription_request])
+  |> encode
+  |> json.to_string
+  |> birdie.snap("encode_subscribe_test")
+}
+
+pub fn encode_unsubscribe_test() {
+  let assert Ok(sub_id) = subscription_id.new("1")
+
+  Unsubscribe(sub_id)
+  |> encode
+  |> json.to_string
+  |> birdie.snap("encode_unsubscribe_test")
+}
+
+pub fn encode_add_currencies_test() {
+  let crypto_currency = Crypto(22_354, "Quai Network", "QUAI", Some(3568))
+
+  AddCurrencies([crypto_currency])
+  |> encode
+  |> json.to_string
+  |> birdie.snap("encode_add_currencies_test")
+}
 
 pub fn decoder_decodes_subscribe_test() {
   let json =

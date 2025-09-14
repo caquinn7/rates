@@ -1,0 +1,7 @@
+---
+version: 1.4.0
+title: encode_subscribe_test
+file: ./test/shared/websocket_request_test.gleam
+test_name: encode_subscribe_test
+---
+{"action":"subscribe","body":[{"id":"1","rate_request":{"from":2,"to":3}}]}

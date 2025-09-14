@@ -1,13 +1,41 @@
 import gleam/dynamic/decode.{type Decoder}
-import server/subscriptions/subscription_request
+import gleam/json.{type Json}
 import shared/currency.{type Currency}
 import shared/subscriptions/subscription_id.{type SubscriptionId}
-import shared/subscriptions/subscription_request.{type SubscriptionRequest} as _shared_sub_request
+import shared/subscriptions/subscription_request.{type SubscriptionRequest}
 
 pub type WebsocketRequest {
   Subscribe(List(SubscriptionRequest))
   Unsubscribe(SubscriptionId)
   AddCurrencies(List(Currency))
+}
+
+pub fn encode(websocket_request: WebsocketRequest) -> Json {
+  case websocket_request {
+    Subscribe(subscription_requests) ->
+      json.object([
+        #("action", json.string("subscribe")),
+        #(
+          "body",
+          json.array(subscription_requests, subscription_request.encode),
+        ),
+      ])
+
+    Unsubscribe(subscription_id) ->
+      json.object([
+        #("action", json.string("unsubscribe")),
+        #(
+          "body",
+          json.object([#("id", subscription_id.encode(subscription_id))]),
+        ),
+      ])
+
+    AddCurrencies(currencies) ->
+      json.object([
+        #("action", json.string("add_currencies")),
+        #("body", json.array(currencies, currency.encode)),
+      ])
+  }
 }
 
 pub fn decoder() -> Decoder(WebsocketRequest) {

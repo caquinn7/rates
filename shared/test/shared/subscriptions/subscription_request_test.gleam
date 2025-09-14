@@ -1,8 +1,7 @@
 import gleam/json
-import server/subscriptions/subscription_request
 import shared/rates/rate_request.{RateRequest}
 import shared/subscriptions/subscription_id
-import shared/subscriptions/subscription_request.{SubscriptionRequest} as _shared_sub_request
+import shared/subscriptions/subscription_request.{SubscriptionRequest}
 
 pub fn decode_subscription_request_json_test() {
   let json = "{\"id\": \"1\", \"rate_request\": { \"from\": 2, \"to\": 3 }}"
