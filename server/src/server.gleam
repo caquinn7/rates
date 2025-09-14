@@ -22,9 +22,9 @@ import server/logger
 import server/rates/actors/rate_error.{type RateError}
 import server/rates/actors/resolver as rate_resolver
 import server/routes/home
+import server/routes/ws/websocket
+import server/routes/ws/websocket_v2
 import server/time
-import server/ws/websocket
-import server/ws/websocket_v2
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
