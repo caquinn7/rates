@@ -2,7 +2,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/string
 
 pub opaque type SubscriptionId {
-  SubscriptionId(id: String)
+  SubscriptionId(String)
 }
 
 pub fn new(value: String) -> Result(SubscriptionId, Nil) {
