@@ -1,9 +1,9 @@
 import gleam/httpc
 import gleam/option.{None, Some}
-import server/coin_market_cap/client.{
+import server/currencies/cmc_currency_handler.{ClientError, ErrorStatusReceived}
+import server/integrations/coin_market_cap/client.{
   CmcCryptoCurrency, CmcFiatCurrency, CmcListResponse, CmcStatus, HttpError,
 }
-import server/currencies/cmc_currency_handler.{ClientError, ErrorStatusReceived}
 import shared/currency
 
 const good_cmc_status = CmcStatus(0, None)

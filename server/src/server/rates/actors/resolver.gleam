@@ -18,8 +18,8 @@ import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import server/kraken/kraken.{type Kraken}
-import server/kraken/price_store.{type PriceStore}
+import server/integrations/kraken/kraken.{type Kraken}
+import server/integrations/kraken/price_store.{type PriceStore}
 import server/rates/actors/kraken_symbol
 import server/rates/actors/rate_error.{
   type RateError, CmcError, CurrencyNotFound,

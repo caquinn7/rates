@@ -27,15 +27,15 @@ import gleam/otp/actor.{type StartError, type Started}
 import gleam/result
 import gleam/set.{type Set}
 import gleam/string
-import server/kraken/pairs
-import server/kraken/price_store.{type PriceStore}
-import server/kraken/request.{
+import server/integrations/kraken/pairs
+import server/integrations/kraken/price_store.{type PriceStore}
+import server/integrations/kraken/request.{
   type KrakenRequest, Instruments, KrakenRequest, Tickers,
 }
-import server/kraken/response.{
+import server/integrations/kraken/response.{
   InstrumentsResponse, TickerResponse, TickerSubscribeConfirmation,
 }
-import server/logger.{type Logger}
+import server/utils/logger.{type Logger}
 import stratus.{
   type Connection, type InternalMessage, type Message, Binary, Text, User,
 }

@@ -1,5 +1,5 @@
 import gleeunit
-import server/kraken/price_store.{type PriceStore}
+import server/integrations/kraken/price_store.{type PriceStore}
 
 pub fn main() {
   gleeunit.main()

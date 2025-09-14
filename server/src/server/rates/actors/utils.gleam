@@ -1,8 +1,8 @@
 import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/result
-import server/kraken/kraken.{type Kraken}
-import server/kraken/price_store.{type PriceEntry, type PriceStore}
+import server/integrations/kraken/kraken.{type Kraken}
+import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
 import server/rates/actors/kraken_symbol.{
   type KrakenSymbol, DirectSymbol, ReversedSymbol,
 }

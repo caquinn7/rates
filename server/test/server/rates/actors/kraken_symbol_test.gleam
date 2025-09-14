@@ -1,5 +1,5 @@
 import gleam/set
-import server/kraken/pairs
+import server/integrations/kraken/pairs
 import server/rates/actors/kraken_symbol.{DirectSymbol, ReversedSymbol}
 
 pub fn new_with_validator_returns_direct_when_only_direct_symbol_exists_test() {

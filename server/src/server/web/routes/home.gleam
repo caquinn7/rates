@@ -6,8 +6,8 @@ import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import server/logger
 import server/rates/actors/rate_error.{type RateError}
+import server/utils/logger
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
 import shared/rates/rate_request.{type RateRequest, RateRequest}

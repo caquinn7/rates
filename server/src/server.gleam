@@ -11,20 +11,20 @@ import gleam/string
 import gleam/string_tree
 import glight
 import mist
-import server/coin_market_cap/client as cmc
 import server/context.{type Context, Context}
 import server/currencies/cmc_currency_handler
 import server/currencies/currencies_fetcher
-import server/kraken/kraken
-import server/kraken/pairs
-import server/kraken/price_store
-import server/logger
+import server/integrations/coin_market_cap/client as cmc
+import server/integrations/kraken/kraken
+import server/integrations/kraken/pairs
+import server/integrations/kraken/price_store
 import server/rates/actors/rate_error.{type RateError}
 import server/rates/actors/resolver as rate_resolver
-import server/routes/home
-import server/routes/ws/websocket
-import server/routes/ws/websocket_v2
-import server/time
+import server/utils/logger
+import server/utils/time
+import server/web/routes/home
+import server/web/routes/ws/websocket
+import server/web/routes/ws/websocket_v2
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}

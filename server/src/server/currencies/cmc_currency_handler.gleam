@@ -1,7 +1,7 @@
 import gleam/list
 import gleam/option.{Some}
 import gleam/result
-import server/coin_market_cap/client.{
+import server/integrations/coin_market_cap/client.{
   type CmcCryptoCurrency, type CmcFiatCurrency, type CmcListResponse,
   type CmcRequestError, type CmcStatus, CmcStatus,
 }

@@ -2,14 +2,14 @@ import gleam/erlang/process
 import gleam/httpc
 import gleam/list
 import gleam/option.{None, Some}
-import server/coin_market_cap/client.{
-  CmcCryptoCurrency, CmcFiatCurrency, CmcListResponse, CmcStatus, HttpError,
-}
 import server/context.{Context}
 import server/currencies/cmc_currency_handler.{ClientError}
 import server/currencies/currencies_fetcher.{
   CryptoRequest, EmptyListReceived, FiatRequest, HandlerError, RequestError,
   Timeout,
+}
+import server/integrations/coin_market_cap/client.{
+  CmcCryptoCurrency, CmcFiatCurrency, CmcListResponse, CmcStatus, HttpError,
 }
 
 const good_cmc_status = CmcStatus(0, None)

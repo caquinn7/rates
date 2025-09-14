@@ -1,7 +1,7 @@
 import gleam/json
 import gleam/list
 import gleeunit/should
-import server/kraken/response.{
+import server/integrations/kraken/response.{
   InstrumentPair, InstrumentsResponse, TickerResponse,
   TickerSubscribeConfirmation,
 }

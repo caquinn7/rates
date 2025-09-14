@@ -26,13 +26,13 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import server/kraken/kraken.{type Kraken}
-import server/kraken/price_store.{type PriceEntry, type PriceStore}
-import server/logger.{type Logger}
+import server/integrations/kraken/kraken.{type Kraken}
+import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
 import server/rates/actors/kraken_symbol.{type KrakenSymbol}
 import server/rates/actors/rate_error.{type RateError, CmcError}
 import server/rates/actors/utils
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
+import server/utils/logger.{type Logger}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse, RateResponse}

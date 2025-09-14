@@ -7,7 +7,7 @@ import carpenter/table.{type Set as EtsSet, NoWriteConcurrency, Protected}
 import gleam/list
 import gleam/pair
 import gleam/result
-import server/time
+import server/utils/time
 
 pub opaque type PriceStore {
   PriceStore(EtsSet(String, PriceEntry))

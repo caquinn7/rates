@@ -1,5 +1,5 @@
 import gleeunit/should
-import server/kraken/price_store.{PriceEntry}
+import server/integrations/kraken/price_store.{PriceEntry}
 import server_test
 
 pub fn unable_to_create_twice_test() {
