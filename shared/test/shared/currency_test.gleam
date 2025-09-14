@@ -27,6 +27,11 @@ pub fn decoder_decodes_fiat_test() {
   assert Ok(Fiat(2781, "United States Dollar", "USD", "$")) == result
 }
 
+pub fn decoder_returns_error_when_input_is_invalid_test() {
+  let result = json.parse("", currency.decoder())
+  let assert Error(_) = result
+}
+
 pub fn encode_crypto_currency_to_json_test() {
   Crypto(1, "Bitcoin", "BTC", Some(1))
   |> currency.encode

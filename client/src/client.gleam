@@ -5,14 +5,11 @@ import client/browser/event as browser_event
 import client/currency/collection.{type CurrencyCollection} as currency_collection
 import client/currency/formatting as currency_formatting
 import client/positive_float.{type PositiveFloat}
-import client/rates/rate_request
-import client/rates/rate_response
 import client/side.{type Side, Left, Right}
 import client/socket.{
   type WebSocket, type WebSocketEvent, InvalidUrl, OnClose, OnOpen,
   OnTextMessage,
 }
-import client/start_data.{type StartData}
 import client/ui/button_dropdown.{DropdownOption, Flat, Grouped}
 import client/ui/components/auto_resize_input
 import gleam/bool
@@ -33,8 +30,9 @@ import lustre/element/svg
 import lustre/event
 import rsvp
 import shared/currency.{type Currency, Crypto, Fiat}
-import shared/rates/rate_request.{type RateRequest, RateRequest} as _shared_rate_request
-import shared/rates/rate_response.{RateResponse} as _shared_rate_response
+import shared/page_data.{type PageData}
+import shared/rates/rate_request.{type RateRequest, RateRequest}
+import shared/rates/rate_response.{RateResponse}
 
 pub type Model {
   Model(
@@ -556,15 +554,15 @@ pub fn main() -> Nil {
     document.query_selector("#model")
     |> result.map(browser_element.inner_text)
 
-  let start_data = case json.parse(json_str, start_data.decoder()) {
-    Ok(start_data) -> start_data
-    _ -> panic as "failed to decode start_data"
+  let page_data = case json.parse(json_str, page_data.decoder()) {
+    Ok(page_data) -> page_data
+    _ -> panic as "failed to decode page_data"
   }
 
   let assert Ok(_) = auto_resize_input.register("auto-resize-input")
 
   let app = lustre.application(init, update, view)
-  let assert Ok(runtime) = lustre.start(app, "#app", start_data)
+  let assert Ok(runtime) = lustre.start(app, "#app", page_data)
 
   document.add_event_listener("click", fn(event) {
     event
@@ -574,23 +572,23 @@ pub fn main() -> Nil {
   })
 }
 
-pub fn init(flags: StartData) -> #(Model, Effect(Msg)) {
-  #(model_from_start_data(flags), socket.init("/ws", WsWrapper))
+pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
+  #(model_from_page_data(flags), socket.init("/ws", WsWrapper))
 }
 
-pub fn model_from_start_data(start_data: StartData) {
-  let RateResponse(from, to, rate, _source, _timestamp) = start_data.rate
+pub fn model_from_page_data(page_data: PageData) {
+  let RateResponse(from, to, rate, _source, _timestamp) = page_data.rate
 
   let assert Ok(from_currency) =
-    start_data.currencies
+    page_data.currencies
     |> list.find(fn(c) { c.id == from })
 
   let assert Ok(to_currency) =
-    start_data.currencies
+    page_data.currencies
     |> list.find(fn(c) { c.id == to })
 
   let currencies =
-    start_data.currencies
+    page_data.currencies
     |> currency_collection.from_list
 
   let make_selector = fn(side: Side, selected_currency: Currency) {
@@ -636,7 +634,7 @@ pub fn model_from_start_data(start_data: StartData) {
   }
 
   Model(
-    currencies: start_data.currencies,
+    currencies: page_data.currencies,
     conversion: Conversion(
       conversion_inputs: #(left_input, right_input),
       rate: Some(positive_float.from_float_unsafe(rate)),

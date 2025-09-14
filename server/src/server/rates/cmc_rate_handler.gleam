@@ -58,10 +58,10 @@ fn map_cmc_response(
 
   case err_code, err_msg, data {
     400, Some("Invalid value for \"id\":" <> _), _ ->
-      CurrencyNotFound(rate_request.from) |> Error
+      Error(CurrencyNotFound(rate_request.from))
 
     400, Some("Invalid value for \"convert_id\":" <> _), _ ->
-      CurrencyNotFound(rate_request.to) |> Error
+      Error(CurrencyNotFound(rate_request.to))
 
     0, _, Some(conversion) ->
       conversion.quote
@@ -77,10 +77,6 @@ fn map_cmc_response(
       })
       |> result.map_error(fn(_) { UnexpectedResponse(cmc_response) })
 
-    _, _, _ -> {
-      cmc_response
-      |> UnexpectedResponse
-      |> Error
-    }
+    _, _, _ -> Error(UnexpectedResponse(cmc_response))
   }
 }

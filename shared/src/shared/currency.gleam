@@ -1,31 +1,10 @@
 import gleam/dynamic/decode
 import gleam/json.{type Json}
-import gleam/option.{type Option}
+import gleam/option.{type Option, None}
 
 pub type Currency {
   Crypto(id: Int, name: String, symbol: String, rank: Option(Int))
   Fiat(id: Int, name: String, symbol: String, sign: String)
-}
-
-pub fn decoder() {
-  use variant <- decode.field("type", decode.string)
-  case variant {
-    "crypto" -> {
-      use id <- decode.field("id", decode.int)
-      use name <- decode.field("name", decode.string)
-      use symbol <- decode.field("symbol", decode.string)
-      use rank <- decode.field("rank", decode.optional(decode.int))
-      decode.success(Crypto(id:, name:, symbol:, rank:))
-    }
-    "fiat" -> {
-      use id <- decode.field("id", decode.int)
-      use name <- decode.field("name", decode.string)
-      use symbol <- decode.field("symbol", decode.string)
-      use sign <- decode.field("sign", decode.string)
-      decode.success(Fiat(id:, name:, symbol:, sign:))
-    }
-    _ -> panic as "invalid currency type"
-  }
 }
 
 pub fn encode(currency: Currency) -> Json {
@@ -47,5 +26,26 @@ pub fn encode(currency: Currency) -> Json {
         #("symbol", json.string(symbol)),
         #("sign", json.string(sign)),
       ])
+  }
+}
+
+pub fn decoder() {
+  use variant <- decode.field("type", decode.string)
+  case variant {
+    "crypto" -> {
+      use id <- decode.field("id", decode.int)
+      use name <- decode.field("name", decode.string)
+      use symbol <- decode.field("symbol", decode.string)
+      use rank <- decode.field("rank", decode.optional(decode.int))
+      decode.success(Crypto(id:, name:, symbol:, rank:))
+    }
+    "fiat" -> {
+      use id <- decode.field("id", decode.int)
+      use name <- decode.field("name", decode.string)
+      use symbol <- decode.field("symbol", decode.string)
+      use sign <- decode.field("sign", decode.string)
+      decode.success(Fiat(id:, name:, symbol:, sign:))
+    }
+    _ -> decode.failure(Crypto(0, "", "", None), "Currency")
   }
 }

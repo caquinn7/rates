@@ -21,9 +21,10 @@ import server/kraken/price_store
 import server/logger
 import server/rates/actors/rate_error.{type RateError}
 import server/rates/actors/resolver as rate_resolver
-import server/routes/home/home
+import server/routes/home
+import server/routes/ws/websocket
+import server/routes/ws/websocket_v2
 import server/time
-import server/ws/websocket
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
@@ -104,9 +105,6 @@ pub fn main() {
       case request.path_segments(req) {
         // handle websocket connections
         ["ws"] -> {
-          let websocket_logger =
-            logger.with(logger.new(), "source", "websocket")
-
           mist.websocket(
             req,
             on_init: websocket.on_init(
@@ -115,10 +113,26 @@ pub fn main() {
               request_cmc_conversion,
               kraken,
               get_price_store,
-              websocket_logger,
+              logger.with(logger.new(), "source", "websocket"),
             ),
             handler: websocket.handler,
             on_close: websocket.on_close,
+          )
+        }
+
+        ["ws", "v2"] -> {
+          mist.websocket(
+            req,
+            on_init: websocket_v2.on_init(
+              _,
+              cmc_currencies,
+              request_cmc_conversion,
+              kraken,
+              get_price_store,
+              logger.with(logger.new(), "source", "websocket_v2"),
+            ),
+            handler: websocket_v2.handler,
+            on_close: websocket_v2.on_close,
           )
         }
 

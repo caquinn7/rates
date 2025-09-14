@@ -1,0 +1,7 @@
+---
+version: 1.4.0
+title: subscription_response_encode_to_json_test
+file: ./test/shared/subscriptions/subscription_response_test.gleam
+test_name: subscription_response_encode_to_json_test
+---
+{"id":"1","rate_response":{"from":2,"to":3,"rate":1.23,"source":"Kraken","timestamp":1756654456}}
