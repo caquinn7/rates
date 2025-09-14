@@ -23,8 +23,8 @@ import server/rates/actors/rate_error.{type RateError}
 import server/rates/actors/resolver as rate_resolver
 import server/routes/home
 import server/time
-import server/ws/v2/websocket as websocket_v2
 import server/ws/websocket
+import server/ws/websocket_v2
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
@@ -129,7 +129,7 @@ pub fn main() {
               request_cmc_conversion,
               kraken,
               get_price_store,
-              logger.with(logger.new(), "source", "websocket"),
+              logger.with(logger.new(), "source", "websocket_v2"),
             ),
             handler: websocket_v2.handler,
             on_close: websocket_v2.on_close,
