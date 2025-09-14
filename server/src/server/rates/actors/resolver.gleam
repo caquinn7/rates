@@ -18,7 +18,7 @@ import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import server/integrations/kraken/kraken.{type Kraken}
+import server/integrations/kraken/client.{type KrakenClient}
 import server/integrations/kraken/price_store.{type PriceStore}
 import server/rates/actors/kraken_symbol
 import server/rates/actors/rate_error.{
@@ -41,17 +41,17 @@ type Msg {
 type State {
   State(
     cmc_currencies: Dict(Int, String),
-    kraken: Kraken,
-    price_store: PriceStore,
+    kraken: KrakenClient,
+    kraken_price_store: PriceStore,
     request_cmc_conversion: RequestCmcConversion,
   )
 }
 
 pub fn new(
   cmc_currencies: List(Currency),
-  kraken: Kraken,
+  kraken: KrakenClient,
   request_cmc_conversion: RequestCmcConversion,
-  get_price_store: fn() -> PriceStore,
+  get_kraken_price_store: fn() -> PriceStore,
   get_current_time_ms: fn() -> Int,
 ) -> Result(RateResolver, StartError) {
   let currency_dict =
@@ -59,7 +59,7 @@ pub fn new(
     |> list.map(fn(c) { #(c.id, c.symbol) })
     |> dict.from_list
 
-  let price_store = get_price_store()
+  let price_store = get_kraken_price_store()
 
   let initial_state =
     State(currency_dict, kraken, price_store, request_cmc_conversion)
@@ -115,7 +115,7 @@ fn handle_msg(
             let kraken_price_result =
               utils.wait_for_kraken_price(
                 kraken_symbol,
-                state.price_store,
+                state.kraken_price_store,
                 5,
                 50,
               )

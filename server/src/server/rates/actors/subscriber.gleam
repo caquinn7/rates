@@ -26,7 +26,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import server/integrations/kraken/kraken.{type Kraken}
+import server/integrations/kraken/client.{type KrakenClient} as kraken_client
 import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
 import server/rates/actors/kraken_symbol.{type KrakenSymbol}
 import server/rates/actors/rate_error.{type RateError, CmcError}
@@ -62,10 +62,10 @@ type State {
     self: Option(Subject(Msg)),
     reply_to: Subject(SubscriptionResult),
     cmc_currencies: Dict(Int, String),
-    kraken: Kraken,
+    kraken_client: KrakenClient,
     base_interval: Int,
     current_interval: Int,
-    price_store: PriceStore,
+    kraken_price_store: PriceStore,
     subscription: Option(Subscription),
     logger: Logger,
   )
@@ -89,9 +89,9 @@ type Subscription {
 /// - `reply_to`: Subject to send tuples of (subscription_id, rate_response_or_error) back to the caller
 /// - `cmc_currencies`: List of currencies supported by CoinMarketCap
 /// - `request_cmc_conversion`: Function to request currency conversions from CoinMarketCap
-/// - `kraken`: Kraken exchange client for fetching rates
+/// - `kraken_client`: Kraken exchange client for fetching rates
 /// - `interval`: Time interval in milliseconds for periodic rate updates
-/// - `get_price_store`: Function that returns the current price store instance
+/// - `get_kraken_price_store`: Function that returns the current price store instance
 /// - `get_current_time_ms`: Function that returns the current time in milliseconds
 /// - `logger`: Logger instance for debugging and monitoring
 ///
@@ -114,9 +114,9 @@ pub fn new(
   reply_to: Subject(SubscriptionResult),
   cmc_currencies: List(Currency),
   request_cmc_conversion: RequestCmcConversion,
-  kraken: Kraken,
+  kraken_client: KrakenClient,
   interval: Int,
-  get_price_store: fn() -> PriceStore,
+  get_kraken_price_store: fn() -> PriceStore,
   get_current_time_ms: fn() -> Int,
   logger: Logger,
 ) -> Result(RateSubscriber, StartError) {
@@ -125,10 +125,10 @@ pub fn new(
       None,
       reply_to,
       currencies_to_dict(cmc_currencies),
-      kraken,
+      kraken_client,
       interval,
       interval,
-      get_price_store(),
+      get_kraken_price_store(),
       None,
       logger,
     )
@@ -256,7 +256,7 @@ fn do_subscribe(
   let state = case state.subscription {
     Some(Kraken(_, old_symbol)) -> {
       let symbol_str = kraken_symbol.to_string(old_symbol)
-      kraken.unsubscribe(state.kraken, symbol_str)
+      kraken_client.unsubscribe(state.kraken_client, symbol_str)
       State(..state, subscription: None)
     }
 
@@ -368,7 +368,7 @@ fn handle_kraken_subscription(
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> State {
-  utils.subscribe_to_kraken(state.kraken, kraken_symbol)
+  utils.subscribe_to_kraken(state.kraken_client, kraken_symbol)
 
   check_kraken_price_and_respond(
     subscription_id,
@@ -389,7 +389,7 @@ fn check_kraken_price_and_respond(
   get_current_time_ms: fn() -> Int,
 ) -> State {
   let kraken_price_result =
-    utils.wait_for_kraken_price(kraken_symbol, state.price_store, 5, 50)
+    utils.wait_for_kraken_price(kraken_symbol, state.kraken_price_store, 5, 50)
 
   case kraken_price_result {
     Error(_) -> {
@@ -483,7 +483,7 @@ fn do_stop(state: State) -> Next(State, Msg) {
     Some(subscription) -> {
       case subscription {
         Kraken(_, symbol) -> {
-          utils.unsubscribe_from_kraken(state.kraken, symbol)
+          utils.unsubscribe_from_kraken(state.kraken_client, symbol)
           actor.stop()
         }
 

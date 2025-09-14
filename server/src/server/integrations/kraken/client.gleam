@@ -40,8 +40,8 @@ import stratus.{
   type Connection, type InternalMessage, type Message, Binary, Text, User,
 }
 
-pub opaque type Kraken {
-  Kraken(subject: Subject(Msg))
+pub opaque type KrakenClient {
+  KrakenClient(subject: Subject(Msg))
 }
 
 type Msg {
@@ -67,7 +67,7 @@ type State {
 pub fn new(
   create_price_store: fn() -> PriceStore,
   logger: Logger,
-) -> Result(Kraken, StartError) {
+) -> Result(KrakenClient, StartError) {
   let intitial_state =
     State(None, set.new(), dict.new(), dict.new(), None, logger)
 
@@ -87,17 +87,17 @@ pub fn new(
   )
 
   actor.send(kraken_subject, Init(websocket_subject))
-  Ok(Kraken(kraken_subject))
+  Ok(KrakenClient(kraken_subject))
 }
 
-pub fn subscribe(kraken: Kraken, symbol: String) -> Nil {
-  let Kraken(kraken_subject) = kraken
-  actor.send(kraken_subject, Subscribe(symbol))
+pub fn subscribe(client: KrakenClient, symbol: String) -> Nil {
+  let KrakenClient(subject) = client
+  actor.send(subject, Subscribe(symbol))
 }
 
-pub fn unsubscribe(kraken: Kraken, symbol: String) -> Nil {
-  let Kraken(kraken_subject) = kraken
-  actor.send(kraken_subject, Unsubscribe(symbol))
+pub fn unsubscribe(client: KrakenClient, symbol: String) -> Nil {
+  let KrakenClient(subject) = client
+  actor.send(subject, Unsubscribe(symbol))
 }
 
 fn kraken_loop(

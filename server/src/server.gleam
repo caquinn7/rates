@@ -15,7 +15,7 @@ import server/context.{type Context, Context}
 import server/currencies/cmc_currency_handler
 import server/currencies/currencies_fetcher
 import server/integrations/coin_market_cap/client as cmc
-import server/integrations/kraken/kraken
+import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
 import server/rates/actors/rate_error.{type RateError}
@@ -82,7 +82,7 @@ pub fn main() {
     store
   }
   let assert Ok(kraken) =
-    kraken.new(
+    kraken_client.new(
       create_price_store,
       logger.with(logger.new(), "source", "kraken"),
     )
