@@ -14,7 +14,7 @@ import mist
 import server/context.{type Context, Context}
 import server/currencies/cmc_currency_handler
 import server/currencies/currencies_fetcher
-import server/integrations/coin_market_cap/client as cmc
+import server/integrations/coin_market_cap/client as cmc_client
 import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
@@ -48,10 +48,14 @@ pub fn main() {
   // get CMC currencies
   let cmc_currencies = {
     let request_cryptos = fn() {
-      cmc.get_crypto_currencies(ctx.cmc_api_key, Some(ctx.crypto_limit), None)
+      cmc_client.get_crypto_currencies(
+        ctx.cmc_api_key,
+        Some(ctx.crypto_limit),
+        None,
+      )
     }
     let request_fiats = fn() {
-      cmc.get_fiat_currencies(ctx.cmc_api_key, Some(100))
+      cmc_client.get_fiat_currencies(ctx.cmc_api_key, Some(100))
     }
 
     let result =
@@ -81,10 +85,10 @@ pub fn main() {
     let assert Ok(store) = price_store.new()
     store
   }
-  let assert Ok(kraken) =
+  let assert Ok(kraken_client) =
     kraken_client.new(
-      create_price_store,
       logger.with(logger.new(), "source", "kraken"),
+      create_price_store,
     )
 
   wait_for_kraken_symbols_loop(time.monotonic_time_ms(), 10_000)
@@ -92,7 +96,7 @@ pub fn main() {
   // request handlers
   let assert Ok(_) =
     mist.new(fn(req) {
-      let request_cmc_conversion = cmc.get_conversion(cmc_api_key, _)
+      let request_cmc_conversion = cmc_client.get_conversion(cmc_api_key, _)
 
       let get_price_store = fn() {
         let store = case price_store.get_store() {
@@ -111,7 +115,7 @@ pub fn main() {
               _,
               cmc_currencies,
               request_cmc_conversion,
-              kraken,
+              kraken_client,
               get_price_store,
               logger.with(logger.new(), "source", "websocket"),
             ),
@@ -127,7 +131,7 @@ pub fn main() {
               _,
               cmc_currencies,
               request_cmc_conversion,
-              kraken,
+              kraken_client,
               get_price_store,
               logger.with(logger.new(), "source", "websocket_v2"),
             ),
@@ -142,7 +146,7 @@ pub fn main() {
             let assert Ok(resolver) =
               rate_resolver.new(
                 cmc_currencies,
-                kraken,
+                kraken_client,
                 request_cmc_conversion,
                 get_price_store,
                 time.system_time_ms,
@@ -236,7 +240,7 @@ fn handle_request(
 
         Ok(symbol) -> {
           let request_cryptos = fn() {
-            cmc.get_crypto_currencies(
+            cmc_client.get_crypto_currencies(
               ctx.cmc_api_key,
               Some(ctx.crypto_limit),
               Some(symbol),

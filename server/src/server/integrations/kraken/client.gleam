@@ -15,14 +15,14 @@
 ///
 /// Use `new` to create the actor and start the WebSocket session. Use
 /// `subscribe` and `unsubscribe` to manage interest in specific symbols.
-import gleam/dict.{type Dict}
+import gleam/bool
 import gleam/erlang/process.{type Subject}
 import gleam/float
 import gleam/http/request as http_request
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{None}
 import gleam/otp/actor.{type StartError, type Started}
 import gleam/result
 import gleam/set.{type Set}
@@ -35,17 +35,16 @@ import server/integrations/kraken/request.{
 import server/integrations/kraken/response.{
   InstrumentsResponse, TickerResponse, TickerSubscribeConfirmation,
 }
+import server/integrations/kraken/subscription_counter.{type SubscriptionCounter}
 import server/utils/logger.{type Logger}
-import stratus.{
-  type Connection, type InternalMessage, type Message, Binary, Text, User,
-}
+import stratus
 
 pub opaque type KrakenClient {
-  KrakenClient(subject: Subject(Msg))
+  KrakenClient(Subject(Msg))
 }
 
 type Msg {
-  Init(Subject(stratus.InternalMessage(WebsocketMsg)))
+  Connect(Subject(stratus.InternalMessage(KrakenRequest)))
   SetSupportedSymbols(Set(String))
   Subscribe(String)
   ConfirmSubscribe(String)
@@ -54,29 +53,33 @@ type Msg {
 }
 
 type State {
-  State(
-    websocket_subject: Option(Subject(stratus.InternalMessage(WebsocketMsg))),
-    supported_symbols: Set(String),
-    pending_subscriptions: Dict(String, Int),
-    active_subscriptions: Dict(String, Int),
-    price_store: Option(PriceStore),
+  New(logger: Logger)
+  SymbolsPending(
     logger: Logger,
+    price_store: PriceStore,
+    websocket_subject: Subject(stratus.InternalMessage(KrakenRequest)),
+  )
+  Ready(
+    logger: Logger,
+    price_store: PriceStore,
+    websocket_subject: Subject(stratus.InternalMessage(KrakenRequest)),
+    supported_symbols: Set(String),
+    subscription_counter: SubscriptionCounter,
   )
 }
 
 pub fn new(
-  create_price_store: fn() -> PriceStore,
   logger: Logger,
+  create_price_store: fn() -> PriceStore,
 ) -> Result(KrakenClient, StartError) {
-  let intitial_state =
-    State(None, set.new(), dict.new(), dict.new(), None, logger)
-
-  let msg_loop = fn(state, msg) { kraken_loop(state, msg, create_price_store) }
+  let kraken_loop = fn(state, msg) {
+    kraken_loop(state, msg, create_price_store)
+  }
 
   use kraken_subject <- result.try(
-    intitial_state
+    New(logger)
     |> actor.new
-    |> actor.on_message(msg_loop)
+    |> actor.on_message(kraken_loop)
     |> actor.start
     |> result.map(fn(started) { started.data }),
   )
@@ -86,7 +89,7 @@ pub fn new(
     |> result.map(fn(started) { started.data }),
   )
 
-  actor.send(kraken_subject, Init(websocket_subject))
+  actor.send(kraken_subject, Connect(websocket_subject))
   Ok(KrakenClient(kraken_subject))
 }
 
@@ -105,206 +108,146 @@ fn kraken_loop(
   msg: Msg,
   create_price_store: fn() -> PriceStore,
 ) -> actor.Next(State, Msg) {
-  let State(
-    maybe_websocket_subject,
-    supported_symbols,
-    pending_subscriptions,
-    active_subscriptions,
-    maybe_price_store,
-    logger,
-  ) = state
-
   case msg {
-    Init(websocket_subject) -> {
+    Connect(websocket_subject) -> {
       KrakenRequest(request.Subscribe, Instruments, None)
-      |> Request
       |> stratus.to_user_message
       |> actor.send(websocket_subject, _)
 
-      State(
-        ..state,
-        websocket_subject: Some(websocket_subject),
-        price_store: Some(create_price_store()),
-      )
-      |> actor.continue
+      actor.continue(SymbolsPending(
+        state.logger,
+        create_price_store(),
+        websocket_subject,
+      ))
     }
 
-    SetSupportedSymbols(symbols) -> {
+    SetSupportedSymbols(supported_symbols) -> {
       // Updates the set of supported symbols based on Kraken's latest Instruments response.
-      log_symbols_received(logger, symbols)
-      pairs.set(symbols)
 
-      let assert Some(websocket_subject) = maybe_websocket_subject
+      let assert SymbolsPending(logger:, price_store:, websocket_subject:) =
+        state
+
+      log_symbols(logger, supported_symbols)
+      pairs.set(supported_symbols)
+
       KrakenRequest(request.Unsubscribe, Instruments, None)
-      |> Request
       |> stratus.to_user_message
       |> actor.send(websocket_subject, _)
 
-      actor.continue(State(..state, supported_symbols: symbols))
+      actor.continue(Ready(
+        price_store:,
+        logger:,
+        websocket_subject:,
+        supported_symbols:,
+        subscription_counter: subscription_counter.new(),
+      ))
     }
 
     Subscribe(symbol) -> {
-      // Handles a subscribe request from a client.
-      // - If already subscribed, increment the active subscription count.
-      // - If not subscribed, and the symbol is supported, send a Kraken subscribe request and track it as pending.
-      // - Ignore unsupported symbols.
-      case dict.get(active_subscriptions, symbol) {
-        // no one has subscribed to symbol yet
-        Error(_) -> {
-          case set.contains(supported_symbols, symbol) {
-            // symbol is not supported. just continue
-            False -> actor.continue(state)
+      let assert Ready(
+        logger,
+        _,
+        websocket_subject:,
+        supported_symbols:,
+        subscription_counter:,
+      ) = state
 
-            // symbol is supported. request subscription from kraken
-            True -> {
-              let assert Some(websocket_subject) = maybe_websocket_subject
+      use <- bool.guard(
+        !set.contains(supported_symbols, symbol),
+        actor.continue(state),
+      )
 
-              KrakenRequest(request.Subscribe, Tickers([symbol]), None)
-              |> Request
-              |> stratus.to_user_message
-              |> actor.send(websocket_subject, _)
+      let #(should_subscribe, subscription_counter) =
+        subscription_counter.add_subscription(subscription_counter, symbol)
 
-              let pending_subscriptions =
-                dict.upsert(pending_subscriptions, symbol, fn(maybe_count) {
-                  case maybe_count {
-                    None -> 1
-                    Some(i) -> i + 1
-                  }
-                })
+      subscription_counter.log_subscription_count(
+        subscription_counter,
+        logger,
+        symbol,
+      )
 
-              {
-                let assert Ok(pending_count) =
-                  dict.get(pending_subscriptions, symbol)
-
-                log_subscription_count(
-                  logger,
-                  symbol,
-                  pending_count,
-                  "Incremented pending subscription count",
-                )
-              }
-
-              actor.continue(State(..state, pending_subscriptions:))
-            }
-          }
-        }
-
-        // someone is already subscribed. increment the count
-        Ok(current_count) -> {
-          let new_count = current_count + 1
-
-          let active_subscriptions =
-            dict.insert(active_subscriptions, symbol, new_count)
-
-          log_subscription_count(
-            logger,
-            symbol,
-            new_count,
-            "Incremented active subscription count",
-          )
-
-          actor.continue(State(..state, active_subscriptions:))
-        }
+      case should_subscribe {
+        False -> Nil
+        True ->
+          KrakenRequest(request.Subscribe, Tickers([symbol]), None)
+          |> stratus.to_user_message
+          |> actor.send(websocket_subject, _)
       }
+
+      actor.continue(Ready(..state, subscription_counter:))
     }
 
     ConfirmSubscribe(symbol) -> {
-      // Handles Kraken's confirmation that a subscription was successful for a symbol.
-      // This marks the subscription as fully active by:
-      // - Moving the pending subscription count into the active subscriptions map.
-      // - Deleting the symbol from the pending subscriptions map.
-      // This is safe because ConfirmSubscribe should only arrive for symbols the actor explicitly requested to subscribe.
-      let assert Ok(pending_count) = dict.get(pending_subscriptions, symbol)
-      let active_subscriptions =
-        dict.insert(active_subscriptions, symbol, pending_count)
+      let assert Ready(logger, _, _, _, subscription_counter:) = state
+      let assert Ok(subscription_counter) =
+        subscription_counter.confirm_subscription(subscription_counter, symbol)
 
-      let pending_subscriptions = dict.delete(pending_subscriptions, symbol)
-
-      log_subscription_confirmed(logger, symbol)
-
-      actor.continue(
-        State(..state, active_subscriptions:, pending_subscriptions:),
+      subscription_counter.log_subscription_count(
+        subscription_counter,
+        logger,
+        symbol,
       )
+
+      actor.continue(Ready(..state, subscription_counter:))
     }
 
     Unsubscribe(symbol) -> {
-      // Handles a client's request to unsubscribe from a symbol.
-      // Decrements the pending or active subscription count for the symbol, depending on which state it's in.
-      // If there are still clients interested (pending or active), update the state and continue.
-      // If there are no more clients interested (total_interest == 0):
-      // - Send an Unsubscribe request to Kraken for the symbol.
-      // - Remove the symbol from both pending and active subscription maps to clean up the state.
-      let pending_subscriptions = case dict.get(pending_subscriptions, symbol) {
-        Error(_) -> pending_subscriptions
-        Ok(count) -> dict.insert(pending_subscriptions, symbol, count - 1)
-      }
+      let assert Ready(logger, _, websocket_subject, _, subscription_counter:) =
+        state
 
-      let active_subscriptions = case dict.get(active_subscriptions, symbol) {
-        Error(_) -> active_subscriptions
-        Ok(count) -> dict.insert(active_subscriptions, symbol, count - 1)
-      }
+      let #(should_unsubscribe, subscription_counter) =
+        subscription_counter.remove_subscription(subscription_counter, symbol)
 
-      let pending_count = case dict.get(pending_subscriptions, symbol) {
-        Error(_) -> 0
-        Ok(count) -> count
-      }
+      subscription_counter.log_subscription_count(
+        subscription_counter,
+        logger,
+        symbol,
+      )
 
-      let subscribed_count = case dict.get(active_subscriptions, symbol) {
-        Error(_) -> 0
-        Ok(count) -> count
-      }
-
-      let total_interest = pending_count + subscribed_count
-      case total_interest == 0 {
-        False ->
-          actor.continue(
-            State(..state, pending_subscriptions:, active_subscriptions:),
-          )
-
-        True -> {
-          let assert Some(websocket_subject) = maybe_websocket_subject
-
+      case should_unsubscribe {
+        False -> Nil
+        True ->
           KrakenRequest(request.Unsubscribe, Tickers([symbol]), None)
-          |> Request
           |> stratus.to_user_message
           |> actor.send(websocket_subject, _)
-
-          let pending_subscriptions = dict.delete(pending_subscriptions, symbol)
-          let active_subscriptions = dict.delete(active_subscriptions, symbol)
-
-          let assert Some(price_store) = state.price_store
-          price_store.delete_price(price_store, symbol)
-
-          actor.continue(
-            State(..state, pending_subscriptions:, active_subscriptions:),
-          )
-        }
       }
+
+      actor.continue(Ready(..state, subscription_counter:))
     }
 
-    UpdatePrice(symbol, price) ->
-      case dict.get(active_subscriptions, symbol) {
-        Error(_) -> actor.continue(state)
-        Ok(_) -> {
-          log_price_update(logger, symbol, price)
+    UpdatePrice(symbol, price) -> {
+      let assert Ready(logger, price_store, _, _, subscription_counter:) = state
 
-          let assert Some(price_store) = maybe_price_store
-          price_store.insert(price_store, symbol, price)
-          actor.continue(state)
-        }
+      let is_subscribed =
+        subscription_counter.is_actively_subscribed(
+          subscription_counter,
+          symbol,
+        )
+
+      case is_subscribed {
+        False -> Nil
+        True -> price_store.insert(price_store, symbol, price)
       }
+
+      // todo: log timestamp of price
+      log_price_update(logger, symbol, price)
+
+      actor.continue(state)
+    }
   }
 }
 
-type WebsocketMsg {
-  Request(KrakenRequest)
-}
+// websocket
 
 fn init_websocket(
   reply_to: Subject(Msg),
   logger: Logger,
-) -> Result(Started(Subject(InternalMessage(WebsocketMsg))), StartError) {
+) -> Result(
+  Started(Subject(stratus.InternalMessage(KrakenRequest))),
+  StartError,
+) {
   let assert Ok(req) = http_request.to("https://ws.kraken.com/v2")
+
   stratus.websocket(
     request: req,
     init: fn() { #(#(reply_to, logger), None) },
@@ -319,12 +262,13 @@ fn init_websocket(
 
 fn websocket_loop(
   state: #(Subject(Msg), Logger),
-  msg: Message(WebsocketMsg),
-  conn: Connection,
-) -> stratus.Next(#(Subject(Msg), Logger), WebsocketMsg) {
+  msg: stratus.Message(KrakenRequest),
+  conn: stratus.Connection,
+) -> stratus.Next(#(Subject(Msg), Logger), KrakenRequest) {
   let #(reply_to, logger) = state
+
   case msg {
-    Text(str) -> {
+    stratus.Text(str) -> {
       log_message_from_kraken(logger, str)
 
       case json.parse(str, response.decoder()) {
@@ -352,7 +296,7 @@ fn websocket_loop(
       }
     }
 
-    User(Request(kraken_req)) -> {
+    stratus.User(kraken_req) -> {
       let json_str =
         kraken_req
         |> request.encode
@@ -368,34 +312,16 @@ fn websocket_loop(
       }
     }
 
-    Binary(_) -> stratus.continue(state)
+    stratus.Binary(_) -> stratus.continue(state)
   }
 }
 
 // logging
 
-fn log_symbols_received(logger: Logger, symbols: Set(String)) -> Nil {
+fn log_symbols(logger: Logger, symbols: Set(String)) -> Nil {
   logger
   |> logger.with("count", int.to_string(set.size(symbols)))
   |> logger.info("Received pair symbols from Kraken")
-}
-
-fn log_subscription_count(
-  logger: Logger,
-  symbol: String,
-  count: Int,
-  message: String,
-) -> Nil {
-  logger
-  |> logger.with("symbol", symbol)
-  |> logger.with("count", int.to_string(count))
-  |> logger.debug(message)
-}
-
-fn log_subscription_confirmed(logger: Logger, symbol: String) -> Nil {
-  logger
-  |> logger.with("symbol", symbol)
-  |> logger.debug("Subscription confirmed")
 }
 
 fn log_price_update(logger: Logger, symbol: String, price: Float) -> Nil {

@@ -41,7 +41,7 @@ type Msg {
 type State {
   State(
     cmc_currencies: Dict(Int, String),
-    kraken: KrakenClient,
+    kraken_client: KrakenClient,
     kraken_price_store: PriceStore,
     request_cmc_conversion: RequestCmcConversion,
   )
@@ -49,7 +49,7 @@ type State {
 
 pub fn new(
   cmc_currencies: List(Currency),
-  kraken: KrakenClient,
+  kraken_client: KrakenClient,
   request_cmc_conversion: RequestCmcConversion,
   get_kraken_price_store: fn() -> PriceStore,
   get_current_time_ms: fn() -> Int,
@@ -62,7 +62,7 @@ pub fn new(
   let price_store = get_kraken_price_store()
 
   let initial_state =
-    State(currency_dict, kraken, price_store, request_cmc_conversion)
+    State(currency_dict, kraken_client, price_store, request_cmc_conversion)
 
   let msg_loop = fn(state, msg) {
     handle_msg(state, msg, request_cmc_conversion, get_current_time_ms)
@@ -110,7 +110,7 @@ fn handle_msg(
             )
 
           Ok(kraken_symbol) -> {
-            utils.subscribe_to_kraken(state.kraken, kraken_symbol)
+            utils.subscribe_to_kraken(state.kraken_client, kraken_symbol)
 
             let kraken_price_result =
               utils.wait_for_kraken_price(
@@ -130,7 +130,10 @@ fn handle_msg(
                 )
 
               Ok(price_entry) -> {
-                utils.unsubscribe_from_kraken(state.kraken, kraken_symbol)
+                utils.unsubscribe_from_kraken(
+                  state.kraken_client,
+                  kraken_symbol,
+                )
 
                 let rate = utils.extract_price(price_entry, kraken_symbol)
                 process.send(

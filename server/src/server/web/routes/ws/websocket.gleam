@@ -30,7 +30,7 @@ pub fn on_init(
   _conn: WebsocketConnection,
   cmc_currencies: List(Currency),
   request_cmc_conversion: RequestCmcConversion,
-  kraken_subject: KrakenClient,
+  kraken_client: KrakenClient,
   get_price_store: fn() -> PriceStore,
   logger: Logger,
 ) -> #(#(RateSubscriber, Logger), Option(Selector(SubscriptionResult))) {
@@ -49,7 +49,7 @@ pub fn on_init(
       subject,
       cmc_currencies,
       request_cmc_conversion,
-      kraken_subject,
+      kraken_client,
       10_000,
       get_price_store,
       time.system_time_ms,
