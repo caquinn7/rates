@@ -49,18 +49,19 @@ pub fn on_init(
     |> process.select_map(subject, function.identity)
 
   let create_rate_subscriber = fn(subscription_id) {
-    let assert Ok(rate_subscriber) =
-      rate_subscriber.new(
-        subscription_id,
-        subject,
+    let assert Ok(config) =
+      rate_subscriber.new_config(
         cmc_currencies,
-        request_cmc_conversion,
         kraken_client,
+        get_price_store(),
         10_000,
-        get_price_store,
+        request_cmc_conversion,
         time.system_time_ms,
         logger.with(logger.new(), "source", "subscriber"),
       )
+
+    let assert Ok(rate_subscriber) =
+      rate_subscriber.new(subscription_id, subject, config)
 
     rate_subscriber
   }

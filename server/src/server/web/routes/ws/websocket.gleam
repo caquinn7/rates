@@ -39,18 +39,20 @@ pub fn on_init(
   // Use a fixed subscription ID since we don't need multiple subscriptions
   let assert Ok(fixed_subscription_id) = subscription_id.new("websocket-single")
 
-  let assert Ok(rate_subscriber) =
-    rate_subscriber.new(
-      fixed_subscription_id,
-      subject,
-      cmc_currencies,
-      request_cmc_conversion,
-      kraken_client,
-      10_000,
-      get_price_store,
-      time.system_time_ms,
-      logger.with(logger.new(), "source", "subscriber"),
-    )
+  let assert Ok(rate_subscriber) = {
+    let assert Ok(config) =
+      rate_subscriber.new_config(
+        cmc_currencies,
+        kraken_client,
+        get_price_store(),
+        10_000,
+        request_cmc_conversion,
+        time.system_time_ms,
+        logger.with(logger.new(), "source", "subscriber"),
+      )
+
+    rate_subscriber.new(fixed_subscription_id, subject, config)
+  }
 
   log_socket_init(logger)
 
