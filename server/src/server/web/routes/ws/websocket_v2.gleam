@@ -11,17 +11,17 @@ import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
 }
-import server/kraken/kraken.{type Kraken}
-import server/kraken/price_store.{type PriceStore}
-import server/logger.{type Logger}
+import server/integrations/kraken/client.{type KrakenClient}
+import server/integrations/kraken/price_store.{type PriceStore}
 import server/rates/actors/rate_error.{
   type RateError, CmcError, CurrencyNotFound,
 }
-import server/rates/actors/subscriber_v2.{
+import server/rates/actors/subscriber.{
   type RateSubscriber, type SubscriptionResult,
 } as rate_subscriber
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
-import server/time
+import server/utils/logger.{type Logger}
+import server/utils/time
 import shared/currency.{type Currency}
 import shared/rates/rate_response.{RateResponse} as shared_rate_response
 import shared/subscriptions/subscription_id.{type SubscriptionId}
@@ -42,7 +42,7 @@ pub fn on_init(
   _conn: WebsocketConnection,
   cmc_currencies: List(Currency),
   request_cmc_conversion: RequestCmcConversion,
-  kraken_subject: Kraken,
+  kraken_client: KrakenClient,
   get_price_store: fn() -> PriceStore,
   logger: Logger,
 ) -> #(State, Option(Selector(SubscriptionResult))) {
@@ -59,7 +59,7 @@ pub fn on_init(
         subject,
         cmc_currencies,
         request_cmc_conversion,
-        kraken_subject,
+        kraken_client,
         10_000,
         get_price_store,
         time.system_time_ms,

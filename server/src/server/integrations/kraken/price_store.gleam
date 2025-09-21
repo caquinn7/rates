@@ -1,13 +1,14 @@
-/// A simple in-memory store for tracking exchange rates received from Kraken.
-///
-/// The `PriceStore` module wraps a protected ETS (Erlang Term Storage) table for storing
-/// the most recent price of each currency pair supported by Kraken. It allows efficient
-/// read access from any process, while write access is restricted to the owning process.
+//// A simple in-memory store for tracking exchange rates received from Kraken.
+////
+//// The `PriceStore` module wraps a protected ETS (Erlang Term Storage) table for storing
+//// the most recent price of each currency pair supported by Kraken. It allows efficient
+//// read access from any process, while write access is restricted to the owning process.
+
 import carpenter/table.{type Set as EtsSet, NoWriteConcurrency, Protected}
 import gleam/list
 import gleam/pair
 import gleam/result
-import server/time
+import server/utils/time
 
 pub opaque type PriceStore {
   PriceStore(EtsSet(String, PriceEntry))

@@ -1,7 +1,7 @@
 import gleam/dict
-import server/kraken/price_store.{PriceEntry}
-import server/rates/actors/kraken_symbol
-import server/rates/actors/utils.{CurrencyNotFound}
+import server/integrations/kraken/price_store.{PriceEntry}
+import server/rates/actors/internal/kraken_symbol
+import server/rates/actors/internal/utils.{CurrencyNotFound}
 import server_test
 import shared/rates/rate_request.{RateRequest}
 

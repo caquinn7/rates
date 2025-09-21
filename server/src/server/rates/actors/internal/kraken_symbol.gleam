@@ -1,4 +1,4 @@
-import server/kraken/pairs
+import server/integrations/kraken/pairs
 
 /// Represents a Kraken currency pair and whether it was found in the direct or reversed form.
 /// For example, `Direct("BTC/USD")` vs `Reversed("USD/BTC")`.

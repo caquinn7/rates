@@ -10,42 +10,46 @@ import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
 }
-import server/kraken/kraken.{type Kraken}
-import server/kraken/price_store.{type PriceStore}
-import server/logger.{type Logger}
+import server/integrations/kraken/client.{type KrakenClient}
+import server/integrations/kraken/price_store.{type PriceStore}
 import server/rates/actors/rate_error.{
   type RateError, CmcError, CurrencyNotFound,
 }
-import server/rates/actors/subscriber.{type RateSubscriber} as rate_subscriber
+import server/rates/actors/subscriber.{
+  type RateSubscriber, type SubscriptionResult,
+} as rate_subscriber
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
-import server/time
+import server/utils/logger.{type Logger}
+import server/utils/time
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
+import shared/subscriptions/subscription_id
 
 pub fn on_init(
   _conn: WebsocketConnection,
   cmc_currencies: List(Currency),
   request_cmc_conversion: RequestCmcConversion,
-  kraken_subject: Kraken,
+  kraken_client: KrakenClient,
   get_price_store: fn() -> PriceStore,
   logger: Logger,
-) -> #(
-  #(RateSubscriber, Logger),
-  Option(Selector(Result(RateResponse, RateError))),
-) {
+) -> #(#(RateSubscriber, Logger), Option(Selector(SubscriptionResult))) {
   let subject = process.new_subject()
 
   let selector =
     process.new_selector()
     |> process.select_map(subject, function.identity)
 
+  // Use a fixed subscription ID since we don't need multiple subscriptions
+  let assert Ok(fixed_subscription_id) = subscription_id.new("websocket-single")
+
   let assert Ok(rate_subscriber) =
     rate_subscriber.new(
+      fixed_subscription_id,
       subject,
       cmc_currencies,
       request_cmc_conversion,
-      kraken_subject,
+      kraken_client,
       10_000,
       get_price_store,
       time.system_time_ms,
@@ -77,9 +81,9 @@ pub fn websocket_request_decoder() -> Decoder(WebsocketRequest) {
 
 pub fn handler(
   state: #(RateSubscriber, Logger),
-  message: WebsocketMessage(Result(RateResponse, RateError)),
+  message: WebsocketMessage(SubscriptionResult),
   conn: WebsocketConnection,
-) -> mist.Next(#(RateSubscriber, Logger), Result(RateResponse, RateError)) {
+) -> mist.Next(#(RateSubscriber, Logger), SubscriptionResult) {
   let #(rate_subscriber, logger) = state
   log_message_received(logger, message)
 
@@ -105,7 +109,7 @@ pub fn handler(
       }
     }
 
-    Custom(response) -> {
+    Custom(#(_subscription_id, response)) -> {
       let response_str = case response {
         Ok(rate_resp) -> {
           log_rate_response_success(logger, rate_resp)
@@ -146,7 +150,7 @@ pub fn on_close(state: #(RateSubscriber, Logger)) -> Nil {
 
 fn log_message_received(
   logger: Logger,
-  message: WebsocketMessage(Result(RateResponse, RateError)),
+  message: WebsocketMessage(SubscriptionResult),
 ) -> Nil {
   logger
   |> logger.with("received", string.inspect(message))

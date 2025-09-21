@@ -1,9 +1,9 @@
 import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/result
-import server/kraken/kraken.{type Kraken}
-import server/kraken/price_store.{type PriceEntry, type PriceStore}
-import server/rates/actors/kraken_symbol.{
+import server/integrations/kraken/client.{type KrakenClient} as kraken_client
+import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
+import server/rates/actors/internal/kraken_symbol.{
   type KrakenSymbol, DirectSymbol, ReversedSymbol,
 }
 import shared/rates/rate_request.{type RateRequest}
@@ -30,17 +30,20 @@ pub fn resolve_currency_symbols(
   Ok(#(from_symbol, to_symbol))
 }
 
-pub fn subscribe_to_kraken(kraken: Kraken, kraken_symbol: KrakenSymbol) -> Nil {
-  let symbol_str = kraken_symbol.to_string(kraken_symbol)
-  kraken.subscribe(kraken, symbol_str)
-}
-
-pub fn unsubscribe_from_kraken(
-  kraken: Kraken,
+pub fn subscribe_to_kraken(
+  client: KrakenClient,
   kraken_symbol: KrakenSymbol,
 ) -> Nil {
   let symbol_str = kraken_symbol.to_string(kraken_symbol)
-  kraken.unsubscribe(kraken, symbol_str)
+  kraken_client.subscribe(client, symbol_str)
+}
+
+pub fn unsubscribe_from_kraken(
+  client: KrakenClient,
+  kraken_symbol: KrakenSymbol,
+) -> Nil {
+  let symbol_str = kraken_symbol.to_string(kraken_symbol)
+  kraken_client.unsubscribe(client, symbol_str)
 }
 
 /// Attempts to fetch the latest price for a given `KrakenSymbol` from the shared `PriceStore`.

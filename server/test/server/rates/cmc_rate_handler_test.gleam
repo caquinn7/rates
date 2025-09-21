@@ -1,7 +1,7 @@
 import gleam/dict
 import gleam/httpc
 import gleam/option.{None, Some}
-import server/coin_market_cap/client.{
+import server/integrations/coin_market_cap/client.{
   type CmcConversionParameters, CmcConversion, CmcResponse, CmcStatus, HttpError,
   QuoteItem,
 }

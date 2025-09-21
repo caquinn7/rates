@@ -1,5 +1,5 @@
 import gleam/set
-import server/kraken/pairs
+import server/integrations/kraken/pairs
 
 pub fn set_supported_pairs_test() {
   pairs.clear()

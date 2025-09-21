@@ -20,26 +20,34 @@
 
 import gleam/bool
 import gleam/dict.{type Dict}
-import gleam/erlang/process.{type Pid, type Subject}
+import gleam/erlang/process.{type Subject}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import server/kraken/kraken.{type Kraken}
-import server/kraken/price_store.{type PriceEntry, type PriceStore}
-import server/logger.{type Logger}
-import server/rates/actors/kraken_symbol.{type KrakenSymbol}
+import server/integrations/kraken/client.{type KrakenClient} as kraken_client
+import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
+import server/rates/actors/internal/kraken_symbol.{type KrakenSymbol}
+import server/rates/actors/internal/utils
 import server/rates/actors/rate_error.{type RateError, CmcError}
-import server/rates/actors/utils
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
+import server/utils/logger.{type Logger}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse, RateResponse}
+import shared/subscriptions/subscription_id.{type SubscriptionId}
 
 pub opaque type RateSubscriber {
-  RateSubscriber(pid: Pid, subject: Subject(Msg))
+  RateSubscriber(
+    // id specified by client
+    id: SubscriptionId,
+    subject: Subject(Msg),
+  )
 }
+
+pub type SubscriptionResult =
+  #(SubscriptionId, Result(RateResponse, RateError))
 
 type Msg {
   Init(Subject(Msg))
@@ -52,12 +60,12 @@ type Msg {
 type State {
   State(
     self: Option(Subject(Msg)),
-    reply_to: Subject(Result(RateResponse, RateError)),
+    reply_to: Subject(SubscriptionResult),
     cmc_currencies: Dict(Int, String),
-    kraken: Kraken,
+    kraken_client: KrakenClient,
     base_interval: Int,
     current_interval: Int,
-    price_store: PriceStore,
+    kraken_price_store: PriceStore,
     subscription: Option(Subscription),
     logger: Logger,
   )
@@ -72,16 +80,20 @@ type Subscription {
 ///
 /// This function initializes a new actor with the provided configuration and starts it.
 /// The actor will handle rate subscription messages and communicate conversion results
-/// back through the provided reply subject.
+/// back through the provided reply subject as a tuple containing the subscription ID
+/// and the rate response or error.
 ///
 /// ## Parameters
 ///
-/// - `reply_to`: Subject to send rate responses or error messages back to the caller
+/// - `subscription_id`: Unique identifier for this subscription
+/// - `reply_to`: Subject to send tuples of (subscription_id, rate_response_or_error) back to the caller
 /// - `cmc_currencies`: List of currencies supported by CoinMarketCap
 /// - `request_cmc_conversion`: Function to request currency conversions from CoinMarketCap
-/// - `kraken`: Kraken exchange client for fetching rates
+/// - `kraken_client`: Kraken exchange client for fetching rates
 /// - `interval`: Time interval in milliseconds for periodic rate updates
-/// - `get_price_store`: Function that returns the current price store instance
+/// - `get_kraken_price_store`: Function that returns the current price store instance
+/// - `get_current_time_ms`: Function that returns the current time in milliseconds
+/// - `logger`: Logger instance for debugging and monitoring
 ///
 /// ## Returns
 ///
@@ -93,13 +105,18 @@ type Subscription {
 /// When using CoinMarketCap as the data source, the update interval will be
 /// automatically capped at 30 seconds due to API rate limits, regardless of the
 /// configured `interval` parameter.
+///
+/// The reply subject will receive tuples in the format:
+/// `#(subscription_id, Ok(rate_response))` for successful rate fetches
+/// `#(subscription_id, Error(rate_error))` for failed rate fetches
 pub fn new(
-  reply_to: Subject(Result(RateResponse, RateError)),
+  subscription_id: SubscriptionId,
+  reply_to: Subject(SubscriptionResult),
   cmc_currencies: List(Currency),
   request_cmc_conversion: RequestCmcConversion,
-  kraken: Kraken,
+  kraken_client: KrakenClient,
   interval: Int,
-  get_price_store: fn() -> PriceStore,
+  get_kraken_price_store: fn() -> PriceStore,
   get_current_time_ms: fn() -> Int,
   logger: Logger,
 ) -> Result(RateSubscriber, StartError) {
@@ -108,28 +125,38 @@ pub fn new(
       None,
       reply_to,
       currencies_to_dict(cmc_currencies),
-      kraken,
+      kraken_client,
       interval,
       interval,
-      get_price_store(),
+      get_kraken_price_store(),
       None,
       logger,
     )
 
+  let handle_msg = fn(state, msg) {
+    handle_msg(
+      subscription_id,
+      state,
+      msg,
+      request_cmc_conversion,
+      get_current_time_ms,
+    )
+  }
+
   use rate_subscriber <- result.try(
     state
     |> actor.new
-    |> actor.on_message(fn(state, msg) {
-      handle_msg(state, msg, request_cmc_conversion, get_current_time_ms)
-    })
+    |> actor.on_message(handle_msg)
     |> actor.start
-    |> result.map(fn(started) { RateSubscriber(started.pid, started.data) }),
+    |> result.map(fn(started) { RateSubscriber(subscription_id, started.data) }),
   )
 
-  let RateSubscriber(_pid, subject) = rate_subscriber
-
-  actor.send(subject, Init(subject))
+  actor.send(rate_subscriber.subject, Init(rate_subscriber.subject))
   Ok(rate_subscriber)
+}
+
+pub fn subscription_id(rate_subscriber: RateSubscriber) {
+  rate_subscriber.id
 }
 
 /// Subscribes a rate subscriber to receive updates for a specific rate request.
@@ -144,8 +171,7 @@ pub fn new(
 /// ## Returns
 /// `Nil` - This function performs a side effect by sending a message to an actor
 pub fn subscribe(subscriber: RateSubscriber, rate_request: RateRequest) -> Nil {
-  let RateSubscriber(_pid, subject) = subscriber
-  actor.send(subject, Subscribe(rate_request))
+  actor.send(subscriber.subject, Subscribe(rate_request))
 }
 
 /// Adds a list of currencies to the rate subscriber's available currency set.
@@ -166,8 +192,7 @@ pub fn add_currencies(
   subscriber: RateSubscriber,
   currencies: List(Currency),
 ) -> Nil {
-  let RateSubscriber(_pid, subject) = subscriber
-  actor.send(subject, AddCurrencies(currencies))
+  actor.send(subscriber.subject, AddCurrencies(currencies))
 }
 
 /// Stops a rate subscriber actor by sending a Stop message to it.
@@ -178,11 +203,11 @@ pub fn add_currencies(
 /// ## Returns
 /// `Nil` - This function performs a side effect by sending a message to an actor
 pub fn stop(subscriber: RateSubscriber) -> Nil {
-  let RateSubscriber(_pid, subject) = subscriber
-  actor.send(subject, Stop)
+  actor.send(subscriber.subject, Stop)
 }
 
 fn handle_msg(
+  subscription_id: SubscriptionId,
   state: State,
   msg: Msg,
   request_cmc_conversion: RequestCmcConversion,
@@ -191,11 +216,18 @@ fn handle_msg(
   case msg {
     Init(self_subject) -> init(state, self_subject)
 
-    Subscribe(rate_req) ->
-      do_subscribe(state, rate_req, request_cmc_conversion, get_current_time_ms)
+    Subscribe(rate_request) ->
+      do_subscribe(
+        subscription_id,
+        state,
+        rate_request,
+        request_cmc_conversion,
+        get_current_time_ms,
+      )
 
     GetLatestRate(scheduled_subscription) ->
       get_latest_rate(
+        subscription_id,
         state,
         scheduled_subscription,
         request_cmc_conversion,
@@ -214,8 +246,9 @@ fn init(state: State, subject: Subject(Msg)) -> Next(State, Msg) {
 }
 
 fn do_subscribe(
+  subscription_id: SubscriptionId,
   state: State,
-  rate_req: RateRequest,
+  rate_request: RateRequest,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
@@ -223,21 +256,21 @@ fn do_subscribe(
   let state = case state.subscription {
     Some(Kraken(_, old_symbol)) -> {
       let symbol_str = kraken_symbol.to_string(old_symbol)
-      kraken.unsubscribe(state.kraken, symbol_str)
+      kraken_client.unsubscribe(state.kraken_client, symbol_str)
       State(..state, subscription: None)
     }
 
     _ -> state
   }
 
-  utils.resolve_currency_symbols(rate_req, state.cmc_currencies)
+  utils.resolve_currency_symbols(rate_request, state.cmc_currencies)
   |> result.map_error(fn(err) {
     case err {
       utils.CurrencyNotFound(id) -> {
-        process.send(
-          state.reply_to,
-          Error(rate_error.CurrencyNotFound(rate_req, id)),
-        )
+        process.send(state.reply_to, #(
+          subscription_id,
+          Error(rate_error.CurrencyNotFound(rate_request, id)),
+        ))
         actor.continue(State(..state, subscription: None))
       }
     }
@@ -246,16 +279,18 @@ fn do_subscribe(
     case kraken_symbol.new(symbols) {
       Error(_) ->
         handle_cmc_fallback(
+          subscription_id,
           state,
-          rate_req,
+          rate_request,
           request_cmc_conversion,
           get_current_time_ms,
         )
 
       Ok(kraken_symbol) ->
         handle_kraken_subscription(
+          subscription_id,
           state,
-          rate_req,
+          rate_request,
           kraken_symbol,
           request_cmc_conversion,
           get_current_time_ms,
@@ -278,6 +313,7 @@ fn do_subscribe(
 }
 
 fn get_latest_rate(
+  subscription_id: SubscriptionId,
   state: State,
   scheduled_subscription: Subscription,
   request_cmc_conversion: RequestCmcConversion,
@@ -294,6 +330,7 @@ fn get_latest_rate(
       let state = case current_subscription {
         Cmc(rate_req) ->
           handle_cmc_fallback(
+            subscription_id,
             state,
             rate_req,
             request_cmc_conversion,
@@ -302,6 +339,7 @@ fn get_latest_rate(
 
         Kraken(rate_req, symbol) ->
           check_kraken_price_and_respond(
+            subscription_id,
             state,
             rate_req,
             symbol,
@@ -323,15 +361,17 @@ fn get_latest_rate(
 }
 
 fn handle_kraken_subscription(
+  subscription_id: SubscriptionId,
   state: State,
   rate_req: RateRequest,
   kraken_symbol: KrakenSymbol,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> State {
-  utils.subscribe_to_kraken(state.kraken, kraken_symbol)
+  utils.subscribe_to_kraken(state.kraken_client, kraken_symbol)
 
   check_kraken_price_and_respond(
+    subscription_id,
     state,
     rate_req,
     kraken_symbol,
@@ -341,6 +381,7 @@ fn handle_kraken_subscription(
 }
 
 fn check_kraken_price_and_respond(
+  subscription_id: SubscriptionId,
   state: State,
   rate_req: RateRequest,
   kraken_symbol: KrakenSymbol,
@@ -348,13 +389,14 @@ fn check_kraken_price_and_respond(
   get_current_time_ms: fn() -> Int,
 ) -> State {
   let kraken_price_result =
-    utils.wait_for_kraken_price(kraken_symbol, state.price_store, 5, 50)
+    utils.wait_for_kraken_price(kraken_symbol, state.kraken_price_store, 5, 50)
 
   case kraken_price_result {
     Error(_) -> {
-      log_wait_for_kraken_price_timeout(state.logger, rate_req)
+      log_wait_for_kraken_price_timeout(state.logger, subscription_id, rate_req)
 
       handle_cmc_fallback(
+        subscription_id,
         state,
         rate_req,
         request_cmc_conversion,
@@ -363,11 +405,18 @@ fn check_kraken_price_and_respond(
     }
 
     Ok(price_entry) ->
-      handle_kraken_price_hit(state, rate_req, kraken_symbol, price_entry)
+      handle_kraken_price_hit(
+        subscription_id,
+        state,
+        rate_req,
+        kraken_symbol,
+        price_entry,
+      )
   }
 }
 
 fn handle_kraken_price_hit(
+  subscription_id: SubscriptionId,
   state: State,
   rate_req: RateRequest,
   kraken_symbol: KrakenSymbol,
@@ -384,7 +433,7 @@ fn handle_kraken_price_hit(
       price_entry.timestamp,
     )
 
-  process.send(state.reply_to, Ok(rate_resp))
+  process.send(state.reply_to, #(subscription_id, Ok(rate_resp)))
 
   State(
     ..state,
@@ -394,23 +443,24 @@ fn handle_kraken_price_hit(
 }
 
 fn handle_cmc_fallback(
+  subscription_id: SubscriptionId,
   state: State,
-  rate_req: RateRequest,
+  rate_request: RateRequest,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> State {
   let result =
-    rate_req
+    rate_request
     |> cmc_rate_handler.get_rate(request_cmc_conversion, get_current_time_ms)
-    |> result.map_error(CmcError(rate_req, _))
+    |> result.map_error(CmcError(rate_request, _))
 
-  process.send(state.reply_to, result)
+  process.send(state.reply_to, #(subscription_id, result))
 
   // cmc api is rate limited, so capping freq to 30s
   State(
     ..state,
     current_interval: int.max(state.base_interval, 30_000),
-    subscription: Some(Cmc(rate_req)),
+    subscription: Some(Cmc(rate_request)),
   )
 }
 
@@ -433,7 +483,7 @@ fn do_stop(state: State) -> Next(State, Msg) {
     Some(subscription) -> {
       case subscription {
         Kraken(_, symbol) -> {
-          utils.unsubscribe_from_kraken(state.kraken, symbol)
+          utils.unsubscribe_from_kraken(state.kraken_client, symbol)
           actor.stop()
         }
 
@@ -451,17 +501,14 @@ fn currencies_to_dict(currencies: List(Currency)) -> Dict(Int, String) {
 
 // logging
 
-fn rate_request_logger(logger: Logger, rate_req: RateRequest) -> Logger {
-  logger
-  |> logger.with("rate_request.from", int.to_string(rate_req.from))
-  |> logger.with("rate_request.to", int.to_string(rate_req.to))
-}
-
 fn log_wait_for_kraken_price_timeout(
   logger: Logger,
+  subscription_id: SubscriptionId,
   rate_req: RateRequest,
 ) -> Nil {
   logger
-  |> rate_request_logger(rate_req)
+  |> logger.with("subscription_id", subscription_id.to_string(subscription_id))
+  |> logger.with("rate_request.from", int.to_string(rate_req.from))
+  |> logger.with("rate_request.to", int.to_string(rate_req.to))
   |> logger.warning("Timed out waiting for kraken price")
 }

@@ -6,7 +6,7 @@ import server/context.{type Context}
 import server/currencies/cmc_currency_handler.{
   type FetchError, type RequestCmcCryptos, type RequestCmcFiats,
 }
-import server/time
+import server/utils/time
 import shared/currency.{type Currency, Crypto, Fiat}
 
 pub type CurrenciesResult =

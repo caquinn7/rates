@@ -1,30 +1,31 @@
-/// A short-lived actor for resolving a single exchange rate.
-///
-/// The `RateResolver` actor attempts to fetch the exchange rate for a given
-/// currency pair using Kraken, falling back to CoinMarketCap (CMC) if needed.
-/// This actor is designed for one-shot use and terminates after handling a single
-/// `GetRate` message.
-///
-/// Kraken is preferred as the source of truth if the currency pair is supported
-/// and the price becomes available within a short polling window.
-/// Otherwise, the actor gracefully falls back to CMC.
-///
-/// Usage:
-///   - Start a new `RateResolver` with `new`.
-///   - Send a `GetRate` message using `get_rate`.
-///   - The actor automatically stops after sending its response.
+//// A short-lived actor for resolving a single exchange rate.
+////
+//// The `RateResolver` actor attempts to fetch the exchange rate for a given
+//// currency pair using Kraken, falling back to CoinMarketCap (CMC) if needed.
+//// This actor is designed for one-shot use and terminates after handling a single
+//// `GetRate` message.
+////
+//// Kraken is preferred as the source of truth if the currency pair is supported
+//// and the price becomes available within a short polling window.
+//// Otherwise, the actor gracefully falls back to CMC.
+////
+//// Usage:
+////   - Start a new `RateResolver` with `new`.
+////   - Send a `GetRate` message using `get_rate`.
+////   - The actor automatically stops after sending its response.
+
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import server/kraken/kraken.{type Kraken}
-import server/kraken/price_store.{type PriceStore}
-import server/rates/actors/kraken_symbol
+import server/integrations/kraken/client.{type KrakenClient}
+import server/integrations/kraken/price_store.{type PriceStore}
+import server/rates/actors/internal/kraken_symbol
+import server/rates/actors/internal/utils
 import server/rates/actors/rate_error.{
   type RateError, CmcError, CurrencyNotFound,
 }
-import server/rates/actors/utils
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
@@ -41,17 +42,17 @@ type Msg {
 type State {
   State(
     cmc_currencies: Dict(Int, String),
-    kraken: Kraken,
-    price_store: PriceStore,
+    kraken_client: KrakenClient,
+    kraken_price_store: PriceStore,
     request_cmc_conversion: RequestCmcConversion,
   )
 }
 
 pub fn new(
   cmc_currencies: List(Currency),
-  kraken: Kraken,
+  kraken_client: KrakenClient,
   request_cmc_conversion: RequestCmcConversion,
-  get_price_store: fn() -> PriceStore,
+  get_kraken_price_store: fn() -> PriceStore,
   get_current_time_ms: fn() -> Int,
 ) -> Result(RateResolver, StartError) {
   let currency_dict =
@@ -59,10 +60,10 @@ pub fn new(
     |> list.map(fn(c) { #(c.id, c.symbol) })
     |> dict.from_list
 
-  let price_store = get_price_store()
+  let price_store = get_kraken_price_store()
 
   let initial_state =
-    State(currency_dict, kraken, price_store, request_cmc_conversion)
+    State(currency_dict, kraken_client, price_store, request_cmc_conversion)
 
   let msg_loop = fn(state, msg) {
     handle_msg(state, msg, request_cmc_conversion, get_current_time_ms)
@@ -110,12 +111,12 @@ fn handle_msg(
             )
 
           Ok(kraken_symbol) -> {
-            utils.subscribe_to_kraken(state.kraken, kraken_symbol)
+            utils.subscribe_to_kraken(state.kraken_client, kraken_symbol)
 
             let kraken_price_result =
               utils.wait_for_kraken_price(
                 kraken_symbol,
-                state.price_store,
+                state.kraken_price_store,
                 5,
                 50,
               )
@@ -130,7 +131,10 @@ fn handle_msg(
                 )
 
               Ok(price_entry) -> {
-                utils.unsubscribe_from_kraken(state.kraken, kraken_symbol)
+                utils.unsubscribe_from_kraken(
+                  state.kraken_client,
+                  kraken_symbol,
+                )
 
                 let rate = utils.extract_price(price_entry, kraken_symbol)
                 process.send(

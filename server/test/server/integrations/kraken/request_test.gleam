@@ -2,7 +2,7 @@ import gleam/int
 import gleam/json
 import gleam/option.{None, Some}
 import gleeunit/should
-import server/kraken/request.{
+import server/integrations/kraken/internal/request.{
   Instruments, KrakenRequest, Subscribe, Tickers, Unsubscribe,
 }
 
