@@ -21,11 +21,11 @@ import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
 import server/integrations/kraken/client.{type KrakenClient}
 import server/integrations/kraken/price_store.{type PriceStore}
-import server/rates/actors/kraken_symbol
+import server/rates/actors/internal/kraken_symbol
+import server/rates/actors/internal/utils
 import server/rates/actors/rate_error.{
   type RateError, CmcError, CurrencyNotFound,
 }
-import server/rates/actors/utils
 import server/rates/cmc_rate_handler.{type RequestCmcConversion}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
