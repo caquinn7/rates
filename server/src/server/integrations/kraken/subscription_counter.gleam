@@ -1,41 +1,42 @@
-/// A subscription counter for tracking client interest in symbols and managing
-/// subscription requests to the Kraken WebSocket API.
-///
-/// This module tracks how many clients are interested in each symbol and 
-/// determines when the single Kraken client should send subscribe/unsubscribe 
-/// requests. It ensures that only one subscription per symbol is maintained with 
-/// Kraken, regardless of how many clients want that symbol.
-///
-/// ## Key Invariants
-///
-/// 1. **Exclusive States**: A symbol cannot exist in both `pending` and `active`
-///    dictionaries simultaneously. Symbols are either:
-///    - Not tracked at all (in neither dict)
-///    - Pending subscription (in `pending` only)  
-///    - Actively subscribed (in `active` only)
-///
-/// 2. **Non-Zero Counts**: All counts stored in the dictionaries are ≥ 1.
-///    When a count would reach 0, the entry is deleted entirely using `dict.delete`.
-///
-/// 3. **State Transitions**: Symbols move through states in a specific order:
-///    ```
-///    Not tracked → Pending (via add_subscription) → Active (via confirm_subscription)
-///                     ↓                                ↓
-///                 Deleted (via remove_subscription when count reaches 0)
-///    ```
-///
-/// ## Usage Pattern
-///
-/// 1. Call `add_subscription` when a client wants a symbol
-///    - Returns `True` on first request (Kraken client should subscribe)
-///    - Returns `False` on subsequent requests (just increment reference count)
-///
-/// 2. Call `confirm_subscription` when Kraken confirms the subscription
-///    - Moves symbol from `pending` to `active`
-///
-/// 3. Call `remove_subscription` when a server client no longer wants a symbol  
-///    - Returns `True` when removing the last interest (Kraken client should unsubscribe)
-///    - Returns `False` when other server clients still interested (just decrement reference count)
+//// A subscription counter for tracking client interest in symbols and managing
+//// subscription requests to the Kraken WebSocket API.
+////
+//// This module tracks how many clients are interested in each symbol and 
+//// determines when the single Kraken client should send subscribe/unsubscribe 
+//// requests. It ensures that only one subscription per symbol is maintained with 
+//// Kraken, regardless of how many clients want that symbol.
+////
+//// ## Key Invariants
+////
+//// 1. **Exclusive States**: A symbol cannot exist in both `pending` and `active`
+////    dictionaries simultaneously. Symbols are either:
+////    - Not tracked at all (in neither dict)
+////    - Pending subscription (in `pending` only)  
+////    - Actively subscribed (in `active` only)
+////
+//// 2. **Non-Zero Counts**: All counts stored in the dictionaries are ≥ 1.
+////    When a count would reach 0, the entry is deleted entirely using `dict.delete`.
+////
+//// 3. **State Transitions**: Symbols move through states in a specific order:
+////    ```
+////    Not tracked → Pending (via add_subscription) → Active (via confirm_subscription)
+////                     ↓                                ↓
+////                 Deleted (via remove_subscription when count reaches 0)
+////    ```
+////
+//// ## Usage Pattern
+////
+//// 1. Call `add_subscription` when a client wants a symbol
+////    - Returns `True` on first request (Kraken client should subscribe)
+////    - Returns `False` on subsequent requests (just increment reference count)
+////
+//// 2. Call `confirm_subscription` when Kraken confirms the subscription
+////    - Moves symbol from `pending` to `active`
+////
+//// 3. Call `remove_subscription` when a server client no longer wants a symbol  
+////    - Returns `True` when removing the last interest (Kraken client should unsubscribe)
+////    - Returns `False` when other server clients still interested (just decrement reference count)
+
 import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/int

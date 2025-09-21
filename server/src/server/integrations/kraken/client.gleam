@@ -1,20 +1,21 @@
-/// An actor responsible for managing a live WebSocket connection to the Kraken
-/// exchange and distributing real-time price updates to interested processes.
-///
-/// This module handles:
-/// - Connecting to Kraken’s WebSocket v2 API
-/// - Subscribing to and unsubscribing from ticker channels
-/// - Tracking which symbols are actively subscribed and by how many clients
-/// - Writing the latest prices to a shared `PriceStore`
-/// - Populating the global `pairs` registry with the set of supported symbols
-///
-/// Price updates are stored in a shared `PriceStore`, which other parts of the
-/// application can query independently. Supported trading pairs are also exposed
-/// globally via the `pairs` module, which is updated during the initial
-/// instrument subscription.
-///
-/// Use `new` to create the actor and start the WebSocket session. Use
-/// `subscribe` and `unsubscribe` to manage interest in specific symbols.
+//// An actor responsible for managing a live WebSocket connection to the Kraken
+//// exchange and distributing real-time price updates to interested processes.
+////
+//// This module handles:
+//// - Connecting to Kraken's WebSocket v2 API
+//// - Subscribing to and unsubscribing from ticker channels
+//// - Tracking which symbols are actively subscribed and by how many clients
+//// - Writing the latest prices to a shared `PriceStore`
+//// - Populating the global `pairs` registry with the set of supported symbols
+////
+//// Price updates are stored in a shared `PriceStore`, which other parts of the
+//// application can query independently. Supported trading pairs are also exposed
+//// globally via the `pairs` module, which is updated during the initial
+//// instrument subscription.
+////
+//// Use `new` to create the actor and start the WebSocket session. Use
+//// `subscribe` and `unsubscribe` to manage interest in specific symbols.
+
 import gleam/bool
 import gleam/erlang/process.{type Subject}
 import gleam/float

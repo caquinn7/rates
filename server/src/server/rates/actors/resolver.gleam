@@ -1,18 +1,19 @@
-/// A short-lived actor for resolving a single exchange rate.
-///
-/// The `RateResolver` actor attempts to fetch the exchange rate for a given
-/// currency pair using Kraken, falling back to CoinMarketCap (CMC) if needed.
-/// This actor is designed for one-shot use and terminates after handling a single
-/// `GetRate` message.
-///
-/// Kraken is preferred as the source of truth if the currency pair is supported
-/// and the price becomes available within a short polling window.
-/// Otherwise, the actor gracefully falls back to CMC.
-///
-/// Usage:
-///   - Start a new `RateResolver` with `new`.
-///   - Send a `GetRate` message using `get_rate`.
-///   - The actor automatically stops after sending its response.
+//// A short-lived actor for resolving a single exchange rate.
+////
+//// The `RateResolver` actor attempts to fetch the exchange rate for a given
+//// currency pair using Kraken, falling back to CoinMarketCap (CMC) if needed.
+//// This actor is designed for one-shot use and terminates after handling a single
+//// `GetRate` message.
+////
+//// Kraken is preferred as the source of truth if the currency pair is supported
+//// and the price becomes available within a short polling window.
+//// Otherwise, the actor gracefully falls back to CMC.
+////
+//// Usage:
+////   - Start a new `RateResolver` with `new`.
+////   - Send a `GetRate` message using `get_rate`.
+////   - The actor automatically stops after sending its response.
+
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Subject}
 import gleam/list
