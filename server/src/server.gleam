@@ -18,8 +18,8 @@ import server/integrations/coin_market_cap/client as cmc_client
 import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
-import server/rates/actors/rate_error.{type RateError}
-import server/rates/actors/resolver as rate_resolver
+import server/rates/rate_error.{type RateError}
+import server/rates/resolver as rate_resolver
 import server/utils/logger
 import server/utils/time
 import server/web/routes/home

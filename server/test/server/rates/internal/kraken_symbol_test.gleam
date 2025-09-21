@@ -1,6 +1,6 @@
 import gleam/set
 import server/integrations/kraken/pairs
-import server/rates/actors/internal/kraken_symbol.{DirectSymbol, ReversedSymbol}
+import server/rates/internal/kraken_symbol.{DirectSymbol, ReversedSymbol}
 
 pub fn new_with_validator_returns_direct_when_only_direct_symbol_exists_test() {
   let mock_exists = fn(symbol) {

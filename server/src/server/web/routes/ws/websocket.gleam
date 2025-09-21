@@ -12,13 +12,9 @@ import mist.{
 }
 import server/integrations/kraken/client.{type KrakenClient}
 import server/integrations/kraken/price_store.{type PriceStore}
-import server/rates/actors/rate_error.{
-  type RateError, CmcError, CurrencyNotFound,
-}
-import server/rates/actors/subscriber.{
-  type RateSubscriber, type SubscriptionResult,
-} as rate_subscriber
-import server/rates/cmc_rate_handler.{type RequestCmcConversion}
+import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
+import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
+import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
 import server/utils/logger.{type Logger}
 import server/utils/time
 import shared/currency.{type Currency}

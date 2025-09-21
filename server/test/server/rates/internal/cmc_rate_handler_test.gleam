@@ -5,7 +5,7 @@ import server/integrations/coin_market_cap/client.{
   type CmcConversionParameters, CmcConversion, CmcResponse, CmcStatus, HttpError,
   QuoteItem,
 }
-import server/rates/cmc_rate_handler.{
+import server/rates/internal/cmc_rate_handler.{
   CurrencyNotFound, RequestFailed, UnexpectedResponse, ValidationError,
 }
 import shared/rates/rate_request.{RateRequest}
