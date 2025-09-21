@@ -1,4 +1,4 @@
-import server/integrations/kraken/subscription_counter
+import server/integrations/kraken/internal/subscription_counter
 
 pub fn add_subscription_should_subscribe_and_add_to_pending_on_first_request_test() {
   let #(should_subscribe, counter) =
