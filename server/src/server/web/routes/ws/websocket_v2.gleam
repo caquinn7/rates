@@ -30,6 +30,7 @@ pub type State {
   State(
     create_rate_subscriber: fn(SubscriptionId) -> RateSubscriber,
     rate_subscribers: Dict(SubscriptionId, RateSubscriber),
+    added_currencies: Dict(Int, Currency),
     logger: Logger,
   )
 }
@@ -68,7 +69,10 @@ pub fn on_init(
 
   log_socket_init(logger)
 
-  #(State(create_rate_subscriber, dict.new(), logger), Some(selector))
+  #(
+    State(create_rate_subscriber, dict.new(), dict.new(), logger),
+    Some(selector),
+  )
 }
 
 pub fn handler(
@@ -76,7 +80,8 @@ pub fn handler(
   message: WebsocketMessage(SubscriptionResult),
   conn: WebsocketConnection,
 ) -> mist.Next(State, SubscriptionResult) {
-  let State(create_rate_subscriber, rate_subscribers, logger) = state
+  let State(create_rate_subscriber, rate_subscribers, added_currencies, logger) =
+    state
 
   log_message_received(logger, message)
 
@@ -88,7 +93,7 @@ pub fn handler(
           // For existing subscriber IDs, reuses the subscriber and updates their subscription.
           // For new subscriber IDs, creates a new rate subscriber, subscribes them to the rate request,
           // and adds them to the dictionary. Returns the updated state with the new subscribers map.
-          let updated_subscribers =
+          let rate_subscribers =
             subscription_reqs
             |> list.fold(rate_subscribers, fn(acc, subscription_req) {
               case dict.get(acc, subscription_req.id) {
@@ -104,6 +109,12 @@ pub fn handler(
                   let new_subscriber =
                     create_rate_subscriber(subscription_req.id)
 
+                  // Add all previously added currencies to the new subscriber
+                  rate_subscriber.add_currencies(
+                    new_subscriber,
+                    dict.values(added_currencies),
+                  )
+
                   rate_subscriber.subscribe(
                     new_subscriber,
                     subscription_req.rate_request,
@@ -114,7 +125,7 @@ pub fn handler(
               }
             })
 
-          mist.continue(State(..state, rate_subscribers: updated_subscribers))
+          mist.continue(State(..state, rate_subscribers:))
         }
 
         Ok(Unsubscribe(subscription_id)) -> {
@@ -135,11 +146,17 @@ pub fn handler(
         Ok(AddCurrencies([])) -> mist.continue(state)
 
         Ok(AddCurrencies(currencies)) -> {
+          let added_currencies =
+            currencies
+            |> list.fold(added_currencies, fn(acc, currency) {
+              dict.insert(acc, currency.id, currency)
+            })
+
           rate_subscribers
           |> dict.values
           |> list.each(rate_subscriber.add_currencies(_, currencies))
 
-          mist.continue(state)
+          mist.continue(State(..state, added_currencies:))
         }
 
         Error(_) -> {
