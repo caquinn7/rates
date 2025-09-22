@@ -1,5 +1,5 @@
 import gleam/dict.{type Dict}
-import gleam/erlang/process.{type Selector}
+import gleam/erlang/process.{type Selector, type Subject}
 import gleam/float
 import gleam/function
 import gleam/int
@@ -11,13 +11,11 @@ import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
 }
-import server/integrations/kraken/client.{type KrakenClient}
-import server/integrations/kraken/price_store.{type PriceStore}
-import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
+
 import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
 import server/utils/logger.{type Logger}
-import server/utils/time
+
 import shared/currency.{type Currency}
 import shared/rates/rate_response.{RateResponse} as shared_rate_response
 import shared/subscriptions/subscription_id.{type SubscriptionId}
@@ -28,7 +26,7 @@ import shared/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
 
 pub type State {
   State(
-    create_rate_subscriber: fn(SubscriptionId) -> RateSubscriber,
+    subject: Subject(SubscriptionResult),
     rate_subscribers: Dict(SubscriptionId, RateSubscriber),
     added_currencies: Dict(Int, Currency),
     logger: Logger,
@@ -37,10 +35,6 @@ pub type State {
 
 pub fn on_init(
   _conn: WebsocketConnection,
-  cmc_currencies: List(Currency),
-  request_cmc_conversion: RequestCmcConversion,
-  kraken_client: KrakenClient,
-  get_price_store: fn() -> PriceStore,
   logger: Logger,
 ) -> #(State, Option(Selector(SubscriptionResult))) {
   let subject = process.new_subject()
@@ -49,39 +43,19 @@ pub fn on_init(
     process.new_selector()
     |> process.select_map(subject, function.identity)
 
-  let create_rate_subscriber = fn(subscription_id) {
-    let assert Ok(config) =
-      rate_subscriber.new_config(
-        cmc_currencies,
-        kraken_client,
-        get_price_store(),
-        10_000,
-        request_cmc_conversion,
-        time.system_time_ms,
-        logger.with(logger.new(), "source", "subscriber"),
-      )
-
-    let assert Ok(rate_subscriber) =
-      rate_subscriber.new(subscription_id, subject, config)
-
-    rate_subscriber
-  }
-
   log_socket_init(logger)
 
-  #(
-    State(create_rate_subscriber, dict.new(), dict.new(), logger),
-    Some(selector),
-  )
+  #(State(subject, dict.new(), dict.new(), logger), Some(selector))
 }
 
 pub fn handler(
   state: State,
   message: WebsocketMessage(SubscriptionResult),
   conn: WebsocketConnection,
+  create_rate_subscriber: fn(SubscriptionId, Subject(SubscriptionResult)) ->
+    RateSubscriber,
 ) -> mist.Next(State, SubscriptionResult) {
-  let State(create_rate_subscriber, rate_subscribers, added_currencies, logger) =
-    state
+  let State(subject, rate_subscribers, added_currencies, logger) = state
 
   log_message_received(logger, message)
 
@@ -107,7 +81,7 @@ pub fn handler(
 
                 Error(_) -> {
                   let new_subscriber =
-                    create_rate_subscriber(subscription_req.id)
+                    create_rate_subscriber(subscription_req.id, subject)
 
                   // Add all previously added currencies to the new subscriber
                   rate_subscriber.add_currencies(

@@ -20,6 +20,7 @@ import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
 import server/rates/rate_error.{type RateError}
 import server/rates/resolver as rate_resolver
+import server/rates/subscriber as rate_subscriber
 import server/utils/logger
 import server/utils/time
 import server/web/routes/home
@@ -125,17 +126,33 @@ pub fn main() {
         }
 
         ["ws", "v2"] -> {
+          let create_rate_subscriber = fn(subscription_id, subject) {
+            let assert Ok(config) =
+              rate_subscriber.new_config(
+                cmc_currencies,
+                kraken_client,
+                get_price_store(),
+                10_000,
+                request_cmc_conversion,
+                time.system_time_ms,
+                logger.with(logger.new(), "source", "subscriber"),
+              )
+
+            let assert Ok(rate_subscriber) =
+              rate_subscriber.new(subscription_id, subject, config)
+
+            rate_subscriber
+          }
+
           mist.websocket(
             req,
             on_init: websocket_v2.on_init(
               _,
-              cmc_currencies,
-              request_cmc_conversion,
-              kraken_client,
-              get_price_store,
               logger.with(logger.new(), "source", "websocket_v2"),
             ),
-            handler: websocket_v2.handler,
+            handler: fn(state, message, conn) {
+              websocket_v2.handler(state, message, conn, create_rate_subscriber)
+            },
             on_close: websocket_v2.on_close,
           )
         }
