@@ -8,7 +8,7 @@ pub fn system_time_ms() -> Int {
   system_time(millisecond())
 }
 
-fn millisecond() {
+fn millisecond() -> atom.Atom {
   atom.create("millisecond")
 }
 

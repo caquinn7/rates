@@ -22,7 +22,7 @@ pub fn new_returns_manager_with_no_subscription_test() {
 
 pub fn create_kraken_subscription_returns_manager_with_kraken_subscription_test() {
   let assert Ok(kraken_symbol) =
-    kraken_symbol.new_with_validator(#("BTC", "USD"), fn(_) { True })
+    kraken_symbol.new(#("BTC", "USD"), fn(_) { True })
 
   let rate_request = RateRequest(1, 2)
 

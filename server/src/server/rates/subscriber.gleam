@@ -26,19 +26,22 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import server/integrations/kraken/client.{type KrakenClient} as kraken_client
-import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
+import server/integrations/kraken/pairs
+import server/integrations/kraken/price_store.{type PriceEntry}
 import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/kraken_symbol.{type KrakenSymbol}
+import server/rates/internal/rate_source_strategy.{
+  type RateSourceStrategy, type StrategyBehavior, type StrategyConfig,
+  CmcStrategy, KrakenStrategy, StrategyBehavior, StrategyConfig,
+}
 import server/rates/internal/subscription_manager.{
   type Subscription, type SubscriptionManager, Cmc, Kraken,
 }
-import server/rates/internal/utils
-import server/rates/rate_error.{type RateError, CmcError}
+import server/rates/rate_error.{type RateError}
 import server/utils/logger.{type Logger}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
-import shared/rates/rate_response.{type RateResponse, RateResponse}
+import shared/rates/rate_response.{type RateResponse}
 import shared/subscriptions/subscription_id.{type SubscriptionId}
 
 /// Each RateSubscriber instance is associated with a SubscriptionId that
@@ -50,9 +53,10 @@ pub opaque type RateSubscriber {
 pub type Config {
   Config(
     cmc_currencies: List(Currency),
-    kraken_client: KrakenClient,
-    kraken_price_store: PriceStore,
     subscription_manager: SubscriptionManager,
+    subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
+    unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+    check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
     request_cmc_conversion: RequestCmcConversion,
     get_current_time_ms: fn() -> Int,
     logger: Logger,
@@ -61,9 +65,10 @@ pub type Config {
 
 pub fn new_config(
   cmc_currencies: List(Currency),
-  kraken_client: KrakenClient,
-  kraken_price_store: PriceStore,
   interval: Int,
+  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
+  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
   logger: Logger,
@@ -71,13 +76,14 @@ pub fn new_config(
   use subscription_manager <- result.try(subscription_manager.new(interval))
 
   Ok(Config(
-    cmc_currencies,
-    kraken_client,
-    kraken_price_store,
-    subscription_manager,
-    request_cmc_conversion,
-    get_current_time_ms,
-    logger,
+    cmc_currencies:,
+    subscription_manager:,
+    subscribe_to_kraken:,
+    unsubscribe_from_kraken:,
+    check_for_kraken_price:,
+    request_cmc_conversion:,
+    get_current_time_ms:,
+    logger:,
   ))
 }
 
@@ -97,8 +103,6 @@ type State {
     self: Option(Subject(Msg)),
     reply_to: Subject(SubscriptionResult),
     cmc_currencies: Dict(Int, String),
-    kraken_client: KrakenClient,
-    kraken_price_store: PriceStore,
     subscription_manager: SubscriptionManager,
     logger: Logger,
   )
@@ -146,8 +150,6 @@ pub fn new(
       None,
       reply_to,
       currencies_to_dict(config.cmc_currencies),
-      config.kraken_client,
-      config.kraken_price_store,
       config.subscription_manager,
       config.logger,
     )
@@ -157,6 +159,9 @@ pub fn new(
       subscription_id,
       state,
       msg,
+      config.subscribe_to_kraken,
+      config.unsubscribe_from_kraken,
+      config.check_for_kraken_price,
       config.request_cmc_conversion,
       config.get_current_time_ms,
     )
@@ -229,6 +234,9 @@ fn handle_msg(
   subscription_id: SubscriptionId,
   state: State,
   msg: Msg,
+  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
+  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
@@ -240,6 +248,9 @@ fn handle_msg(
         subscription_id,
         state,
         rate_request,
+        subscribe_to_kraken,
+        unsubscribe_from_kraken,
+        check_for_kraken_price,
         request_cmc_conversion,
         get_current_time_ms,
       )
@@ -249,13 +260,16 @@ fn handle_msg(
         subscription_id,
         state,
         scheduled_subscription,
+        subscribe_to_kraken,
+        unsubscribe_from_kraken,
+        check_for_kraken_price,
         request_cmc_conversion,
         get_current_time_ms,
       )
 
     AddCurrencies(currencies) -> do_add_currencies(state, currencies)
 
-    Stop -> do_stop(state)
+    Stop -> do_stop(state, unsubscribe_from_kraken)
   }
 }
 
@@ -268,93 +282,164 @@ fn do_subscribe(
   subscription_id: SubscriptionId,
   state: State,
   rate_request: RateRequest,
+  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
+  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
-  let state = {
-    let subscription =
-      subscription_manager.get_subscription(state.subscription_manager)
+  let state = cleanup_existing_subscription(state, unsubscribe_from_kraken)
 
-    case subscription {
-      Some(Kraken(_, old_symbol)) -> {
-        let symbol_str = kraken_symbol.to_string(old_symbol)
-        kraken_client.unsubscribe(state.kraken_client, symbol_str)
-
-        State(
-          ..state,
-          subscription_manager: subscription_manager.clear_subscription(
-            state.subscription_manager,
-          ),
-        )
-      }
-
-      _ -> state
-    }
-  }
-
-  rate_request
-  |> utils.resolve_currency_symbols(state.cmc_currencies)
-  |> result.map_error(fn(err) {
-    case err {
-      utils.CurrencyNotFound(id) -> {
-        process.send(state.reply_to, #(
-          subscription_id,
-          Error(rate_error.CurrencyNotFound(rate_request, id)),
-        ))
-
-        actor.continue(
-          State(
-            ..state,
-            subscription_manager: subscription_manager.clear_subscription(
-              state.subscription_manager,
-            ),
-          ),
-        )
-      }
-    }
-  })
-  |> result.map(fn(symbols) {
-    case kraken_symbol.new(symbols) {
-      Error(_) ->
-        handle_cmc_fallback(
-          subscription_id,
-          state,
-          rate_request,
-          request_cmc_conversion,
-          get_current_time_ms,
-        )
-
-      Ok(kraken_symbol) ->
-        handle_kraken_subscription(
-          subscription_id,
-          state,
-          rate_request,
-          kraken_symbol,
-          request_cmc_conversion,
-          get_current_time_ms,
-        )
-    }
-  })
-  |> result.map(fn(state) {
-    let assert Some(subject) = state.self
-    let assert Some(subscription) =
-      subscription_manager.get_subscription(state.subscription_manager)
-
-    process.send_after(
-      subject,
-      subscription_manager.get_current_interval(state.subscription_manager),
-      GetLatestRate(subscription),
+  let strategy =
+    rate_source_strategy.determine_strategy(
+      rate_request,
+      state.cmc_currencies,
+      kraken_symbol.new(_, pairs.exists),
     )
 
-    actor.continue(state)
-  })
-  |> result.unwrap_both
+  case strategy {
+    Error(rate_source_strategy.CurrencyNotFound(id)) -> {
+      process.send(state.reply_to, #(
+        subscription_id,
+        Error(rate_error.CurrencyNotFound(rate_request, id)),
+      ))
+
+      state
+      |> clear_subscription_from_state
+      |> actor.continue
+    }
+
+    Ok(strategy) -> {
+      let config =
+        create_strategy_config(
+          subscribe_to_kraken,
+          unsubscribe_from_kraken,
+          check_for_kraken_price,
+          request_cmc_conversion,
+          get_current_time_ms,
+          create_subscriber_behavior(subscription_id, state.logger),
+        )
+
+      let result =
+        rate_source_strategy.execute_strategy(strategy, rate_request, config)
+
+      process.send(state.reply_to, #(subscription_id, result))
+
+      let state = update_subscription_manager(state, strategy, rate_request)
+      schedule_next_update(state)
+      actor.continue(state)
+    }
+  }
+}
+
+fn cleanup_existing_subscription(
+  state: State,
+  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+) -> State {
+  let subscription =
+    subscription_manager.get_subscription(state.subscription_manager)
+
+  case subscription {
+    Some(Kraken(_, old_symbol)) -> {
+      unsubscribe_from_kraken(old_symbol)
+
+      State(
+        ..state,
+        subscription_manager: subscription_manager.clear_subscription(
+          state.subscription_manager,
+        ),
+      )
+    }
+
+    _ -> state
+  }
+}
+
+fn clear_subscription_from_state(state: State) -> State {
+  State(
+    ..state,
+    subscription_manager: subscription_manager.clear_subscription(
+      state.subscription_manager,
+    ),
+  )
+}
+
+fn create_strategy_config(
+  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
+  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
+  request_cmc_conversion: RequestCmcConversion,
+  get_current_time_ms: fn() -> Int,
+  behavior: StrategyBehavior,
+) -> StrategyConfig {
+  StrategyConfig(
+    subscribe_to_kraken:,
+    unsubscribe_from_kraken:,
+    check_for_kraken_price:,
+    request_cmc_conversion:,
+    get_current_time_ms:,
+    behavior:,
+  )
+}
+
+fn create_subscriber_behavior(
+  subscription_id: SubscriptionId,
+  logger: Logger,
+) -> StrategyBehavior {
+  StrategyBehavior(
+    // subscriber keeps the connection
+    on_kraken_success: fn() { Nil },
+    // no cleanup needed for subscriber
+    on_kraken_failure: fn(rate_request, _kraken_symbol) {
+      log_wait_for_kraken_price_timeout(logger, subscription_id, rate_request)
+    },
+  )
+}
+
+fn update_subscription_manager(
+  state: State,
+  strategy: RateSourceStrategy,
+  rate_request: RateRequest,
+) -> State {
+  let subscription_manager = case strategy {
+    KrakenStrategy(symbol) ->
+      subscription_manager.create_kraken_subscription(
+        state.subscription_manager,
+        rate_request,
+        symbol,
+      )
+
+    CmcStrategy ->
+      subscription_manager.create_cmc_subscription(
+        state.subscription_manager,
+        rate_request,
+      )
+  }
+
+  State(..state, subscription_manager:)
+}
+
+fn schedule_next_update(state: State) -> Nil {
+  let assert Some(subject) = state.self
+  let assert Some(subscription) =
+    subscription_manager.get_subscription(state.subscription_manager)
+
+  process.send_after(
+    subject,
+    subscription_manager.get_current_interval(state.subscription_manager),
+    GetLatestRate(subscription),
+  )
+
+  Nil
 }
 
 fn get_latest_rate(
   subscription_id: SubscriptionId,
   state: State,
   scheduled_subscription: Subscription,
+  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
+  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
@@ -369,145 +454,31 @@ fn get_latest_rate(
     False -> actor.continue(state)
 
     True -> {
-      let state = case current_subscription {
-        Cmc(rate_req) ->
-          handle_cmc_fallback(
-            subscription_id,
-            state,
-            rate_req,
-            request_cmc_conversion,
-            get_current_time_ms,
-          )
-
-        Kraken(rate_req, symbol) ->
-          check_kraken_price_and_respond(
-            subscription_id,
-            state,
-            rate_req,
-            symbol,
-            request_cmc_conversion,
-            get_current_time_ms,
-          )
+      let #(rate_request, strategy) = case current_subscription {
+        Kraken(rate_req, symbol) -> #(rate_req, KrakenStrategy(symbol))
+        Cmc(rate_req) -> #(rate_req, CmcStrategy)
       }
 
-      let assert Some(subject) = state.self
-      process.send_after(
-        subject,
-        subscription_manager.get_current_interval(state.subscription_manager),
-        GetLatestRate(current_subscription),
-      )
+      let config =
+        create_strategy_config(
+          subscribe_to_kraken,
+          unsubscribe_from_kraken,
+          check_for_kraken_price,
+          request_cmc_conversion,
+          get_current_time_ms,
+          create_subscriber_behavior(subscription_id, state.logger),
+        )
 
+      let result =
+        rate_source_strategy.execute_strategy(strategy, rate_request, config)
+
+      process.send(state.reply_to, #(subscription_id, result))
+
+      let state = update_subscription_manager(state, strategy, rate_request)
+      schedule_next_update(state)
       actor.continue(state)
     }
   }
-}
-
-fn handle_cmc_fallback(
-  subscription_id: SubscriptionId,
-  state: State,
-  rate_request: RateRequest,
-  request_cmc_conversion: RequestCmcConversion,
-  get_current_time_ms: fn() -> Int,
-) -> State {
-  let result =
-    rate_request
-    |> cmc_rate_handler.get_rate(request_cmc_conversion, get_current_time_ms)
-    |> result.map_error(CmcError(rate_request, _))
-
-  process.send(state.reply_to, #(subscription_id, result))
-
-  State(
-    ..state,
-    subscription_manager: subscription_manager.create_cmc_subscription(
-      state.subscription_manager,
-      rate_request,
-    ),
-  )
-}
-
-fn handle_kraken_subscription(
-  subscription_id: SubscriptionId,
-  state: State,
-  rate_req: RateRequest,
-  kraken_symbol: KrakenSymbol,
-  request_cmc_conversion: RequestCmcConversion,
-  get_current_time_ms: fn() -> Int,
-) -> State {
-  utils.subscribe_to_kraken(state.kraken_client, kraken_symbol)
-
-  check_kraken_price_and_respond(
-    subscription_id,
-    state,
-    rate_req,
-    kraken_symbol,
-    request_cmc_conversion,
-    get_current_time_ms,
-  )
-}
-
-fn check_kraken_price_and_respond(
-  subscription_id: SubscriptionId,
-  state: State,
-  rate_req: RateRequest,
-  kraken_symbol: KrakenSymbol,
-  request_cmc_conversion: RequestCmcConversion,
-  get_current_time_ms: fn() -> Int,
-) -> State {
-  let kraken_price_result =
-    utils.wait_for_kraken_price(kraken_symbol, state.kraken_price_store, 5, 50)
-
-  case kraken_price_result {
-    Error(_) -> {
-      log_wait_for_kraken_price_timeout(state.logger, subscription_id, rate_req)
-
-      handle_cmc_fallback(
-        subscription_id,
-        state,
-        rate_req,
-        request_cmc_conversion,
-        get_current_time_ms,
-      )
-    }
-
-    Ok(price_entry) ->
-      handle_kraken_price_hit(
-        subscription_id,
-        state,
-        rate_req,
-        kraken_symbol,
-        price_entry,
-      )
-  }
-}
-
-fn handle_kraken_price_hit(
-  subscription_id: SubscriptionId,
-  state: State,
-  rate_request: RateRequest,
-  kraken_symbol: KrakenSymbol,
-  price_entry: PriceEntry,
-) -> State {
-  let rate = utils.extract_price(price_entry, kraken_symbol)
-
-  let rate_resp =
-    RateResponse(
-      rate_request.from,
-      rate_request.to,
-      rate,
-      rate_response.Kraken,
-      price_entry.timestamp,
-    )
-
-  process.send(state.reply_to, #(subscription_id, Ok(rate_resp)))
-
-  State(
-    ..state,
-    subscription_manager: subscription_manager.create_kraken_subscription(
-      state.subscription_manager,
-      rate_request,
-      kraken_symbol,
-    ),
-  )
 }
 
 fn do_add_currencies(
@@ -522,7 +493,10 @@ fn do_add_currencies(
   actor.continue(State(..state, cmc_currencies:))
 }
 
-fn do_stop(state: State) -> Next(State, Msg) {
+fn do_stop(
+  state: State,
+  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+) -> Next(State, Msg) {
   let subscription =
     subscription_manager.get_subscription(state.subscription_manager)
 
@@ -532,7 +506,7 @@ fn do_stop(state: State) -> Next(State, Msg) {
     Some(subscription) -> {
       case subscription {
         Kraken(_, symbol) -> {
-          utils.unsubscribe_from_kraken(state.kraken_client, symbol)
+          unsubscribe_from_kraken(symbol)
           actor.stop()
         }
 
@@ -559,5 +533,5 @@ fn log_wait_for_kraken_price_timeout(
   |> logger.with("subscription_id", subscription_id.to_string(subscription_id))
   |> logger.with("rate_request.from", int.to_string(rate_req.from))
   |> logger.with("rate_request.to", int.to_string(rate_req.to))
-  |> logger.warning("Timed out waiting for kraken price")
+  |> logger.warning("Timed out waiting for kraken price. Falling back to CMC")
 }

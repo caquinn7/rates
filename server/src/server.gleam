@@ -18,6 +18,8 @@ import server/integrations/coin_market_cap/client as cmc_client
 import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
+import server/rates/internal/kraken_symbol
+import server/rates/internal/utils
 import server/rates/rate_error.{type RateError}
 import server/rates/resolver as rate_resolver
 import server/rates/subscriber as rate_subscriber
@@ -107,6 +109,24 @@ pub fn main() {
         store
       }
 
+      // todo: make KrakenSymbol part of public api for KrakenClient?
+      let subscribe_to_kraken = fn(kraken_symbol) {
+        let symbol_str = kraken_symbol.to_string(kraken_symbol)
+        kraken_client.subscribe(kraken_client, symbol_str)
+      }
+
+      let unsubscribe_from_kraken = fn(kraken_symbol) {
+        let symbol_str = kraken_symbol.to_string(kraken_symbol)
+        kraken_client.unsubscribe(kraken_client, symbol_str)
+      }
+
+      let check_for_kraken_price = utils.wait_for_kraken_price(
+        _,
+        get_price_store(),
+        5,
+        50,
+      )
+
       case request.path_segments(req) {
         // handle websocket connections
         ["ws"] -> {
@@ -115,9 +135,10 @@ pub fn main() {
             on_init: websocket.on_init(
               _,
               cmc_currencies,
+              subscribe_to_kraken,
+              unsubscribe_from_kraken,
+              check_for_kraken_price,
               request_cmc_conversion,
-              kraken_client,
-              get_price_store,
               logger.with(logger.new(), "source", "websocket"),
             ),
             handler: websocket.handler,
@@ -130,9 +151,10 @@ pub fn main() {
             let assert Ok(config) =
               rate_subscriber.new_config(
                 cmc_currencies,
-                kraken_client,
-                get_price_store(),
                 10_000,
+                subscribe_to_kraken,
+                unsubscribe_from_kraken,
+                check_for_kraken_price,
                 request_cmc_conversion,
                 time.system_time_ms,
                 logger.with(logger.new(), "source", "subscriber"),

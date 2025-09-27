@@ -37,7 +37,7 @@ pub fn resolve_currency_symbols_test() {
 
 pub fn wait_for_kraken_price_returns_error_when_price_not_found_test() {
   let assert Ok(kraken_symbol) =
-    kraken_symbol.new_with_validator(#("BTC", "USD"), fn(_) { True })
+    kraken_symbol.new(#("BTC", "USD"), fn(_) { True })
 
   use store <- server_test.with_price_store
 
@@ -48,7 +48,7 @@ pub fn wait_for_kraken_price_returns_error_when_price_not_found_test() {
 
 pub fn wait_for_kraken_price_returns_price_when_found_test() {
   let assert Ok(kraken_symbol) =
-    kraken_symbol.new_with_validator(#("BTC", "USD"), fn(_) { True })
+    kraken_symbol.new(#("BTC", "USD"), fn(_) { True })
 
   use store <- server_test.with_price_store
 

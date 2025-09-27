@@ -10,9 +10,9 @@ import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
 }
-import server/integrations/kraken/client.{type KrakenClient}
-import server/integrations/kraken/price_store.{type PriceStore}
+import server/integrations/kraken/price_store.{type PriceEntry}
 import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
+import server/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
 import server/utils/logger.{type Logger}
@@ -25,9 +25,10 @@ import shared/subscriptions/subscription_id
 pub fn on_init(
   _conn: WebsocketConnection,
   cmc_currencies: List(Currency),
+  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
+  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
   request_cmc_conversion: RequestCmcConversion,
-  kraken_client: KrakenClient,
-  get_price_store: fn() -> PriceStore,
   logger: Logger,
 ) -> #(#(RateSubscriber, Logger), Option(Selector(SubscriptionResult))) {
   let subject = process.new_subject()
@@ -43,9 +44,10 @@ pub fn on_init(
     let assert Ok(config) =
       rate_subscriber.new_config(
         cmc_currencies,
-        kraken_client,
-        get_price_store(),
         10_000,
+        subscribe_to_kraken,
+        unsubscribe_from_kraken,
+        check_for_kraken_price,
         request_cmc_conversion,
         time.system_time_ms,
         logger.with(logger.new(), "source", "subscriber"),

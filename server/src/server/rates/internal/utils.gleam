@@ -3,9 +3,7 @@ import gleam/erlang/process
 import gleam/result
 import server/integrations/kraken/client.{type KrakenClient} as kraken_client
 import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
-import server/rates/internal/kraken_symbol.{
-  type KrakenSymbol, DirectSymbol, ReversedSymbol,
-}
+import server/rates/internal/kraken_symbol.{type KrakenSymbol}
 import shared/rates/rate_request.{type RateRequest}
 
 /// Represents an error that occurred while resolving a currency ID to a symbol.
@@ -66,17 +64,5 @@ pub fn wait_for_kraken_price(
       process.sleep(delay)
       wait_for_kraken_price(kraken_symbol, price_store, retries_left - 1, delay)
     }
-  }
-}
-
-/// Helper function to extract and transform price from a PriceEntry based on symbol direction
-pub fn extract_price(
-  price_entry: PriceEntry,
-  kraken_symbol: KrakenSymbol,
-) -> Float {
-  let symbol_dir = kraken_symbol.direction(kraken_symbol)
-  case symbol_dir {
-    DirectSymbol -> price_entry.price
-    ReversedSymbol -> 1.0 /. price_entry.price
   }
 }
