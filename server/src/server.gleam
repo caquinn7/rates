@@ -18,7 +18,7 @@ import server/domain/rates/internal/kraken_symbol
 import server/domain/rates/internal/subscription_manager
 import server/domain/rates/internal/utils
 import server/domain/rates/rate_error.{type RateError}
-import server/domain/rates/resolver_v2 as rate_resolver
+import server/domain/rates/resolver as rate_resolver
 import server/domain/rates/subscriber as rate_subscriber
 import server/integrations/coin_market_cap/client as cmc_client
 import server/integrations/kraken/client as kraken_client

@@ -21,19 +21,30 @@ import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
 import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/domain/rates/internal/kraken_symbol
-import server/domain/rates/internal/utils
-import server/domain/rates/rate_error.{
-  type RateError, CmcError, CurrencyNotFound,
+import server/domain/rates/internal/rate_source_strategy.{
+  type CheckForKrakenPrice, type RateSourceStrategy, type StrategyBehavior,
+  type SubscribeToKraken, type UnsubscribeFromKraken, CmcStrategy,
+  KrakenStrategy, StrategyBehavior, StrategyConfig,
 }
-import server/integrations/kraken/client.{type KrakenClient}
+import server/domain/rates/rate_error.{type RateError}
 import server/integrations/kraken/pairs
-import server/integrations/kraken/price_store.{type PriceStore}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
-import shared/rates/rate_response.{type RateResponse, Kraken, RateResponse}
+import shared/rates/rate_response.{type RateResponse}
 
 pub opaque type RateResolver {
   RateResolver(Subject(Msg))
+}
+
+pub type Config {
+  Config(
+    currencies: List(Currency),
+    subscribe_to_kraken: SubscribeToKraken,
+    unsubscribe_from_kraken: UnsubscribeFromKraken,
+    check_for_kraken_price: CheckForKrakenPrice,
+    request_cmc_conversion: RequestCmcConversion,
+    get_current_time_ms: fn() -> Int,
+  )
 }
 
 type Msg {
@@ -41,36 +52,28 @@ type Msg {
 }
 
 type State {
-  State(
-    cmc_currencies: Dict(Int, String),
-    kraken_client: KrakenClient,
-    kraken_price_store: PriceStore,
-    request_cmc_conversion: RequestCmcConversion,
-  )
+  State(currency_symbols: Dict(Int, String))
 }
 
-pub fn new(
-  cmc_currencies: List(Currency),
-  kraken_client: KrakenClient,
-  request_cmc_conversion: RequestCmcConversion,
-  get_kraken_price_store: fn() -> PriceStore,
-  get_current_time_ms: fn() -> Int,
-) -> Result(RateResolver, StartError) {
-  let currency_dict =
-    cmc_currencies
+pub fn new(config: Config) -> Result(RateResolver, StartError) {
+  let currency_symbols =
+    config.currencies
     |> list.map(fn(c) { #(c.id, c.symbol) })
     |> dict.from_list
 
-  let price_store = get_kraken_price_store()
-
-  let initial_state =
-    State(currency_dict, kraken_client, price_store, request_cmc_conversion)
-
   let msg_loop = fn(state, msg) {
-    handle_msg(state, msg, request_cmc_conversion, get_current_time_ms)
+    handle_msg(
+      state,
+      msg,
+      config.subscribe_to_kraken,
+      config.unsubscribe_from_kraken,
+      config.check_for_kraken_price,
+      config.request_cmc_conversion,
+      config.get_current_time_ms,
+    )
   }
 
-  initial_state
+  State(currency_symbols:)
   |> actor.new
   |> actor.on_message(msg_loop)
   |> actor.start
@@ -89,104 +92,72 @@ pub fn get_rate(
 fn handle_msg(
   state: State,
   msg: Msg,
+  subscribe_to_kraken: SubscribeToKraken,
+  unsubscribe_from_kraken: UnsubscribeFromKraken,
+  check_for_kraken_price: CheckForKrakenPrice,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
   case msg {
-    GetRate(reply_to, rate_req) -> {
-      rate_req
-      |> utils.resolve_currency_symbols(state.cmc_currencies)
-      |> result.map_error(fn(err) {
-        let utils.CurrencyNotFound(id) = err
-        process.send(reply_to, Error(CurrencyNotFound(rate_req, id)))
-        actor.stop()
-      })
-      |> result.map(fn(symbols) {
-        case kraken_symbol.new(symbols, pairs.exists) {
-          Error(_) ->
-            handle_cmc_fallback(
-              rate_req,
-              request_cmc_conversion,
-              reply_to,
-              get_current_time_ms,
+    GetRate(reply_to, rate_request) -> {
+      let strategy =
+        rate_source_strategy.determine_strategy(
+          rate_request,
+          state.currency_symbols,
+          kraken_symbol.new(_, pairs.exists),
+        )
+
+      case strategy {
+        Error(rate_source_strategy.CurrencyNotFound(id)) -> {
+          process.send(
+            reply_to,
+            Error(rate_error.CurrencyNotFound(rate_request, id)),
+          )
+          actor.stop()
+        }
+
+        Ok(strategy) -> {
+          let config =
+            StrategyConfig(
+              subscribe_to_kraken:,
+              unsubscribe_from_kraken:,
+              check_for_kraken_price:,
+              request_cmc_conversion:,
+              get_current_time_ms:,
+              behavior: create_resolver_behavior(
+                unsubscribe_from_kraken,
+                strategy,
+              ),
             )
 
-          Ok(kraken_symbol) -> {
-            utils.subscribe_to_kraken(state.kraken_client, kraken_symbol)
+          let result =
+            rate_source_strategy.execute_strategy(
+              strategy,
+              rate_request,
+              config,
+            )
 
-            let kraken_price_result =
-              utils.wait_for_kraken_price(
-                kraken_symbol,
-                state.kraken_price_store,
-                5,
-                50,
-              )
-
-            case kraken_price_result {
-              Error(_) ->
-                handle_cmc_fallback(
-                  rate_req,
-                  request_cmc_conversion,
-                  reply_to,
-                  get_current_time_ms,
-                )
-
-              Ok(price_entry) -> {
-                utils.unsubscribe_from_kraken(
-                  state.kraken_client,
-                  kraken_symbol,
-                )
-
-                let rate =
-                  kraken_symbol.apply_price_direction(
-                    kraken_symbol,
-                    price_entry.price,
-                  )
-
-                process.send(
-                  reply_to,
-                  Ok(RateResponse(
-                    rate_req.from,
-                    rate_req.to,
-                    rate,
-                    Kraken,
-                    price_entry.timestamp,
-                  )),
-                )
-
-                actor.stop()
-              }
-            }
-          }
+          process.send(reply_to, result)
+          actor.stop()
         }
-      })
-      |> result.unwrap_both()
+      }
     }
   }
 }
 
-fn handle_cmc_fallback(
-  rate_req: RateRequest,
-  request_cmc_conversion: RequestCmcConversion,
-  reply_to: Subject(Result(RateResponse, RateError)),
-  get_current_time_ms: fn() -> Int,
-) -> Next(State, Msg) {
-  let result =
-    cmc_rate_handler.get_rate(
-      rate_req,
-      request_cmc_conversion,
-      get_current_time_ms,
-    )
-
-  case result {
-    Error(err) -> {
-      process.send(reply_to, Error(CmcError(rate_req, err)))
-      actor.stop()
-    }
-
-    Ok(rate_resp) -> {
-      process.send(reply_to, Ok(rate_resp))
-      actor.stop()
-    }
-  }
+fn create_resolver_behavior(
+  unsubscribe_from_kraken: UnsubscribeFromKraken,
+  strategy: RateSourceStrategy,
+) -> StrategyBehavior {
+  StrategyBehavior(
+    on_kraken_success: fn() {
+      case strategy {
+        KrakenStrategy(symbol) -> unsubscribe_from_kraken(symbol)
+        CmcStrategy -> Nil
+      }
+    },
+    on_kraken_failure: fn(_rate_request, kraken_symbol) {
+      unsubscribe_from_kraken(kraken_symbol)
+    },
+  )
 }
