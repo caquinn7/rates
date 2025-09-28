@@ -19,6 +19,7 @@ import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
 import server/rates/internal/kraken_symbol
+import server/rates/internal/subscription_manager
 import server/rates/internal/utils
 import server/rates/rate_error.{type RateError}
 import server/rates/resolver as rate_resolver
@@ -148,16 +149,19 @@ pub fn main() {
 
         ["ws", "v2"] -> {
           let create_rate_subscriber = fn(subscription_id, subject) {
-            let assert Ok(config) =
-              rate_subscriber.new_config(
-                cmc_currencies,
-                10_000,
-                subscribe_to_kraken,
-                unsubscribe_from_kraken,
-                check_for_kraken_price,
-                request_cmc_conversion,
-                time.system_time_ms,
-                logger.with(logger.new(), "source", "subscriber"),
+            let assert Ok(subscription_manager) =
+              subscription_manager.new(10_000)
+
+            let config =
+              rate_subscriber.Config(
+                cmc_currencies:,
+                subscription_manager:,
+                subscribe_to_kraken:,
+                unsubscribe_from_kraken:,
+                check_for_kraken_price:,
+                request_cmc_conversion:,
+                get_current_time_ms: time.system_time_ms,
+                logger: logger.with(logger.new(), "source", "subscriber"),
               )
 
             let assert Ok(rate_subscriber) =

@@ -46,12 +46,12 @@ pub type StrategyConfig {
 
 pub fn determine_strategy(
   rate_request: RateRequest,
-  cmc_currencies: Dict(Int, String),
+  currency_symbols: Dict(Int, String),
   create_kraken_symbol: fn(#(String, String)) -> Result(KrakenSymbol, Nil),
 ) -> Result(RateSourceStrategy, StrategyError) {
   use symbols <- result.try(
     rate_request
-    |> utils.resolve_currency_symbols(cmc_currencies)
+    |> utils.resolve_currency_symbols(currency_symbols)
     |> result.map_error(fn(err) {
       case err {
         utils.CurrencyNotFound(id) -> CurrencyNotFound(id)

@@ -14,6 +14,7 @@ import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/rate_source_strategy.{
   type CheckForKrakenPrice, type SubscribeToKraken, type UnsubscribeFromKraken,
 }
+import server/rates/internal/subscription_manager
 import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
 import server/utils/logger.{type Logger}
@@ -42,18 +43,18 @@ pub fn on_init(
   let assert Ok(fixed_subscription_id) = subscription_id.new("websocket-single")
 
   let assert Ok(rate_subscriber) = {
-    let assert Ok(config) =
-      rate_subscriber.new_config(
-        cmc_currencies,
-        10_000,
-        subscribe_to_kraken,
-        unsubscribe_from_kraken,
-        check_for_kraken_price,
-        request_cmc_conversion,
-        time.system_time_ms,
-        logger.with(logger.new(), "source", "subscriber"),
+    let assert Ok(subscription_manager) = subscription_manager.new(10_000)
+    let config =
+      rate_subscriber.Config(
+        cmc_currencies:,
+        subscription_manager:,
+        subscribe_to_kraken:,
+        unsubscribe_from_kraken:,
+        check_for_kraken_price:,
+        request_cmc_conversion:,
+        get_current_time_ms: time.system_time_ms,
+        logger: logger.with(logger.new(), "source", "subscriber"),
       )
-
     rate_subscriber.new(fixed_subscription_id, subject, config)
   }
 

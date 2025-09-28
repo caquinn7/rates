@@ -63,30 +63,6 @@ pub type Config {
   )
 }
 
-pub fn new_config(
-  cmc_currencies: List(Currency),
-  interval: Int,
-  subscribe_to_kraken: SubscribeToKraken,
-  unsubscribe_from_kraken: UnsubscribeFromKraken,
-  check_for_kraken_price: CheckForKrakenPrice,
-  request_cmc_conversion: RequestCmcConversion,
-  get_current_time_ms: fn() -> Int,
-  logger: Logger,
-) -> Result(Config, String) {
-  use subscription_manager <- result.try(subscription_manager.new(interval))
-
-  Ok(Config(
-    cmc_currencies:,
-    subscription_manager:,
-    subscribe_to_kraken:,
-    unsubscribe_from_kraken:,
-    check_for_kraken_price:,
-    request_cmc_conversion:,
-    get_current_time_ms:,
-    logger:,
-  ))
-}
-
 pub type SubscriptionResult =
   #(SubscriptionId, Result(RateResponse, RateError))
 
