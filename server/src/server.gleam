@@ -14,6 +14,7 @@ import mist
 import server/context.{type Context, Context}
 import server/domain/currencies/cmc_currency_handler
 import server/domain/currencies/currencies_fetcher
+import server/domain/rates/internal/kraken_interface.{KrakenInterface}
 import server/domain/rates/internal/kraken_symbol
 import server/domain/rates/internal/subscription_manager
 import server/domain/rates/internal/utils
@@ -50,7 +51,7 @@ pub fn main() {
   let ctx = Context(cmc_api_key:, crypto_limit:, supported_fiat_symbols:)
 
   // get CMC currencies
-  let cmc_currencies = {
+  let currencies = {
     let request_cryptos = fn() {
       cmc_client.get_crypto_currencies(
         ctx.cmc_api_key,
@@ -74,13 +75,13 @@ pub fn main() {
       Error(err) ->
         panic as { "error getting currencies: " <> string.inspect(err) }
 
-      Ok(cmc_currencies) -> {
+      Ok(currencies) -> {
         logger.new()
         |> logger.with("source", "server")
-        |> logger.with("count", int.to_string(list.length(cmc_currencies)))
+        |> logger.with("count", int.to_string(list.length(currencies)))
         |> logger.info("fetched currencies from cmc")
 
-        cmc_currencies
+        currencies
       }
     }
   }
@@ -110,23 +111,30 @@ pub fn main() {
         store
       }
 
-      // todo: make KrakenSymbol part of public api for KrakenClient?
-      let subscribe_to_kraken = fn(kraken_symbol) {
-        let symbol_str = kraken_symbol.to_string(kraken_symbol)
-        kraken_client.subscribe(kraken_client, symbol_str)
-      }
+      let kraken_interface = {
+        let subscribe_to_kraken = fn(kraken_symbol) {
+          let symbol_str = kraken_symbol.to_string(kraken_symbol)
+          kraken_client.subscribe(kraken_client, symbol_str)
+        }
 
-      let unsubscribe_from_kraken = fn(kraken_symbol) {
-        let symbol_str = kraken_symbol.to_string(kraken_symbol)
-        kraken_client.unsubscribe(kraken_client, symbol_str)
-      }
+        let unsubscribe_from_kraken = fn(kraken_symbol) {
+          let symbol_str = kraken_symbol.to_string(kraken_symbol)
+          kraken_client.unsubscribe(kraken_client, symbol_str)
+        }
 
-      let check_for_kraken_price = utils.wait_for_kraken_price(
-        _,
-        get_price_store(),
-        5,
-        50,
-      )
+        let check_for_kraken_price = utils.wait_for_kraken_price(
+          _,
+          get_price_store(),
+          5,
+          50,
+        )
+
+        KrakenInterface(
+          subscribe_to_kraken,
+          unsubscribe_from_kraken,
+          check_for_kraken_price,
+        )
+      }
 
       case request.path_segments(req) {
         // handle websocket connections
@@ -135,10 +143,8 @@ pub fn main() {
             req,
             on_init: websocket.on_init(
               _,
-              cmc_currencies,
-              subscribe_to_kraken,
-              unsubscribe_from_kraken,
-              check_for_kraken_price,
+              currencies,
+              kraken_interface,
               request_cmc_conversion,
               logger.with(logger.new(), "source", "websocket"),
             ),
@@ -154,11 +160,9 @@ pub fn main() {
 
             let config =
               rate_subscriber.Config(
-                cmc_currencies:,
+                currencies:,
                 subscription_manager:,
-                subscribe_to_kraken:,
-                unsubscribe_from_kraken:,
-                check_for_kraken_price:,
+                kraken_interface:,
                 request_cmc_conversion:,
                 get_current_time_ms: time.system_time_ms,
                 logger: logger.with(logger.new(), "source", "subscriber"),
@@ -188,11 +192,9 @@ pub fn main() {
           let get_rate = fn(rate_req) {
             let config =
               rate_resolver.Config(
-                currencies: cmc_currencies,
-                subscribe_to_kraken: subscribe_to_kraken,
-                unsubscribe_from_kraken: unsubscribe_from_kraken,
-                check_for_kraken_price: check_for_kraken_price,
-                request_cmc_conversion: request_cmc_conversion,
+                currencies:,
+                kraken_interface:,
+                request_cmc_conversion:,
                 get_current_time_ms: time.system_time_ms,
               )
 
@@ -203,7 +205,7 @@ pub fn main() {
 
           let handle_request =
             wisp_mist.handler(
-              handle_request(ctx, _, cmc_currencies, get_rate),
+              handle_request(ctx, _, currencies, get_rate),
               secret_key_base,
             )
 

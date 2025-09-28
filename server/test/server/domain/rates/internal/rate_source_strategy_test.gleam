@@ -73,8 +73,6 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
 
   let config =
     StrategyConfig(
-      subscribe_to_kraken: fn(_) { Nil },
-      unsubscribe_from_kraken: fn(_) { Nil },
       check_for_kraken_price: fn(_) {
         Ok(PriceEntry(price: 50_000.0, timestamp: 1000))
       },
@@ -128,8 +126,6 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
 
   let config =
     StrategyConfig(
-      subscribe_to_kraken: fn(_) { Nil },
-      unsubscribe_from_kraken: fn(_) { Nil },
       check_for_kraken_price: fn(_) { Error(Nil) },
       request_cmc_conversion:,
       get_current_time_ms: fn() { 1000 },
@@ -179,12 +175,6 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
 
   let config =
     StrategyConfig(
-      subscribe_to_kraken: fn(_) {
-        panic as "Should not be called for CMC strategy"
-      },
-      unsubscribe_from_kraken: fn(_) {
-        panic as "Should not be called for CMC strategy"
-      },
       check_for_kraken_price: fn(_) {
         panic as "Should not be called for CMC strategy"
       },
@@ -231,12 +221,6 @@ pub fn execute_strategy_returns_error_when_cmc_fails_test() {
 
   let config =
     StrategyConfig(
-      subscribe_to_kraken: fn(_) {
-        panic as "Should not call Kraken for CMC strategy"
-      },
-      unsubscribe_from_kraken: fn(_) {
-        panic as "Should not call Kraken for CMC strategy"
-      },
       check_for_kraken_price: fn(_) {
         panic as "Should not call Kraken for CMC strategy"
       },

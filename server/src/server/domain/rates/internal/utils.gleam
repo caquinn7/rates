@@ -2,7 +2,6 @@ import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/result
 import server/domain/rates/internal/kraken_symbol.{type KrakenSymbol}
-import server/integrations/kraken/client.{type KrakenClient} as kraken_client
 import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
 import shared/rates/rate_request.{type RateRequest}
 
@@ -26,22 +25,6 @@ pub fn resolve_currency_symbols(
   use from_symbol <- result.try(try_get_symbol(rate_request.from))
   use to_symbol <- result.try(try_get_symbol(rate_request.to))
   Ok(#(from_symbol, to_symbol))
-}
-
-pub fn subscribe_to_kraken(
-  client: KrakenClient,
-  kraken_symbol: KrakenSymbol,
-) -> Nil {
-  let symbol_str = kraken_symbol.to_string(kraken_symbol)
-  kraken_client.subscribe(client, symbol_str)
-}
-
-pub fn unsubscribe_from_kraken(
-  client: KrakenClient,
-  kraken_symbol: KrakenSymbol,
-) -> Nil {
-  let symbol_str = kraken_symbol.to_string(kraken_symbol)
-  kraken_client.unsubscribe(client, symbol_str)
 }
 
 /// Attempts to fetch the latest price for a given `KrakenSymbol` from the shared `PriceStore`.

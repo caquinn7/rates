@@ -20,11 +20,11 @@ import gleam/list
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
 import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
-import server/domain/rates/internal/kraken_symbol
+import server/domain/rates/internal/kraken_interface.{type KrakenInterface}
+import server/domain/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/domain/rates/internal/rate_source_strategy.{
-  type CheckForKrakenPrice, type RateSourceStrategy, type StrategyBehavior,
-  type SubscribeToKraken, type UnsubscribeFromKraken, CmcStrategy,
-  KrakenStrategy, StrategyBehavior, StrategyConfig,
+  type RateSourceStrategy, type StrategyBehavior, CmcStrategy, KrakenStrategy,
+  StrategyBehavior, StrategyConfig,
 }
 import server/domain/rates/rate_error.{type RateError}
 import server/integrations/kraken/pairs
@@ -39,9 +39,7 @@ pub opaque type RateResolver {
 pub type Config {
   Config(
     currencies: List(Currency),
-    subscribe_to_kraken: SubscribeToKraken,
-    unsubscribe_from_kraken: UnsubscribeFromKraken,
-    check_for_kraken_price: CheckForKrakenPrice,
+    kraken_interface: KrakenInterface,
     request_cmc_conversion: RequestCmcConversion,
     get_current_time_ms: fn() -> Int,
   )
@@ -65,9 +63,7 @@ pub fn new(config: Config) -> Result(RateResolver, StartError) {
     handle_msg(
       state,
       msg,
-      config.subscribe_to_kraken,
-      config.unsubscribe_from_kraken,
-      config.check_for_kraken_price,
+      config.kraken_interface,
       config.request_cmc_conversion,
       config.get_current_time_ms,
     )
@@ -92,9 +88,7 @@ pub fn get_rate(
 fn handle_msg(
   state: State,
   msg: Msg,
-  subscribe_to_kraken: SubscribeToKraken,
-  unsubscribe_from_kraken: UnsubscribeFromKraken,
-  check_for_kraken_price: CheckForKrakenPrice,
+  kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
@@ -119,16 +113,19 @@ fn handle_msg(
         Ok(strategy) -> {
           let config =
             StrategyConfig(
-              subscribe_to_kraken:,
-              unsubscribe_from_kraken:,
-              check_for_kraken_price:,
+              check_for_kraken_price: kraken_interface.check_for_price,
               request_cmc_conversion:,
               get_current_time_ms:,
               behavior: create_resolver_behavior(
-                unsubscribe_from_kraken,
+                kraken_interface.unsubscribe,
                 strategy,
               ),
             )
+
+          case strategy {
+            KrakenStrategy(symbol) -> kraken_interface.subscribe(symbol)
+            CmcStrategy -> Nil
+          }
 
           let result =
             rate_source_strategy.execute_strategy(
@@ -146,7 +143,7 @@ fn handle_msg(
 }
 
 fn create_resolver_behavior(
-  unsubscribe_from_kraken: UnsubscribeFromKraken,
+  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
   strategy: RateSourceStrategy,
 ) -> StrategyBehavior {
   StrategyBehavior(

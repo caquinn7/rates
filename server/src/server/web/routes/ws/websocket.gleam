@@ -11,9 +11,7 @@ import mist.{
   Shutdown, Text,
 }
 import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
-import server/domain/rates/internal/rate_source_strategy.{
-  type CheckForKrakenPrice, type SubscribeToKraken, type UnsubscribeFromKraken,
-}
+import server/domain/rates/internal/kraken_interface.{type KrakenInterface}
 import server/domain/rates/internal/subscription_manager
 import server/domain/rates/rate_error.{
   type RateError, CmcError, CurrencyNotFound,
@@ -30,10 +28,8 @@ import shared/subscriptions/subscription_id
 
 pub fn on_init(
   _conn: WebsocketConnection,
-  cmc_currencies: List(Currency),
-  subscribe_to_kraken: SubscribeToKraken,
-  unsubscribe_from_kraken: UnsubscribeFromKraken,
-  check_for_kraken_price: CheckForKrakenPrice,
+  currencies: List(Currency),
+  kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
   logger: Logger,
 ) -> #(#(RateSubscriber, Logger), Option(Selector(SubscriptionResult))) {
@@ -50,11 +46,9 @@ pub fn on_init(
     let assert Ok(subscription_manager) = subscription_manager.new(10_000)
     let config =
       rate_subscriber.Config(
-        cmc_currencies:,
+        currencies:,
         subscription_manager:,
-        subscribe_to_kraken:,
-        unsubscribe_from_kraken:,
-        check_for_kraken_price:,
+        kraken_interface:,
         request_cmc_conversion:,
         get_current_time_ms: time.system_time_ms,
         logger: logger.with(logger.new(), "source", "subscriber"),

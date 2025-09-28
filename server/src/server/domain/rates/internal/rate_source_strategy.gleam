@@ -24,20 +24,9 @@ pub type StrategyBehavior {
   )
 }
 
-pub type SubscribeToKraken =
-  fn(KrakenSymbol) -> Nil
-
-pub type UnsubscribeFromKraken =
-  fn(KrakenSymbol) -> Nil
-
-pub type CheckForKrakenPrice =
-  fn(KrakenSymbol) -> Result(PriceEntry, Nil)
-
 pub type StrategyConfig {
   StrategyConfig(
-    subscribe_to_kraken: SubscribeToKraken,
-    unsubscribe_from_kraken: UnsubscribeFromKraken,
-    check_for_kraken_price: CheckForKrakenPrice,
+    check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
     request_cmc_conversion: RequestCmcConversion,
     get_current_time_ms: fn() -> Int,
     behavior: StrategyBehavior,
@@ -60,7 +49,7 @@ pub fn determine_strategy(
   )
 
   Ok(case create_kraken_symbol(symbols) {
-    Ok(kraken_symbol) -> KrakenStrategy(kraken_symbol)
+    Ok(symbol) -> KrakenStrategy(symbol)
     Error(_) -> CmcStrategy
   })
 }
@@ -83,8 +72,6 @@ fn execute_kraken_strategy(
   kraken_symbol: KrakenSymbol,
   config: StrategyConfig,
 ) -> Result(RateResponse, RateError) {
-  config.subscribe_to_kraken(kraken_symbol)
-
   let kraken_price_result = config.check_for_kraken_price(kraken_symbol)
   case kraken_price_result {
     Error(_) -> {
