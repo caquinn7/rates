@@ -11,8 +11,8 @@ pub opaque type SubscriptionManager {
 }
 
 pub type Subscription {
-  Kraken(rate_request: RateRequest, symbol: KrakenSymbol)
-  Cmc(rate_request: RateRequest)
+  Kraken(RateRequest, KrakenSymbol)
+  Cmc(RateRequest)
 }
 
 type SubscriberIntervals {

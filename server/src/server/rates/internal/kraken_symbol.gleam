@@ -17,6 +17,7 @@ pub fn new(
 
   case symbol_exists(direct_pair_symbol) {
     True -> Ok(Direct(direct_pair_symbol))
+
     False -> {
       let reverse_pair_symbol = to_symbol <> "/" <> from_symbol
       case symbol_exists(reverse_pair_symbol) {
@@ -28,18 +29,18 @@ pub fn new(
 }
 
 /// Retrieves the raw Kraken symbol string (e.g. "BTC/USD") from a `KrakenSymbol`.
-pub fn to_string(kraken_symbol: KrakenSymbol) -> String {
-  case kraken_symbol {
-    Direct(symbol) -> symbol
-    Reversed(symbol) -> symbol
+pub fn to_string(symbol: KrakenSymbol) -> String {
+  case symbol {
+    Direct(s) -> s
+    Reversed(s) -> s
   }
 }
 
 /// Applies the symbol direction to a price. Returns the price as-is for DirectSymbol,
 /// or the inverse for ReversedSymbol
-pub fn apply_price_direction(kraken_symbol: KrakenSymbol, price: Float) -> Float {
-  case kraken_symbol {
-    Direct(_) -> price
-    Reversed(_) -> 1.0 /. price
+pub fn apply_price_direction(symbol: KrakenSymbol, price: Float) -> Float {
+  case symbol {
+    Direct(..) -> price
+    Reversed(..) -> 1.0 /. price
   }
 }

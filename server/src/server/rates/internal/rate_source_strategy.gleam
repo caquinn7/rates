@@ -24,11 +24,20 @@ pub type StrategyBehavior {
   )
 }
 
+pub type SubscribeToKraken =
+  fn(KrakenSymbol) -> Nil
+
+pub type UnsubscribeFromKraken =
+  fn(KrakenSymbol) -> Nil
+
+pub type CheckForKrakenPrice =
+  fn(KrakenSymbol) -> Result(PriceEntry, Nil)
+
 pub type StrategyConfig {
   StrategyConfig(
-    subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
-    unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
-    check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
+    subscribe_to_kraken: SubscribeToKraken,
+    unsubscribe_from_kraken: UnsubscribeFromKraken,
+    check_for_kraken_price: CheckForKrakenPrice,
     request_cmc_conversion: RequestCmcConversion,
     get_current_time_ms: fn() -> Int,
     behavior: StrategyBehavior,

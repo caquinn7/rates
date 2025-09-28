@@ -27,12 +27,12 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
 import server/integrations/kraken/pairs
-import server/integrations/kraken/price_store.{type PriceEntry}
 import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
-import server/rates/internal/kraken_symbol.{type KrakenSymbol}
+import server/rates/internal/kraken_symbol
 import server/rates/internal/rate_source_strategy.{
-  type RateSourceStrategy, type StrategyBehavior, type StrategyConfig,
-  CmcStrategy, KrakenStrategy, StrategyBehavior, StrategyConfig,
+  type CheckForKrakenPrice, type RateSourceStrategy, type StrategyBehavior,
+  type SubscribeToKraken, type UnsubscribeFromKraken, CmcStrategy,
+  KrakenStrategy, StrategyBehavior, StrategyConfig,
 }
 import server/rates/internal/subscription_manager.{
   type Subscription, type SubscriptionManager, Cmc, Kraken,
@@ -54,9 +54,9 @@ pub type Config {
   Config(
     cmc_currencies: List(Currency),
     subscription_manager: SubscriptionManager,
-    subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
-    unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
-    check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
+    subscribe_to_kraken: SubscribeToKraken,
+    unsubscribe_from_kraken: UnsubscribeFromKraken,
+    check_for_kraken_price: CheckForKrakenPrice,
     request_cmc_conversion: RequestCmcConversion,
     get_current_time_ms: fn() -> Int,
     logger: Logger,
@@ -66,9 +66,9 @@ pub type Config {
 pub fn new_config(
   cmc_currencies: List(Currency),
   interval: Int,
-  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
-  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
-  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
+  subscribe_to_kraken: SubscribeToKraken,
+  unsubscribe_from_kraken: UnsubscribeFromKraken,
+  check_for_kraken_price: CheckForKrakenPrice,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
   logger: Logger,
@@ -234,9 +234,9 @@ fn handle_msg(
   subscription_id: SubscriptionId,
   state: State,
   msg: Msg,
-  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
-  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
-  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
+  subscribe_to_kraken: SubscribeToKraken,
+  unsubscribe_from_kraken: UnsubscribeFromKraken,
+  check_for_kraken_price: CheckForKrakenPrice,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
@@ -282,9 +282,9 @@ fn do_subscribe(
   subscription_id: SubscriptionId,
   state: State,
   rate_request: RateRequest,
-  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
-  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
-  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
+  subscribe_to_kraken: SubscribeToKraken,
+  unsubscribe_from_kraken: UnsubscribeFromKraken,
+  check_for_kraken_price: CheckForKrakenPrice,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
@@ -311,13 +311,13 @@ fn do_subscribe(
 
     Ok(strategy) -> {
       let config =
-        create_strategy_config(
-          subscribe_to_kraken,
-          unsubscribe_from_kraken,
-          check_for_kraken_price,
-          request_cmc_conversion,
-          get_current_time_ms,
-          create_subscriber_behavior(subscription_id, state.logger),
+        StrategyConfig(
+          subscribe_to_kraken:,
+          unsubscribe_from_kraken:,
+          check_for_kraken_price:,
+          request_cmc_conversion:,
+          get_current_time_ms:,
+          behavior: create_subscriber_behavior(subscription_id, state.logger),
         )
 
       let result =
@@ -334,7 +334,7 @@ fn do_subscribe(
 
 fn cleanup_existing_subscription(
   state: State,
-  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+  unsubscribe_from_kraken: UnsubscribeFromKraken,
 ) -> State {
   let subscription =
     subscription_manager.get_subscription(state.subscription_manager)
@@ -364,32 +364,12 @@ fn clear_subscription_from_state(state: State) -> State {
   )
 }
 
-fn create_strategy_config(
-  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
-  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
-  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
-  request_cmc_conversion: RequestCmcConversion,
-  get_current_time_ms: fn() -> Int,
-  behavior: StrategyBehavior,
-) -> StrategyConfig {
-  StrategyConfig(
-    subscribe_to_kraken:,
-    unsubscribe_from_kraken:,
-    check_for_kraken_price:,
-    request_cmc_conversion:,
-    get_current_time_ms:,
-    behavior:,
-  )
-}
-
 fn create_subscriber_behavior(
   subscription_id: SubscriptionId,
   logger: Logger,
 ) -> StrategyBehavior {
   StrategyBehavior(
-    // subscriber keeps the connection
     on_kraken_success: fn() { Nil },
-    // no cleanup needed for subscriber
     on_kraken_failure: fn(rate_request, _kraken_symbol) {
       log_wait_for_kraken_price_timeout(logger, subscription_id, rate_request)
     },
@@ -437,9 +417,9 @@ fn get_latest_rate(
   subscription_id: SubscriptionId,
   state: State,
   scheduled_subscription: Subscription,
-  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
-  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
-  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
+  subscribe_to_kraken: SubscribeToKraken,
+  unsubscribe_from_kraken: UnsubscribeFromKraken,
+  check_for_kraken_price: CheckForKrakenPrice,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
@@ -460,13 +440,13 @@ fn get_latest_rate(
       }
 
       let config =
-        create_strategy_config(
-          subscribe_to_kraken,
-          unsubscribe_from_kraken,
-          check_for_kraken_price,
-          request_cmc_conversion,
-          get_current_time_ms,
-          create_subscriber_behavior(subscription_id, state.logger),
+        StrategyConfig(
+          subscribe_to_kraken:,
+          unsubscribe_from_kraken:,
+          check_for_kraken_price:,
+          request_cmc_conversion:,
+          get_current_time_ms:,
+          behavior: create_subscriber_behavior(subscription_id, state.logger),
         )
 
       let result =
@@ -495,7 +475,7 @@ fn do_add_currencies(
 
 fn do_stop(
   state: State,
-  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+  unsubscribe_from_kraken: UnsubscribeFromKraken,
 ) -> Next(State, Msg) {
   let subscription =
     subscription_manager.get_subscription(state.subscription_manager)
