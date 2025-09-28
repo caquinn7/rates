@@ -26,18 +26,18 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import server/integrations/kraken/pairs
-import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
-import server/rates/internal/kraken_symbol
-import server/rates/internal/rate_source_strategy.{
+import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
+import server/domain/rates/internal/kraken_symbol
+import server/domain/rates/internal/rate_source_strategy.{
   type CheckForKrakenPrice, type RateSourceStrategy, type StrategyBehavior,
   type SubscribeToKraken, type UnsubscribeFromKraken, CmcStrategy,
   KrakenStrategy, StrategyBehavior, StrategyConfig,
 }
-import server/rates/internal/subscription_manager.{
+import server/domain/rates/internal/subscription_manager.{
   type Subscription, type SubscriptionManager, Cmc, Kraken,
 }
-import server/rates/rate_error.{type RateError}
+import server/domain/rates/rate_error.{type RateError}
+import server/integrations/kraken/pairs
 import server/utils/logger.{type Logger}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}

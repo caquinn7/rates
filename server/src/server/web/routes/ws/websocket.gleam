@@ -10,13 +10,17 @@ import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
 }
-import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
-import server/rates/internal/rate_source_strategy.{
+import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
+import server/domain/rates/internal/rate_source_strategy.{
   type CheckForKrakenPrice, type SubscribeToKraken, type UnsubscribeFromKraken,
 }
-import server/rates/internal/subscription_manager
-import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
-import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
+import server/domain/rates/internal/subscription_manager
+import server/domain/rates/rate_error.{
+  type RateError, CmcError, CurrencyNotFound,
+}
+import server/domain/rates/subscriber.{
+  type RateSubscriber, type SubscriptionResult,
+} as rate_subscriber
 import server/utils/logger.{type Logger}
 import server/utils/time
 import shared/currency.{type Currency}

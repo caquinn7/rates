@@ -1,9 +1,9 @@
 import gleam/dict.{type Dict}
 import gleam/erlang/process
 import gleam/result
+import server/domain/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/integrations/kraken/client.{type KrakenClient} as kraken_client
 import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
-import server/rates/internal/kraken_symbol.{type KrakenSymbol}
 import shared/rates/rate_request.{type RateRequest}
 
 /// Represents an error that occurred while resolving a currency ID to a symbol.

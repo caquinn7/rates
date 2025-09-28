@@ -12,8 +12,12 @@ import mist.{
   Shutdown, Text,
 }
 
-import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
-import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
+import server/domain/rates/rate_error.{
+  type RateError, CmcError, CurrencyNotFound,
+}
+import server/domain/rates/subscriber.{
+  type RateSubscriber, type SubscriptionResult,
+} as rate_subscriber
 import server/utils/logger.{type Logger}
 
 import shared/currency.{type Currency}

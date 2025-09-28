@@ -1,6 +1,8 @@
 import gleam/httpc
 import gleam/option.{None, Some}
-import server/currencies/cmc_currency_handler.{ClientError, ErrorStatusReceived}
+import server/domain/currencies/cmc_currency_handler.{
+  ClientError, ErrorStatusReceived,
+}
 import server/integrations/coin_market_cap/client.{
   CmcCryptoCurrency, CmcFiatCurrency, CmcListResponse, CmcStatus, HttpError,
 }

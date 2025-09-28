@@ -1,6 +1,6 @@
 import gleam/int
 import gleam/option.{type Option, None, Some}
-import server/rates/internal/kraken_symbol.{type KrakenSymbol}
+import server/domain/rates/internal/kraken_symbol.{type KrakenSymbol}
 import shared/rates/rate_request.{type RateRequest}
 
 pub opaque type SubscriptionManager {

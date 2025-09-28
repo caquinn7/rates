@@ -12,18 +12,18 @@ import gleam/string_tree
 import glight
 import mist
 import server/context.{type Context, Context}
-import server/currencies/cmc_currency_handler
-import server/currencies/currencies_fetcher
+import server/domain/currencies/cmc_currency_handler
+import server/domain/currencies/currencies_fetcher
+import server/domain/rates/internal/kraken_symbol
+import server/domain/rates/internal/subscription_manager
+import server/domain/rates/internal/utils
+import server/domain/rates/rate_error.{type RateError}
+import server/domain/rates/resolver as rate_resolver
+import server/domain/rates/subscriber as rate_subscriber
 import server/integrations/coin_market_cap/client as cmc_client
 import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
-import server/rates/internal/kraken_symbol
-import server/rates/internal/subscription_manager
-import server/rates/internal/utils
-import server/rates/rate_error.{type RateError}
-import server/rates/resolver as rate_resolver
-import server/rates/subscriber as rate_subscriber
 import server/utils/logger
 import server/utils/time
 import server/web/routes/home
