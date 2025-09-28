@@ -102,17 +102,19 @@ pub fn main() {
   // request handlers
   let assert Ok(_) =
     mist.new(fn(req) {
-      let request_cmc_conversion = cmc_client.get_conversion(cmc_api_key, _)
-
-      let price_store = {
-        let store = case price_store.get_store() {
-          Ok(store) -> store
-          _ -> panic as "tried to get price store before it was created"
+      let kraken_interface = {
+        let price_store = {
+          let store = case price_store.get_store() {
+            Ok(store) -> store
+            _ -> panic as "tried to get price store before it was created"
+          }
+          store
         }
-        store
+
+        kraken_interface.new(kraken_client, price_store)
       }
 
-      let kraken_interface = kraken_interface.new(kraken_client, price_store)
+      let request_cmc_conversion = cmc_client.get_conversion(cmc_api_key, _)
 
       case request.path_segments(req) {
         // handle websocket connections
