@@ -12,7 +12,24 @@ import server/integrations/kraken/price_store.{PriceEntry}
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response
 
-pub fn determine_strategy_returns_currency_not_found_when_currency_id_not_found_test() {
+pub fn determine_strategy_returns_currency_not_found_when_first_currency_id_not_found_test() {
+  let rate_request = RateRequest(from: 1, to: 2)
+  let cmc_currencies = dict.from_list([#(2, "USD")])
+  let create_kraken_symbol = fn(_) {
+    panic as "Should not be called - kraken symbol failure not expected"
+  }
+
+  let result =
+    rate_source_strategy.determine_strategy(
+      rate_request,
+      cmc_currencies,
+      create_kraken_symbol,
+    )
+
+  assert Error(rate_source_strategy.CurrencyNotFound(1)) == result
+}
+
+pub fn determine_strategy_returns_currency_not_found_when_second_currency_id_not_found_test() {
   let rate_request = RateRequest(from: 1, to: 2)
   let cmc_currencies = dict.from_list([#(1, "BTC")])
   let create_kraken_symbol = fn(_) {

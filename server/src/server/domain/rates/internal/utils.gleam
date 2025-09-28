@@ -1,31 +1,6 @@
-import gleam/dict.{type Dict}
 import gleam/erlang/process
-import gleam/result
 import server/domain/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
-import shared/rates/rate_request.{type RateRequest}
-
-/// Represents an error that occurred while resolving a currency ID to a symbol.
-pub type SymbolResolutionError {
-  CurrencyNotFound(Int)
-}
-
-/// Resolves the `from` and `to` currency IDs in a `RateRequest` to their string symbols
-/// using the provided currency dictionary. Returns an error if either currency is not found.
-pub fn resolve_currency_symbols(
-  rate_request: RateRequest,
-  currencies: Dict(Int, String),
-) -> Result(#(String, String), SymbolResolutionError) {
-  let try_get_symbol = fn(id) {
-    currencies
-    |> dict.get(id)
-    |> result.replace_error(CurrencyNotFound(id))
-  }
-
-  use from_symbol <- result.try(try_get_symbol(rate_request.from))
-  use to_symbol <- result.try(try_get_symbol(rate_request.to))
-  Ok(#(from_symbol, to_symbol))
-}
 
 /// Attempts to fetch the latest price for a given `KrakenSymbol` from the shared `PriceStore`.
 /// If the symbol is reversed, returns the inverse of the price.

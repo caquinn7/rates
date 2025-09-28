@@ -1,39 +1,7 @@
-import gleam/dict
 import server/domain/rates/internal/kraken_symbol
-import server/domain/rates/internal/utils.{CurrencyNotFound}
+import server/domain/rates/internal/utils
 import server/integrations/kraken/price_store.{PriceEntry}
 import server_test
-import shared/rates/rate_request.{RateRequest}
-
-pub fn resolve_currency_symbols_from_currency_not_found_test() {
-  let currencies = dict.from_list([#(2781, "USD")])
-
-  let result =
-    RateRequest(1, 2781)
-    |> utils.resolve_currency_symbols(currencies)
-
-  assert Error(CurrencyNotFound(1)) == result
-}
-
-pub fn resolve_currency_symbols_to_currency_not_found_test() {
-  let currencies = dict.from_list([#(1, "BTC")])
-
-  let result =
-    RateRequest(1, 2781)
-    |> utils.resolve_currency_symbols(currencies)
-
-  assert Error(CurrencyNotFound(2781)) == result
-}
-
-pub fn resolve_currency_symbols_test() {
-  let currencies = dict.from_list([#(1, "BTC"), #(2781, "USD")])
-
-  let result =
-    RateRequest(1, 2781)
-    |> utils.resolve_currency_symbols(currencies)
-
-  assert Ok(#("BTC", "USD")) == result
-}
 
 pub fn wait_for_kraken_price_returns_error_when_price_not_found_test() {
   let assert Ok(kraken_symbol) =
