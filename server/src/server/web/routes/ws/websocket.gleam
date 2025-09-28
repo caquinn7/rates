@@ -16,6 +16,7 @@ import server/domain/rates/internal/subscription_manager
 import server/domain/rates/rate_error.{
   type RateError, CmcError, CurrencyNotFound,
 }
+import server/domain/rates/rate_service_config.{RateServiceConfig}
 import server/domain/rates/subscriber.{
   type RateSubscriber, type SubscriptionResult,
 } as rate_subscriber
@@ -44,15 +45,19 @@ pub fn on_init(
 
   let assert Ok(rate_subscriber) = {
     let assert Ok(subscription_manager) = subscription_manager.new(10_000)
+
     let config =
       rate_subscriber.Config(
-        currencies:,
+        RateServiceConfig(
+          currencies:,
+          kraken_interface:,
+          request_cmc_conversion:,
+          get_current_time_ms: time.system_time_ms,
+        ),
         subscription_manager:,
-        kraken_interface:,
-        request_cmc_conversion:,
-        get_current_time_ms: time.system_time_ms,
         logger: logger.with(logger.new(), "source", "subscriber"),
       )
+
     rate_subscriber.new(fixed_subscription_id, subject, config)
   }
 

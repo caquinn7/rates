@@ -27,8 +27,8 @@ import server/domain/rates/internal/rate_source_strategy.{
   StrategyBehavior, StrategyConfig,
 }
 import server/domain/rates/rate_error.{type RateError}
+import server/domain/rates/rate_service_config.{type RateServiceConfig}
 import server/integrations/kraken/pairs
-import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
 
@@ -37,12 +37,7 @@ pub opaque type RateResolver {
 }
 
 pub type Config {
-  Config(
-    currencies: List(Currency),
-    kraken_interface: KrakenInterface,
-    request_cmc_conversion: RequestCmcConversion,
-    get_current_time_ms: fn() -> Int,
-  )
+  Config(base: RateServiceConfig)
 }
 
 type Msg {
@@ -55,7 +50,7 @@ type State {
 
 pub fn new(config: Config) -> Result(RateResolver, StartError) {
   let currency_symbols =
-    config.currencies
+    config.base.currencies
     |> list.map(fn(c) { #(c.id, c.symbol) })
     |> dict.from_list
 
@@ -63,9 +58,9 @@ pub fn new(config: Config) -> Result(RateResolver, StartError) {
     handle_msg(
       state,
       msg,
-      config.kraken_interface,
-      config.request_cmc_conversion,
-      config.get_current_time_ms,
+      config.base.kraken_interface,
+      config.base.request_cmc_conversion,
+      config.base.get_current_time_ms,
     )
   }
 

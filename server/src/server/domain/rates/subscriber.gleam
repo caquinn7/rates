@@ -37,6 +37,7 @@ import server/domain/rates/internal/subscription_manager.{
   type Subscription, type SubscriptionManager, Cmc, Kraken,
 }
 import server/domain/rates/rate_error.{type RateError}
+import server/domain/rates/rate_service_config.{type RateServiceConfig}
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store.{type PriceEntry}
 import server/utils/logger.{type Logger}
@@ -53,11 +54,8 @@ pub opaque type RateSubscriber {
 
 pub type Config {
   Config(
-    currencies: List(Currency),
+    base: RateServiceConfig,
     subscription_manager: SubscriptionManager,
-    kraken_interface: KrakenInterface,
-    request_cmc_conversion: RequestCmcConversion,
-    get_current_time_ms: fn() -> Int,
     logger: Logger,
   )
 }
@@ -110,11 +108,6 @@ type State {
 /// The reply subject will receive tuples in the format:
 /// `#(subscription_id, Ok(rate_response))` for successful rate fetches
 /// `#(subscription_id, Error(rate_error))` for failed rate fetches
-///
-/// ## Configuration
-///
-/// Use `new_config()` to create a valid configuration. This ensures all interval
-/// validation is performed upfront rather than during actor creation.
 pub fn new(
   subscription_id: SubscriptionId,
   reply_to: Subject(SubscriptionResult),
@@ -124,7 +117,7 @@ pub fn new(
     State(
       None,
       reply_to,
-      currencies_to_dict(config.currencies),
+      currencies_to_dict(config.base.currencies),
       config.subscription_manager,
       config.logger,
     )
@@ -134,9 +127,9 @@ pub fn new(
       subscription_id,
       state,
       msg,
-      config.kraken_interface,
-      config.request_cmc_conversion,
-      config.get_current_time_ms,
+      config.base.kraken_interface,
+      config.base.request_cmc_conversion,
+      config.base.get_current_time_ms,
     )
   }
 
@@ -352,7 +345,6 @@ fn get_latest_rate(
 
       process.send(state.reply_to, #(subscription_id, result))
 
-      // Handle downgrade if needed
       let state = case should_downgrade {
         True ->
           update_state_on_downgrade(
