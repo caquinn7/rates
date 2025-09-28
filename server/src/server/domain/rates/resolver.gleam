@@ -127,7 +127,7 @@ fn handle_msg(
             CmcStrategy -> Nil
           }
 
-          let result =
+          let #(result, _) =
             rate_source_strategy.execute_strategy(
               strategy,
               rate_request,

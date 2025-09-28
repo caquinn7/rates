@@ -58,12 +58,12 @@ pub fn execute_strategy(
   strategy: RateSourceStrategy,
   rate_request: RateRequest,
   config: StrategyConfig,
-) -> Result(RateResponse, RateError) {
+) -> #(Result(RateResponse, RateError), Bool) {
   case strategy {
     KrakenStrategy(symbol) ->
       execute_kraken_strategy(rate_request, symbol, config)
 
-    CmcStrategy -> execute_cmc_strategy(rate_request, config)
+    CmcStrategy -> #(execute_cmc_strategy(rate_request, config), False)
   }
 }
 
@@ -71,12 +71,12 @@ fn execute_kraken_strategy(
   rate_request: RateRequest,
   kraken_symbol: KrakenSymbol,
   config: StrategyConfig,
-) -> Result(RateResponse, RateError) {
+) -> #(Result(RateResponse, RateError), Bool) {
   let kraken_price_result = config.check_for_kraken_price(kraken_symbol)
   case kraken_price_result {
     Error(_) -> {
       config.behavior.on_kraken_failure(rate_request, kraken_symbol)
-      execute_cmc_strategy(rate_request, config)
+      #(execute_cmc_strategy(rate_request, config), True)
     }
 
     Ok(price_entry) -> {
@@ -85,13 +85,16 @@ fn execute_kraken_strategy(
       let price =
         kraken_symbol.apply_price_direction(kraken_symbol, price_entry.price)
 
-      Ok(RateResponse(
-        rate_request.from,
-        rate_request.to,
-        price,
-        rate_response.Kraken,
-        price_entry.timestamp,
-      ))
+      #(
+        Ok(RateResponse(
+          rate_request.from,
+          rate_request.to,
+          price,
+          rate_response.Kraken,
+          price_entry.timestamp,
+        )),
+        False,
+      )
     }
   }
 }
