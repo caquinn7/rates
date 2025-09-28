@@ -18,7 +18,7 @@ import server/domain/rates/internal/kraken_symbol
 import server/domain/rates/internal/subscription_manager
 import server/domain/rates/internal/utils
 import server/domain/rates/rate_error.{type RateError}
-import server/domain/rates/resolver as rate_resolver
+import server/domain/rates/resolver_v2 as rate_resolver
 import server/domain/rates/subscriber as rate_subscriber
 import server/integrations/coin_market_cap/client as cmc_client
 import server/integrations/kraken/client as kraken_client
@@ -186,14 +186,17 @@ pub fn main() {
         // handle http requests
         _ -> {
           let get_rate = fn(rate_req) {
-            let assert Ok(resolver) =
-              rate_resolver.new(
-                cmc_currencies,
-                kraken_client,
-                request_cmc_conversion,
-                get_price_store,
-                time.system_time_ms,
+            let config =
+              rate_resolver.Config(
+                currencies: cmc_currencies,
+                subscribe_to_kraken: subscribe_to_kraken,
+                unsubscribe_from_kraken: unsubscribe_from_kraken,
+                check_for_kraken_price: check_for_kraken_price,
+                request_cmc_conversion: request_cmc_conversion,
+                get_current_time_ms: time.system_time_ms,
               )
+
+            let assert Ok(resolver) = rate_resolver.new(config)
 
             rate_resolver.get_rate(resolver, rate_req, 5000)
           }

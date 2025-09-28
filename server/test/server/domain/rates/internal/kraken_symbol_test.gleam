@@ -2,7 +2,7 @@ import gleam/set
 import server/domain/rates/internal/kraken_symbol
 import server/integrations/kraken/pairs
 
-pub fn new_with_validator_returns_direct_when_only_direct_symbol_exists_test() {
+pub fn new_returns_direct_when_only_direct_symbol_exists_test() {
   let mock_exists = fn(symbol) {
     case symbol {
       "BTC/USD" -> True
@@ -16,7 +16,7 @@ pub fn new_with_validator_returns_direct_when_only_direct_symbol_exists_test() {
   assert "BTC/USD" == kraken_symbol.to_string(symbol)
 }
 
-pub fn new_with_validator_returns_direct_when_both_symbols_exist_test() {
+pub fn new_returns_direct_when_both_symbols_exist_test() {
   let mock_exists = fn(symbol) {
     case symbol {
       "BTC/USD" | "USD/BTC" -> True
@@ -30,7 +30,7 @@ pub fn new_with_validator_returns_direct_when_both_symbols_exist_test() {
   assert "BTC/USD" == kraken_symbol.to_string(symbol)
 }
 
-pub fn new_with_validator_returns_reversed_when_only_reversed_symbol_exists_test() {
+pub fn new_returns_reversed_when_only_reversed_symbol_exists_test() {
   let mock_exists = fn(symbol) {
     case symbol {
       "USD/BTC" -> True
@@ -44,7 +44,7 @@ pub fn new_with_validator_returns_reversed_when_only_reversed_symbol_exists_test
   assert "USD/BTC" == kraken_symbol.to_string(symbol)
 }
 
-pub fn new_with_validator_returns_error_when_neither_symbol_exists_test() {
+pub fn new_returns_error_when_neither_symbol_exists_test() {
   assert Error(Nil) == kraken_symbol.new(#("BTC", "USD"), fn(_) { False })
 }
 
