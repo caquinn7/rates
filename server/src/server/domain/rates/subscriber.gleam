@@ -318,13 +318,7 @@ fn cleanup_existing_subscription(
   case subscription {
     Some(Kraken(_, old_symbol)) -> {
       unsubscribe_from_kraken(old_symbol)
-
-      State(
-        ..state,
-        subscription_manager: subscription_manager.clear_subscription(
-          state.subscription_manager,
-        ),
-      )
+      clear_subscription_from_state(state)
     }
 
     _ -> state
