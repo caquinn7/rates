@@ -14,10 +14,8 @@ import mist
 import server/context.{type Context, Context}
 import server/domain/currencies/cmc_currency_handler
 import server/domain/currencies/currencies_fetcher
-import server/domain/rates/internal/kraken_interface.{KrakenInterface}
-import server/domain/rates/internal/kraken_symbol
+import server/domain/rates/internal/kraken_interface
 import server/domain/rates/internal/subscription_manager
-import server/domain/rates/internal/utils
 import server/domain/rates/rate_error.{type RateError}
 import server/domain/rates/rate_service_config.{RateServiceConfig}
 import server/domain/rates/resolver as rate_resolver
@@ -87,15 +85,17 @@ pub fn main() {
     }
   }
 
-  let create_price_store = fn() {
-    let assert Ok(store) = price_store.new()
-    store
-  }
-  let assert Ok(kraken_client) =
+  let assert Ok(kraken_client) = {
+    let create_price_store = fn() {
+      let assert Ok(store) = price_store.new()
+      store
+    }
+
     kraken_client.new(
       logger.with(logger.new(), "source", "kraken"),
       create_price_store,
     )
+  }
 
   wait_for_kraken_symbols_loop(time.monotonic_time_ms(), 10_000)
 
@@ -104,7 +104,7 @@ pub fn main() {
     mist.new(fn(req) {
       let request_cmc_conversion = cmc_client.get_conversion(cmc_api_key, _)
 
-      let get_price_store = fn() {
+      let price_store = {
         let store = case price_store.get_store() {
           Ok(store) -> store
           _ -> panic as "tried to get price store before it was created"
@@ -112,30 +112,7 @@ pub fn main() {
         store
       }
 
-      let kraken_interface = {
-        let subscribe_to_kraken = fn(kraken_symbol) {
-          let symbol_str = kraken_symbol.to_string(kraken_symbol)
-          kraken_client.subscribe(kraken_client, symbol_str)
-        }
-
-        let unsubscribe_from_kraken = fn(kraken_symbol) {
-          let symbol_str = kraken_symbol.to_string(kraken_symbol)
-          kraken_client.unsubscribe(kraken_client, symbol_str)
-        }
-
-        let check_for_kraken_price = utils.wait_for_kraken_price(
-          _,
-          get_price_store(),
-          5,
-          50,
-        )
-
-        KrakenInterface(
-          subscribe_to_kraken,
-          unsubscribe_from_kraken,
-          check_for_kraken_price,
-        )
-      }
+      let kraken_interface = kraken_interface.new(kraken_client, price_store)
 
       case request.path_segments(req) {
         // handle websocket connections
