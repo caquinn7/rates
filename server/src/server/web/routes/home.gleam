@@ -6,7 +6,7 @@ import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import server/rates/rate_error.{type RateError}
+import server/domain/rates/rate_error.{type RateError}
 import server/utils/logger
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
@@ -45,7 +45,8 @@ fn get_page_data(
   let rate_req = RateRequest(btc.id, usd.id)
 
   use rate_response <- result.try(
-    get_rate(rate_req)
+    rate_req
+    |> get_rate
     |> result.map_error(log_rate_request_error(rate_req, _)),
   )
 

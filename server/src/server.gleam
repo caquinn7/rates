@@ -12,14 +12,18 @@ import gleam/string_tree
 import glight
 import mist
 import server/context.{type Context, Context}
-import server/currencies/cmc_currency_handler
-import server/currencies/currencies_fetcher
+import server/domain/currencies/cmc_currency_handler
+import server/domain/currencies/currencies_fetcher
+import server/domain/rates/internal/kraken_interface
+import server/domain/rates/internal/subscription_manager
+import server/domain/rates/rate_error.{type RateError}
+import server/domain/rates/rate_service_config.{RateServiceConfig}
+import server/domain/rates/resolver as rate_resolver
+import server/domain/rates/subscriber as rate_subscriber
 import server/integrations/coin_market_cap/client as cmc_client
 import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
-import server/rates/rate_error.{type RateError}
-import server/rates/resolver as rate_resolver
 import server/utils/logger
 import server/utils/time
 import server/web/routes/home
@@ -46,7 +50,7 @@ pub fn main() {
   let ctx = Context(cmc_api_key:, crypto_limit:, supported_fiat_symbols:)
 
   // get CMC currencies
-  let cmc_currencies = {
+  let currencies = {
     let request_cryptos = fn() {
       cmc_client.get_crypto_currencies(
         ctx.cmc_api_key,
@@ -70,41 +74,47 @@ pub fn main() {
       Error(err) ->
         panic as { "error getting currencies: " <> string.inspect(err) }
 
-      Ok(cmc_currencies) -> {
+      Ok(currencies) -> {
         logger.new()
         |> logger.with("source", "server")
-        |> logger.with("count", int.to_string(list.length(cmc_currencies)))
+        |> logger.with("count", int.to_string(list.length(currencies)))
         |> logger.info("fetched currencies from cmc")
 
-        cmc_currencies
+        currencies
       }
     }
   }
 
-  let create_price_store = fn() {
-    let assert Ok(store) = price_store.new()
-    store
-  }
-  let assert Ok(kraken_client) =
+  let assert Ok(kraken_client) = {
+    let create_price_store = fn() {
+      let assert Ok(store) = price_store.new()
+      store
+    }
+
     kraken_client.new(
       logger.with(logger.new(), "source", "kraken"),
       create_price_store,
     )
+  }
 
   wait_for_kraken_symbols_loop(time.monotonic_time_ms(), 10_000)
 
   // request handlers
   let assert Ok(_) =
     mist.new(fn(req) {
-      let request_cmc_conversion = cmc_client.get_conversion(cmc_api_key, _)
-
-      let get_price_store = fn() {
-        let store = case price_store.get_store() {
-          Ok(store) -> store
-          _ -> panic as "tried to get price store before it was created"
+      let kraken_interface = {
+        let price_store = {
+          let store = case price_store.get_store() {
+            Ok(store) -> store
+            _ -> panic as "tried to get price store before it was created"
+          }
+          store
         }
-        store
+
+        kraken_interface.new(kraken_client, price_store)
       }
+
+      let request_cmc_conversion = cmc_client.get_conversion(cmc_api_key, _)
 
       case request.path_segments(req) {
         // handle websocket connections
@@ -113,10 +123,9 @@ pub fn main() {
             req,
             on_init: websocket.on_init(
               _,
-              cmc_currencies,
+              currencies,
+              kraken_interface,
               request_cmc_conversion,
-              kraken_client,
-              get_price_store,
               logger.with(logger.new(), "source", "websocket"),
             ),
             handler: websocket.handler,
@@ -125,17 +134,37 @@ pub fn main() {
         }
 
         ["ws", "v2"] -> {
+          let create_rate_subscriber = fn(subscription_id, subject) {
+            let assert Ok(subscription_manager) =
+              subscription_manager.new(10_000)
+
+            let config =
+              rate_subscriber.Config(
+                RateServiceConfig(
+                  currencies:,
+                  kraken_interface:,
+                  request_cmc_conversion:,
+                  get_current_time_ms: time.system_time_ms,
+                ),
+                subscription_manager:,
+                logger: logger.with(logger.new(), "source", "subscriber"),
+              )
+
+            let assert Ok(rate_subscriber) =
+              rate_subscriber.new(subscription_id, subject, config)
+
+            rate_subscriber
+          }
+
           mist.websocket(
             req,
             on_init: websocket_v2.on_init(
               _,
-              cmc_currencies,
-              request_cmc_conversion,
-              kraken_client,
-              get_price_store,
               logger.with(logger.new(), "source", "websocket_v2"),
             ),
-            handler: websocket_v2.handler,
+            handler: fn(state, message, conn) {
+              websocket_v2.handler(state, message, conn, create_rate_subscriber)
+            },
             on_close: websocket_v2.on_close,
           )
         }
@@ -143,21 +172,22 @@ pub fn main() {
         // handle http requests
         _ -> {
           let get_rate = fn(rate_req) {
-            let assert Ok(resolver) =
-              rate_resolver.new(
-                cmc_currencies,
-                kraken_client,
-                request_cmc_conversion,
-                get_price_store,
-                time.system_time_ms,
-              )
+            let config =
+              rate_resolver.Config(RateServiceConfig(
+                currencies:,
+                kraken_interface:,
+                request_cmc_conversion:,
+                get_current_time_ms: time.system_time_ms,
+              ))
+
+            let assert Ok(resolver) = rate_resolver.new(config)
 
             rate_resolver.get_rate(resolver, rate_req, 5000)
           }
 
           let handle_request =
             wisp_mist.handler(
-              handle_request(ctx, _, cmc_currencies, get_rate),
+              handle_request(ctx, _, currencies, get_rate),
               secret_key_base,
             )
 

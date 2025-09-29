@@ -1,5 +1,5 @@
 import gleam/dict.{type Dict}
-import gleam/erlang/process.{type Selector}
+import gleam/erlang/process.{type Selector, type Subject}
 import gleam/float
 import gleam/function
 import gleam/int
@@ -11,13 +11,15 @@ import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
 }
-import server/integrations/kraken/client.{type KrakenClient}
-import server/integrations/kraken/price_store.{type PriceStore}
-import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
-import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
-import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
+
+import server/domain/rates/rate_error.{
+  type RateError, CmcError, CurrencyNotFound,
+}
+import server/domain/rates/subscriber.{
+  type RateSubscriber, type SubscriptionResult,
+} as rate_subscriber
 import server/utils/logger.{type Logger}
-import server/utils/time
+
 import shared/currency.{type Currency}
 import shared/rates/rate_response.{RateResponse} as shared_rate_response
 import shared/subscriptions/subscription_id.{type SubscriptionId}
@@ -28,18 +30,15 @@ import shared/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
 
 pub type State {
   State(
-    create_rate_subscriber: fn(SubscriptionId) -> RateSubscriber,
+    subject: Subject(SubscriptionResult),
     rate_subscribers: Dict(SubscriptionId, RateSubscriber),
+    added_currencies: Dict(Int, Currency),
     logger: Logger,
   )
 }
 
 pub fn on_init(
   _conn: WebsocketConnection,
-  cmc_currencies: List(Currency),
-  request_cmc_conversion: RequestCmcConversion,
-  kraken_client: KrakenClient,
-  get_price_store: fn() -> PriceStore,
   logger: Logger,
 ) -> #(State, Option(Selector(SubscriptionResult))) {
   let subject = process.new_subject()
@@ -48,34 +47,19 @@ pub fn on_init(
     process.new_selector()
     |> process.select_map(subject, function.identity)
 
-  let create_rate_subscriber = fn(subscription_id) {
-    let assert Ok(rate_subscriber) =
-      rate_subscriber.new(
-        subscription_id,
-        subject,
-        cmc_currencies,
-        request_cmc_conversion,
-        kraken_client,
-        10_000,
-        get_price_store,
-        time.system_time_ms,
-        logger.with(logger.new(), "source", "subscriber"),
-      )
-
-    rate_subscriber
-  }
-
   log_socket_init(logger)
 
-  #(State(create_rate_subscriber, dict.new(), logger), Some(selector))
+  #(State(subject, dict.new(), dict.new(), logger), Some(selector))
 }
 
 pub fn handler(
   state: State,
   message: WebsocketMessage(SubscriptionResult),
   conn: WebsocketConnection,
+  create_rate_subscriber: fn(SubscriptionId, Subject(SubscriptionResult)) ->
+    RateSubscriber,
 ) -> mist.Next(State, SubscriptionResult) {
-  let State(create_rate_subscriber, rate_subscribers, logger) = state
+  let State(subject, rate_subscribers, added_currencies, logger) = state
 
   log_message_received(logger, message)
 
@@ -87,7 +71,7 @@ pub fn handler(
           // For existing subscriber IDs, reuses the subscriber and updates their subscription.
           // For new subscriber IDs, creates a new rate subscriber, subscribes them to the rate request,
           // and adds them to the dictionary. Returns the updated state with the new subscribers map.
-          let updated_subscribers =
+          let rate_subscribers =
             subscription_reqs
             |> list.fold(rate_subscribers, fn(acc, subscription_req) {
               case dict.get(acc, subscription_req.id) {
@@ -101,7 +85,13 @@ pub fn handler(
 
                 Error(_) -> {
                   let new_subscriber =
-                    create_rate_subscriber(subscription_req.id)
+                    create_rate_subscriber(subscription_req.id, subject)
+
+                  // Add all previously added currencies to the new subscriber
+                  rate_subscriber.add_currencies(
+                    new_subscriber,
+                    dict.values(added_currencies),
+                  )
 
                   rate_subscriber.subscribe(
                     new_subscriber,
@@ -113,7 +103,7 @@ pub fn handler(
               }
             })
 
-          mist.continue(State(..state, rate_subscribers: updated_subscribers))
+          mist.continue(State(..state, rate_subscribers:))
         }
 
         Ok(Unsubscribe(subscription_id)) -> {
@@ -134,11 +124,17 @@ pub fn handler(
         Ok(AddCurrencies([])) -> mist.continue(state)
 
         Ok(AddCurrencies(currencies)) -> {
+          let added_currencies =
+            currencies
+            |> list.fold(added_currencies, fn(acc, currency) {
+              dict.insert(acc, currency.id, currency)
+            })
+
           rate_subscribers
           |> dict.values
           |> list.each(rate_subscriber.add_currencies(_, currencies))
 
-          mist.continue(state)
+          mist.continue(State(..state, added_currencies:))
         }
 
         Error(_) -> {

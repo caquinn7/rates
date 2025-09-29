@@ -10,11 +10,16 @@ import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
 }
-import server/integrations/kraken/client.{type KrakenClient}
-import server/integrations/kraken/price_store.{type PriceStore}
-import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
-import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
-import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
+import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
+import server/domain/rates/internal/kraken_interface.{type KrakenInterface}
+import server/domain/rates/internal/subscription_manager
+import server/domain/rates/rate_error.{
+  type RateError, CmcError, CurrencyNotFound,
+}
+import server/domain/rates/rate_service_config.{RateServiceConfig}
+import server/domain/rates/subscriber.{
+  type RateSubscriber, type SubscriptionResult,
+} as rate_subscriber
 import server/utils/logger.{type Logger}
 import server/utils/time
 import shared/currency.{type Currency}
@@ -24,10 +29,9 @@ import shared/subscriptions/subscription_id
 
 pub fn on_init(
   _conn: WebsocketConnection,
-  cmc_currencies: List(Currency),
+  currencies: List(Currency),
+  kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
-  kraken_client: KrakenClient,
-  get_price_store: fn() -> PriceStore,
   logger: Logger,
 ) -> #(#(RateSubscriber, Logger), Option(Selector(SubscriptionResult))) {
   let subject = process.new_subject()
@@ -39,18 +43,23 @@ pub fn on_init(
   // Use a fixed subscription ID since we don't need multiple subscriptions
   let assert Ok(fixed_subscription_id) = subscription_id.new("websocket-single")
 
-  let assert Ok(rate_subscriber) =
-    rate_subscriber.new(
-      fixed_subscription_id,
-      subject,
-      cmc_currencies,
-      request_cmc_conversion,
-      kraken_client,
-      10_000,
-      get_price_store,
-      time.system_time_ms,
-      logger.with(logger.new(), "source", "subscriber"),
-    )
+  let assert Ok(rate_subscriber) = {
+    let assert Ok(subscription_manager) = subscription_manager.new(10_000)
+
+    let config =
+      rate_subscriber.Config(
+        RateServiceConfig(
+          currencies:,
+          kraken_interface:,
+          request_cmc_conversion:,
+          get_current_time_ms: time.system_time_ms,
+        ),
+        subscription_manager:,
+        logger: logger.with(logger.new(), "source", "subscriber"),
+      )
+
+    rate_subscriber.new(fixed_subscription_id, subject, config)
+  }
 
   log_socket_init(logger)
 

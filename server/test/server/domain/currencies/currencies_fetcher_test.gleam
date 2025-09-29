@@ -3,8 +3,8 @@ import gleam/httpc
 import gleam/list
 import gleam/option.{None, Some}
 import server/context.{Context}
-import server/currencies/cmc_currency_handler.{ClientError}
-import server/currencies/currencies_fetcher.{
+import server/domain/currencies/cmc_currency_handler.{ClientError}
+import server/domain/currencies/currencies_fetcher.{
   CryptoRequest, EmptyListReceived, FiatRequest, HandlerError, RequestError,
   Timeout,
 }

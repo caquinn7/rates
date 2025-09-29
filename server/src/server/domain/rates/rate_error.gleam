@@ -1,4 +1,4 @@
-import server/rates/internal/cmc_rate_handler.{type RateRequestError}
+import server/domain/rates/internal/cmc_rate_handler.{type RateRequestError}
 import shared/rates/rate_request.{type RateRequest}
 
 pub type RateError {
