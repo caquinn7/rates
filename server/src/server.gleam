@@ -5,7 +5,7 @@ import gleam/http/request
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/string_tree
@@ -21,7 +21,11 @@ import server/domain/rates/rate_service_config.{RateServiceConfig}
 import server/domain/rates/resolver as rate_resolver
 import server/domain/rates/subscriber as rate_subscriber
 import server/env_config
-import server/integrations/coin_market_cap/client as cmc_client
+import server/integrations/coin_market_cap/client.{
+  type CmcCryptoCurrency, type CmcFiatCurrency, type CmcListResponse,
+  type CmcRequestError,
+}
+import server/integrations/coin_market_cap/factories as cmc_factories
 import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
@@ -44,7 +48,6 @@ pub fn main() {
 
   configure_logging(env_config.log_level)
 
-  // build Context
   let app_config =
     AppConfig(
       cmc_api_key: env_config.cmc_api_key,
@@ -52,41 +55,20 @@ pub fn main() {
       supported_fiat_symbols: env_config.supported_fiat_symbols,
     )
 
-  // get CMC currencies
-  let currencies = {
-    let request_cryptos = fn() {
-      cmc_client.get_crypto_currencies(
-        app_config.cmc_api_key,
-        Some(app_config.crypto_limit),
-        None,
-      )
-    }
-    let request_fiats = fn() {
-      cmc_client.get_fiat_currencies(app_config.cmc_api_key, Some(100))
-    }
+  let request_cmc_cryptos =
+    cmc_factories.create_crypto_requester(
+      app_config.cmc_api_key,
+      app_config.crypto_limit,
+    )
 
-    let result =
-      currencies_fetcher.get_currencies(
-        app_config,
-        request_cryptos,
-        request_fiats,
-        10_000,
-      )
+  let request_cmc_fiats =
+    cmc_factories.create_fiat_requester(app_config.cmc_api_key)
 
-    case result {
-      Error(err) ->
-        panic as { "error getting currencies: " <> string.inspect(err) }
+  let request_cmc_conversion =
+    cmc_factories.create_conversion_requester(app_config.cmc_api_key)
 
-      Ok(currencies) -> {
-        logger.new()
-        |> logger.with("source", "server")
-        |> logger.with("count", int.to_string(list.length(currencies)))
-        |> logger.info("fetched currencies from cmc")
-
-        currencies
-      }
-    }
-  }
+  let assert Ok(currencies) =
+    get_currencies(app_config, request_cmc_cryptos, request_cmc_fiats)
 
   let assert Ok(kraken_client) = {
     let create_price_store = fn() {
@@ -106,21 +88,11 @@ pub fn main() {
   let assert Ok(_) =
     mist.new(fn(req) {
       let kraken_interface = {
-        let price_store = {
-          let store = case price_store.get_store() {
-            Ok(store) -> store
-            _ -> panic as "tried to get price store before it was created"
-          }
-          store
-        }
+        let assert Ok(price_store) = price_store.get_store()
+          as "tried to get reference to price store before it was created"
 
         kraken_interface.new(kraken_client, price_store)
       }
-
-      let request_cmc_conversion = cmc_client.get_conversion(
-        app_config.cmc_api_key,
-        _,
-      )
 
       case request.path_segments(req) {
         // handle websocket connections
@@ -193,7 +165,7 @@ pub fn main() {
 
           let handle_request =
             wisp_mist.handler(
-              handle_request(app_config, _, currencies, get_rate),
+              handle_request(_, request_cmc_cryptos, currencies, get_rate),
               env_config.secret_key_base,
             )
 
@@ -221,6 +193,36 @@ fn configure_logging(log_level: String) -> Nil {
   glight.set_is_color(True)
 }
 
+fn get_currencies(
+  app_config: AppConfig,
+  request_cmc_cryptos: fn(Option(String)) ->
+    Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
+  request_cmc_fiats: fn() ->
+    Result(CmcListResponse(CmcFiatCurrency), CmcRequestError),
+) -> Result(List(Currency), String) {
+  let currencies_result =
+    currencies_fetcher.get_currencies(
+      app_config,
+      fn() { request_cmc_cryptos(None) },
+      request_cmc_fiats,
+      10_000,
+    )
+
+  use currencies <- result.try(
+    currencies_result
+    |> result.map_error(fn(err) {
+      "error getting currencies: " <> string.inspect(err)
+    }),
+  )
+
+  logger.new()
+  |> logger.with("source", "server")
+  |> logger.with("count", int.to_string(list.length(currencies)))
+  |> logger.info("fetched currencies from cmc")
+
+  Ok(currencies)
+}
+
 fn wait_for_kraken_symbols_loop(start_time: Int, timeout_ms: Int) -> Nil {
   case pairs.count() > 0 {
     True -> Nil
@@ -239,8 +241,9 @@ fn wait_for_kraken_symbols_loop(start_time: Int, timeout_ms: Int) -> Nil {
 }
 
 fn handle_request(
-  app_config: AppConfig,
   req: Request,
+  request_cryptos: fn(Option(String)) ->
+    Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
 ) -> Response {
@@ -270,13 +273,7 @@ fn handle_request(
 
       use <- bool.guard(symbol == "", missing_symbol_response)
 
-      let request_cryptos = fn() {
-        cmc_client.get_crypto_currencies(
-          app_config.cmc_api_key,
-          Some(app_config.crypto_limit),
-          Some(symbol),
-        )
-      }
+      let request_cryptos = fn() { request_cryptos(Some(symbol)) }
 
       case cmc_currency_handler.get_cryptos(request_cryptos) {
         Error(_) -> wisp.internal_server_error()
