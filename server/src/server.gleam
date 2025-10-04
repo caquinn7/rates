@@ -1,4 +1,5 @@
 import dot_env/env
+import gleam/bool
 import gleam/erlang/process
 import gleam/http
 import gleam/http/request
@@ -254,39 +255,38 @@ fn handle_request(
     ["api", "currencies"] -> {
       use <- wisp.require_method(req, http.Get)
 
-      let get_symbol_param = fn() {
+      let symbol = {
         req
         |> wisp.get_query
         |> list.key_find("symbol")
         |> result.map(string.trim)
+        |> result.unwrap("")
       }
 
-      case get_symbol_param() {
-        Error(_) | Ok("") ->
-          wisp.response(400)
-          |> wisp.json_body(string_tree.from_string(
-            "{\"error\": \"Query parameter 'symbol' is required.\"}",
-          ))
+      let missing_symbol_response =
+        wisp.response(400)
+        |> wisp.json_body(string_tree.from_string(
+          "{\"error\": \"Query parameter 'symbol' is required.\"}",
+        ))
 
-        Ok(symbol) -> {
-          let request_cryptos = fn() {
-            cmc_client.get_crypto_currencies(
-              ctx.cmc_api_key,
-              Some(ctx.crypto_limit),
-              Some(symbol),
-            )
-          }
+      use <- bool.guard(symbol == "", missing_symbol_response)
 
-          case cmc_currency_handler.get_cryptos(request_cryptos) {
-            Error(_) -> wisp.internal_server_error()
+      let request_cryptos = fn() {
+        cmc_client.get_crypto_currencies(
+          ctx.cmc_api_key,
+          Some(ctx.crypto_limit),
+          Some(symbol),
+        )
+      }
 
-            Ok(currencies) ->
-              currencies
-              |> json.array(currency.encode)
-              |> json.to_string_tree
-              |> wisp.json_response(200)
-          }
-        }
+      case cmc_currency_handler.get_cryptos(request_cryptos) {
+        Error(_) -> wisp.internal_server_error()
+
+        Ok(currencies) ->
+          currencies
+          |> json.array(currency.encode)
+          |> json.to_string_tree
+          |> wisp.json_response(200)
       }
     }
 
