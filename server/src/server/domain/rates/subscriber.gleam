@@ -81,6 +81,13 @@ type State {
   )
 }
 
+type StateTransition {
+  KeepCurrentState
+  UpdateSubscription(RateSourceStrategy, RateRequest)
+  ClearSubscription
+  DowngradeToFallback(RateRequest)
+}
+
 /// Creates a new RateSubscriber actor that periodically fetches currency rates.
 ///
 /// This function initializes a new actor with the provided configuration and starts it.
@@ -205,10 +212,10 @@ fn handle_msg(
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
   case msg {
-    Init(subject) -> init(state, subject)
+    Init(subject) -> handle_init(state, subject)
 
     Subscribe(rate_request) ->
-      do_subscribe(
+      handle_subscribe(
         subscription_id,
         state,
         rate_request,
@@ -220,7 +227,7 @@ fn handle_msg(
       )
 
     GetLatestRate(scheduled_subscription) ->
-      get_latest_rate(
+      handle_get_latest_rate(
         subscription_id,
         state,
         scheduled_subscription,
@@ -230,20 +237,19 @@ fn handle_msg(
         get_current_time_ms,
       )
 
-    AddCurrencies(currencies) -> do_add_currencies(state, currencies)
+    AddCurrencies(currencies) -> handle_add_currencies(state, currencies)
 
-    Stop -> do_stop(state, kraken_interface.unsubscribe)
+    Stop -> handle_stop(state, kraken_interface.unsubscribe)
   }
 }
 
 // message handler functions
 
-fn init(state: State, subject: Subject(Msg)) -> Next(State, Msg) {
-  let updated_state = State(..state, self: Some(subject))
-  actor.continue(updated_state)
+fn handle_init(state: State, subject: Subject(Msg)) -> Next(State, Msg) {
+  actor.continue(State(..state, self: Some(subject)))
 }
 
-fn do_subscribe(
+fn handle_subscribe(
   subscription_id: SubscriptionId,
   state: State,
   rate_request: RateRequest,
@@ -269,9 +275,13 @@ fn do_subscribe(
         Error(rate_error.CurrencyNotFound(rate_request, id)),
       ))
 
-      state
-      |> clear_subscription_from_state
-      |> actor.continue
+      let state =
+        apply_state_transition(
+          state,
+          ClearSubscription,
+          unsubscribe_from_kraken,
+        )
+      actor.continue(state)
     }
 
     Ok(strategy) -> {
@@ -294,20 +304,22 @@ fn do_subscribe(
 
       process.send(state.reply_to, #(subscription_id, result))
 
-      // Determine final strategy after potential downgrade
-      let strategy = case should_downgrade {
-        True -> cleanup_kraken_on_downgrade(strategy, unsubscribe_from_kraken)
-        False -> strategy
+      // Determine state transition based on strategy and downgrade
+      let transition = case should_downgrade {
+        True -> DowngradeToFallback(rate_request)
+        False -> UpdateSubscription(strategy, rate_request)
       }
 
-      let state = update_subscription_manager(state, strategy, rate_request)
+      let state =
+        apply_state_transition(state, transition, unsubscribe_from_kraken)
+
       schedule_next_update(state)
       actor.continue(state)
     }
   }
 }
 
-fn get_latest_rate(
+fn handle_get_latest_rate(
   subscription_id: SubscriptionId,
   state: State,
   scheduled_subscription: Subscription,
@@ -323,46 +335,45 @@ fn get_latest_rate(
 
   let assert Some(current_subscription) = subscription
 
-  case current_subscription == scheduled_subscription {
-    False -> actor.continue(state)
+  use <- bool.guard(
+    current_subscription != scheduled_subscription,
+    actor.continue(state),
+  )
 
-    True -> {
-      let #(rate_request, strategy) = case current_subscription {
-        Kraken(rate_req, symbol) -> #(rate_req, KrakenStrategy(symbol))
-        Cmc(rate_req) -> #(rate_req, CmcStrategy)
-      }
-
-      let config =
-        StrategyConfig(
-          check_for_kraken_price:,
-          request_cmc_conversion:,
-          get_current_time_ms:,
-          behavior: create_subscriber_behavior(subscription_id, state.logger),
-        )
-
-      let #(result, should_downgrade) =
-        rate_source_strategy.execute_strategy(strategy, rate_request, config)
-
-      process.send(state.reply_to, #(subscription_id, result))
-
-      let state = case should_downgrade {
-        True ->
-          update_state_on_downgrade(
-            state,
-            strategy,
-            rate_request,
-            unsubscribe_from_kraken,
-          )
-        False -> state
-      }
-
-      schedule_next_update(state)
-      actor.continue(state)
-    }
+  let #(rate_request, strategy) = case current_subscription {
+    Kraken(rate_req, symbol) -> #(rate_req, KrakenStrategy(symbol))
+    Cmc(rate_req) -> #(rate_req, CmcStrategy)
   }
+
+  let strategy_config =
+    StrategyConfig(
+      check_for_kraken_price:,
+      request_cmc_conversion:,
+      get_current_time_ms:,
+      behavior: create_subscriber_behavior(subscription_id, state.logger),
+    )
+
+  let #(result, should_downgrade) =
+    rate_source_strategy.execute_strategy(
+      strategy,
+      rate_request,
+      strategy_config,
+    )
+
+  process.send(state.reply_to, #(subscription_id, result))
+
+  let transition = case should_downgrade {
+    True -> DowngradeToFallback(rate_request)
+    False -> KeepCurrentState
+  }
+
+  let state = apply_state_transition(state, transition, unsubscribe_from_kraken)
+
+  schedule_next_update(state)
+  actor.continue(state)
 }
 
-fn do_add_currencies(
+fn handle_add_currencies(
   state: State,
   currencies: List(Currency),
 ) -> Next(State, Msg) {
@@ -374,7 +385,7 @@ fn do_add_currencies(
   actor.continue(State(..state, currency_symbols:))
 }
 
-fn do_stop(
+fn handle_stop(
   state: State,
   unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
 ) -> Next(State, Msg) {
@@ -398,6 +409,40 @@ fn do_stop(
 }
 
 // helper functions
+
+/// Applies a state transition to create a new state
+fn apply_state_transition(
+  state: State,
+  transition: StateTransition,
+  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
+) -> State {
+  case transition {
+    KeepCurrentState -> state
+
+    UpdateSubscription(strategy, rate_request) ->
+      update_subscription_manager(state, strategy, rate_request)
+
+    ClearSubscription -> clear_subscription_from_state(state)
+
+    DowngradeToFallback(rate_request) -> {
+      // Cleanup any existing Kraken subscription before downgrading
+      let subscription =
+        subscription_manager.get_subscription(state.subscription_manager)
+
+      case subscription {
+        Some(Kraken(_, symbol)) -> unsubscribe_from_kraken(symbol)
+        _ -> Nil
+      }
+
+      let subscription_manager =
+        subscription_manager.create_cmc_subscription(
+          state.subscription_manager,
+          rate_request,
+        )
+      State(..state, subscription_manager:)
+    }
+  }
+}
 
 fn cleanup_existing_subscription(
   state: State,
@@ -472,45 +517,6 @@ fn schedule_next_update(state: State) -> Nil {
   )
 
   Nil
-}
-
-/// Handles Kraken subscription cleanup when downgrading
-fn cleanup_kraken_on_downgrade(
-  strategy: RateSourceStrategy,
-  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
-) -> RateSourceStrategy {
-  case strategy {
-    KrakenStrategy(symbol) -> {
-      unsubscribe_from_kraken(symbol)
-      CmcStrategy
-    }
-
-    CmcStrategy -> strategy
-  }
-}
-
-/// Updates state subscription manager when downgrading from Kraken to CMC
-fn update_state_on_downgrade(
-  state: State,
-  strategy: RateSourceStrategy,
-  rate_request: RateRequest,
-  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
-) -> State {
-  case strategy {
-    KrakenStrategy(symbol) -> {
-      unsubscribe_from_kraken(symbol)
-
-      let subscription_manager =
-        subscription_manager.create_cmc_subscription(
-          state.subscription_manager,
-          rate_request,
-        )
-
-      State(..state, subscription_manager:)
-    }
-
-    CmcStrategy -> state
-  }
 }
 
 fn currencies_to_dict(currencies: List(Currency)) -> Dict(Int, String) {
