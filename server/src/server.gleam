@@ -1,4 +1,3 @@
-import dot_env/env
 import gleam/bool
 import gleam/erlang/process
 import gleam/http
@@ -21,6 +20,7 @@ import server/domain/rates/rate_error.{type RateError}
 import server/domain/rates/rate_service_config.{RateServiceConfig}
 import server/domain/rates/resolver as rate_resolver
 import server/domain/rates/subscriber as rate_subscriber
+import server/env_config
 import server/integrations/coin_market_cap/client as cmc_client
 import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
@@ -37,18 +37,20 @@ import wisp.{type Request, type Response}
 import wisp/wisp_mist
 
 pub fn main() {
-  configure_logging()
-
-  let assert Ok(secret_key_base) = env.get_string("SECRET_KEY_BASE")
-  let assert Ok(cmc_api_key) = env.get_string("COIN_MARKET_CAP_API_KEY")
-  let crypto_limit = env.get_int_or("CRYPTO_LIMIT", 100)
-  let supported_fiat_symbols = case env.get_string("SUPPORTED_FIAT_SYMBOLS") {
-    Error(_) -> ["USD"]
-    Ok(s) -> string.split(s, ",")
+  let env_config = case env_config.load() {
+    Error(msg) -> panic as msg
+    Ok(c) -> c
   }
 
+  configure_logging(env_config.log_level)
+
   // build Context
-  let ctx = Context(cmc_api_key:, crypto_limit:, supported_fiat_symbols:)
+  let ctx =
+    Context(
+      cmc_api_key: env_config.cmc_api_key,
+      crypto_limit: env_config.crypto_limit,
+      supported_fiat_symbols: env_config.supported_fiat_symbols,
+    )
 
   // get CMC currencies
   let currencies = {
@@ -115,7 +117,7 @@ pub fn main() {
         kraken_interface.new(kraken_client, price_store)
       }
 
-      let request_cmc_conversion = cmc_client.get_conversion(cmc_api_key, _)
+      let request_cmc_conversion = cmc_client.get_conversion(ctx.cmc_api_key, _)
 
       case request.path_segments(req) {
         // handle websocket connections
@@ -189,7 +191,7 @@ pub fn main() {
           let handle_request =
             wisp_mist.handler(
               handle_request(ctx, _, currencies, get_rate),
-              secret_key_base,
+              env_config.secret_key_base,
             )
 
           handle_request(req)
@@ -202,19 +204,13 @@ pub fn main() {
   process.sleep_forever()
 }
 
-fn configure_logging() {
-  let log_level = {
-    let env_str =
-      env.get_string_or("LOG_LEVEL", "info")
-      |> string.lowercase
-
-    case env_str {
-      "error" -> glight.Error
-      "warn" -> glight.Warning
-      "info" -> glight.Info
-      "debug" -> glight.Debug
-      _ -> glight.Info
-    }
+fn configure_logging(log_level: String) -> Nil {
+  let log_level = case string.lowercase(log_level) {
+    "error" -> glight.Error
+    "warn" -> glight.Warning
+    "info" -> glight.Info
+    "debug" -> glight.Debug
+    _ -> glight.Info
   }
 
   glight.configure([glight.Console, glight.File("server.log")])
