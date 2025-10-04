@@ -11,7 +11,7 @@ import gleam/string
 import gleam/string_tree
 import glight
 import mist
-import server/context.{type Context, Context}
+import server/app_config.{type AppConfig, AppConfig}
 import server/domain/currencies/cmc_currency_handler
 import server/domain/currencies/currencies_fetcher
 import server/domain/rates/internal/kraken_interface
@@ -45,8 +45,8 @@ pub fn main() {
   configure_logging(env_config.log_level)
 
   // build Context
-  let ctx =
-    Context(
+  let app_config =
+    AppConfig(
       cmc_api_key: env_config.cmc_api_key,
       crypto_limit: env_config.crypto_limit,
       supported_fiat_symbols: env_config.supported_fiat_symbols,
@@ -56,18 +56,18 @@ pub fn main() {
   let currencies = {
     let request_cryptos = fn() {
       cmc_client.get_crypto_currencies(
-        ctx.cmc_api_key,
-        Some(ctx.crypto_limit),
+        app_config.cmc_api_key,
+        Some(app_config.crypto_limit),
         None,
       )
     }
     let request_fiats = fn() {
-      cmc_client.get_fiat_currencies(ctx.cmc_api_key, Some(100))
+      cmc_client.get_fiat_currencies(app_config.cmc_api_key, Some(100))
     }
 
     let result =
       currencies_fetcher.get_currencies(
-        ctx,
+        app_config,
         request_cryptos,
         request_fiats,
         10_000,
@@ -117,7 +117,10 @@ pub fn main() {
         kraken_interface.new(kraken_client, price_store)
       }
 
-      let request_cmc_conversion = cmc_client.get_conversion(ctx.cmc_api_key, _)
+      let request_cmc_conversion = cmc_client.get_conversion(
+        app_config.cmc_api_key,
+        _,
+      )
 
       case request.path_segments(req) {
         // handle websocket connections
@@ -190,7 +193,7 @@ pub fn main() {
 
           let handle_request =
             wisp_mist.handler(
-              handle_request(ctx, _, currencies, get_rate),
+              handle_request(app_config, _, currencies, get_rate),
               env_config.secret_key_base,
             )
 
@@ -236,7 +239,7 @@ fn wait_for_kraken_symbols_loop(start_time: Int, timeout_ms: Int) -> Nil {
 }
 
 fn handle_request(
-  ctx: Context,
+  app_config: AppConfig,
   req: Request,
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
@@ -269,8 +272,8 @@ fn handle_request(
 
       let request_cryptos = fn() {
         cmc_client.get_crypto_currencies(
-          ctx.cmc_api_key,
-          Some(ctx.crypto_limit),
+          app_config.cmc_api_key,
+          Some(app_config.crypto_limit),
           Some(symbol),
         )
       }
