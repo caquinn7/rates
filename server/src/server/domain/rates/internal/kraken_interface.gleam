@@ -24,19 +24,22 @@ pub type KrakenInterface {
 /// A fully configured KrakenInterface with default retry settings (5 retries, 50ms delay)
 pub fn new(client: KrakenClient, price_store: PriceStore) -> KrakenInterface {
   let subscribe = fn(kraken_symbol) {
-    let symbol_str = kraken_symbol.to_string(kraken_symbol)
-    client.subscribe(client, symbol_str)
+    kraken_symbol
+    |> kraken_symbol.to_string
+    |> client.subscribe(client, _)
   }
 
   let unsubscribe = fn(kraken_symbol) {
-    let symbol_str = kraken_symbol.to_string(kraken_symbol)
-    client.unsubscribe(client, symbol_str)
+    kraken_symbol
+    |> kraken_symbol.to_string
+    |> client.unsubscribe(client, _)
   }
 
   let check_for_price = fn(kraken_symbol) {
     let get_price = fn() {
-      let symbol_str = kraken_symbol.to_string(kraken_symbol)
-      price_store.get_price(price_store, symbol_str)
+      kraken_symbol
+      |> kraken_symbol.to_string
+      |> price_store.get_price(price_store, _)
     }
 
     retry.with_retry(get_price, 5, 50)

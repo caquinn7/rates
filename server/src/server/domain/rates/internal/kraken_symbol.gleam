@@ -10,17 +10,17 @@ pub opaque type KrakenSymbol {
 /// Returns an error if neither form exists in the Kraken pair list.
 pub fn new(
   currency_symbols: #(String, String),
-  symbol_exists: fn(String) -> Bool,
+  pair_exists: fn(String) -> Bool,
 ) -> Result(KrakenSymbol, Nil) {
   let #(from_symbol, to_symbol) = currency_symbols
   let direct_pair_symbol = from_symbol <> "/" <> to_symbol
 
-  case symbol_exists(direct_pair_symbol) {
+  case pair_exists(direct_pair_symbol) {
     True -> Ok(Direct(direct_pair_symbol))
 
     False -> {
       let reverse_pair_symbol = to_symbol <> "/" <> from_symbol
-      case symbol_exists(reverse_pair_symbol) {
+      case pair_exists(reverse_pair_symbol) {
         True -> Ok(Reversed(reverse_pair_symbol))
         False -> Error(Nil)
       }

@@ -53,7 +53,12 @@ pub fn insert(price_store: PriceStore, symbol: String, price: Float) -> Nil {
   insert_with_timestamp(price_store, symbol, price, time.system_time_ms())
 }
 
-pub fn insert_with_timestamp(price_store, symbol, price, current_time_ms) {
+pub fn insert_with_timestamp(
+  price_store: PriceStore,
+  symbol: String,
+  price: Float,
+  current_time_ms: Int,
+) -> Nil {
   let PriceStore(table) = price_store
 
   let price_entry = PriceEntry(price, current_time_ms)
@@ -66,7 +71,7 @@ pub fn insert_with_timestamp(price_store, symbol, price, current_time_ms) {
 ///
 /// Example:
 /// ```gleam
-/// let Ok(store) = price_store.get_store()
+/// let assert Ok(store) = price_store.get_store()
 /// let result = price_store.get_price(store, "BTC/USD")
 /// ```
 pub fn get_price(

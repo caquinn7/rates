@@ -31,6 +31,7 @@ pub fn get_cryptos(
 
     False ->
       case cmc_response.status {
+        // Return empty list to client for invalid symbols (RESTful design)
         CmcStatus(_, Some("Invalid value for \"symbol\"" <> _)) -> Ok(Some([]))
 
         _ -> Error(ErrorStatusReceived(cmc_response.status))
