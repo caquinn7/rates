@@ -261,6 +261,7 @@ fn handle_subscribe(
 ) -> Next(State, Msg) {
   let state = cleanup_existing_subscription(state, unsubscribe_from_kraken)
 
+  // todo: add pairs.exists to KrakenInterface?
   let strategy =
     rate_source_strategy.determine_strategy(
       rate_request,
