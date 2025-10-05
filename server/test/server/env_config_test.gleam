@@ -38,6 +38,7 @@ pub fn load_returns_error_when_cmc_api_key_is_not_set_test() {
 pub fn load_returns_default_crypto_limit_when_not_set_test() {
   let assert Ok(config) =
     env_config.load_with_interface(env_with_missing("CRYPTO_LIMIT"))
+
   assert 100 == config.crypto_limit
 }
 
@@ -51,21 +52,25 @@ pub fn load_returns_default_supported_fiat_symbols_when_not_set_test() {
 pub fn load_returns_default_log_level_when_not_set_test() {
   let assert Ok(config) =
     env_config.load_with_interface(env_with_missing("LOG_LEVEL"))
+
   assert "info" == config.log_level
 }
 
 fn mock_env_interface(vars: Dict(String, String)) -> EnvInterface {
   EnvInterface(
     get_string: fn(key) {
-      dict.get(vars, key)
+      vars
+      |> dict.get(key)
       |> result.replace_error(Nil)
     },
     get_string_or: fn(key, default) {
-      dict.get(vars, key)
+      vars
+      |> dict.get(key)
       |> result.unwrap(default)
     },
     get_int_or: fn(key, default) {
-      dict.get(vars, key)
+      vars
+      |> dict.get(key)
       |> result.try(int.parse)
       |> result.unwrap(default)
     },

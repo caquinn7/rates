@@ -22,7 +22,7 @@ pub type EnvConfig {
 
 pub fn load() -> Result(EnvConfig, String) {
   load_with_interface(EnvInterface(
-    fn(s) { result.replace_error(env.get_string(s), Nil) },
+    fn(key) { result.replace_error(env.get_string(key), Nil) },
     env.get_string_or,
     env.get_int_or,
   ))
