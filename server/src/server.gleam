@@ -71,16 +71,20 @@ pub fn main() {
   let assert Ok(price_store) = price_store.get_store()
     as "tried to get reference to price store before it was created"
 
-  let dependencies =
+  let dependencies = {
+    let kraken_interface =
+      kraken_interface.new(kraken_client, price_store, pairs.exists)
+
     Dependencies(
       app_config:,
       currencies:,
-      kraken_interface: kraken_interface.new(kraken_client, price_store),
+      kraken_interface:,
       request_cmc_cryptos:,
       request_cmc_conversion:,
       get_current_time_ms: time.system_time_ms,
       logger:,
     )
+  }
 
   start_server(env_config, dependencies)
 }

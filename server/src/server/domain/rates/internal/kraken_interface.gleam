@@ -5,6 +5,7 @@ import server/utils/retry
 
 pub type KrakenInterface {
   KrakenInterface(
+    get_kraken_symbol: fn(#(String, String)) -> Result(KrakenSymbol, Nil),
     subscribe: fn(KrakenSymbol) -> Nil,
     unsubscribe: fn(KrakenSymbol) -> Nil,
     check_for_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
@@ -19,10 +20,17 @@ pub type KrakenInterface {
 /// ## Parameters
 /// - `client`: The KrakenClient for subscribing/unsubscribing
 /// - `price_store`: The PriceStore for checking prices
+/// - `symbol_exists`: Function to check if a symbol exists in Kraken's supported pairs
 /// 
 /// ## Returns
 /// A fully configured KrakenInterface with default retry settings (5 retries, 50ms delay)
-pub fn new(client: KrakenClient, price_store: PriceStore) -> KrakenInterface {
+pub fn new(
+  client: KrakenClient,
+  price_store: PriceStore,
+  symbol_exists: fn(String) -> Bool,
+) -> KrakenInterface {
+  let get_kraken_symbol = kraken_symbol.new(_, symbol_exists)
+
   let subscribe = fn(kraken_symbol) {
     kraken_symbol
     |> kraken_symbol.to_string
@@ -45,5 +53,10 @@ pub fn new(client: KrakenClient, price_store: PriceStore) -> KrakenInterface {
     retry.with_retry(get_price, 5, 50)
   }
 
-  KrakenInterface(subscribe:, unsubscribe:, check_for_price:)
+  KrakenInterface(
+    get_kraken_symbol:,
+    subscribe:,
+    unsubscribe:,
+    check_for_price:,
+  )
 }

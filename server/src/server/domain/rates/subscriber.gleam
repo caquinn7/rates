@@ -38,7 +38,6 @@ import server/domain/rates/internal/subscription_manager.{
 }
 import server/domain/rates/rate_error.{type RateError}
 import server/domain/rates/rate_service_config.{type RateServiceConfig}
-import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store.{type PriceEntry}
 import server/utils/logger.{type Logger}
 import shared/currency.{type Currency}
@@ -219,9 +218,7 @@ fn handle_msg(
         subscription_id,
         state,
         rate_request,
-        kraken_interface.subscribe,
-        kraken_interface.unsubscribe,
-        kraken_interface.check_for_price,
+        kraken_interface,
         request_cmc_conversion,
         get_current_time_ms,
       )
@@ -253,20 +250,17 @@ fn handle_subscribe(
   subscription_id: SubscriptionId,
   state: State,
   rate_request: RateRequest,
-  subscribe_to_kraken: fn(KrakenSymbol) -> Nil,
-  unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
-  check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
+  kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
-  let state = cleanup_existing_subscription(state, unsubscribe_from_kraken)
+  let state = cleanup_existing_subscription(state, kraken_interface.unsubscribe)
 
-  // todo: add pairs.exists to KrakenInterface?
   let strategy =
     rate_source_strategy.determine_strategy(
       rate_request,
       state.currency_symbols,
-      kraken_symbol.new(_, pairs.exists),
+      kraken_interface.get_kraken_symbol,
     )
 
   case strategy {
@@ -280,7 +274,7 @@ fn handle_subscribe(
         apply_state_transition(
           state,
           ClearSubscription,
-          unsubscribe_from_kraken,
+          kraken_interface.unsubscribe,
         )
       actor.continue(state)
     }
@@ -288,7 +282,7 @@ fn handle_subscribe(
     Ok(strategy) -> {
       let config =
         StrategyConfig(
-          check_for_kraken_price:,
+          check_for_kraken_price: kraken_interface.check_for_price,
           request_cmc_conversion:,
           get_current_time_ms:,
           behavior: create_subscriber_behavior(subscription_id, state.logger),
@@ -296,7 +290,7 @@ fn handle_subscribe(
 
       // Subscribe to Kraken if needed (only happens once during initial subscription)
       case strategy {
-        KrakenStrategy(symbol) -> subscribe_to_kraken(symbol)
+        KrakenStrategy(symbol) -> kraken_interface.subscribe(symbol)
         CmcStrategy -> Nil
       }
 
@@ -312,7 +306,7 @@ fn handle_subscribe(
       }
 
       let state =
-        apply_state_transition(state, transition, unsubscribe_from_kraken)
+        apply_state_transition(state, transition, kraken_interface.unsubscribe)
 
       schedule_next_update(state)
       actor.continue(state)
