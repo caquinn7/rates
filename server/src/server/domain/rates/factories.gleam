@@ -23,7 +23,7 @@ pub fn create_rate_resolver(
   deps: Dependencies,
 ) -> fn(RateRequest) -> Result(RateResponse, RateError) {
   fn(rate_req) {
-    let resolver_config = rate_resolver.Config(create_rate_service_config(deps))
+    let resolver_config = rate_resolver.Config(rate_service_config(deps))
     let assert Ok(resolver) = rate_resolver.new(resolver_config)
     rate_resolver.get_rate(resolver, rate_req, 5000)
   }
@@ -37,7 +37,7 @@ pub fn create_rate_subscriber_factory(
 
     let subscriber_config =
       rate_subscriber.Config(
-        create_rate_service_config(deps),
+        rate_service_config(deps),
         subscription_manager:,
         logger: logger.with(deps.logger, "source", "subscriber"),
       )
@@ -49,7 +49,7 @@ pub fn create_rate_subscriber_factory(
   }
 }
 
-fn create_rate_service_config(deps: Dependencies) -> RateServiceConfig {
+fn rate_service_config(deps: Dependencies) -> RateServiceConfig {
   RateServiceConfig(
     currencies: deps.currencies,
     kraken_interface: deps.kraken_interface,

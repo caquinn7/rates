@@ -388,19 +388,11 @@ fn handle_stop(
     subscription_manager.get_subscription(state.subscription_manager)
 
   case subscription {
-    None -> actor.stop()
-
-    Some(subscription) -> {
-      case subscription {
-        Kraken(_, symbol) -> {
-          unsubscribe_from_kraken(symbol)
-          actor.stop()
-        }
-
-        Cmc(_) -> actor.stop()
-      }
-    }
+    Some(Kraken(_, symbol)) -> unsubscribe_from_kraken(symbol)
+    _ -> Nil
   }
+
+  actor.stop()
 }
 
 // helper functions

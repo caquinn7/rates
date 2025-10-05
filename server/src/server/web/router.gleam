@@ -108,13 +108,15 @@ fn handle_request(
         |> result.unwrap("")
       }
 
-      let missing_symbol_response =
-        wisp.response(400)
-        |> wisp.json_body(string_tree.from_string(
-          "{\"error\": \"Query parameter 'symbol' is required.\"}",
-        ))
-
-      use <- bool.guard(symbol == "", missing_symbol_response)
+      let handle_missing_symbol = fn() {
+        wisp.json_body(
+          wisp.response(400),
+          string_tree.from_string(
+            "{\"error\": \"Query parameter 'symbol' is required.\"}",
+          ),
+        )
+      }
+      use <- bool.lazy_guard(symbol == "", handle_missing_symbol)
 
       let request_cryptos = fn() { request_cryptos(Some(symbol)) }
 
