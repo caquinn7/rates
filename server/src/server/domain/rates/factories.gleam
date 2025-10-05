@@ -33,11 +33,12 @@ pub fn create_rate_subscriber_factory(
   deps: Dependencies,
 ) -> RateSubscriberFactory {
   fn(subscription_id, subject) {
-    let assert Ok(subscription_manager) = subscription_manager.new(10_000)
+    let assert Ok(subscription_manager) =
+      subscription_manager.new(deps.subscription_refresh_interval_ms)
 
     let subscriber_config =
       rate_subscriber.Config(
-        rate_service_config(deps),
+        base: rate_service_config(deps),
         subscription_manager:,
         logger: logger.with(deps.logger, "source", "subscriber"),
       )

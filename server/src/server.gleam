@@ -76,8 +76,8 @@ pub fn main() {
       kraken_interface.new(kraken_client, price_store, pairs.exists)
 
     Dependencies(
-      app_config:,
       currencies:,
+      subscription_refresh_interval_ms: 10_000,
       kraken_interface:,
       request_cmc_cryptos:,
       request_cmc_conversion:,

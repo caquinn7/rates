@@ -73,8 +73,8 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
     wisp_mist.handler(
       handle_request(
         _,
-        deps.request_cmc_cryptos,
         deps.currencies,
+        deps.request_cmc_cryptos,
         rates_factories.create_rate_resolver(deps),
       ),
       env_config.secret_key_base,
@@ -85,9 +85,9 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
 
 fn handle_request(
   req: wisp.Request,
+  currencies: List(Currency),
   request_cryptos: fn(Option(String)) ->
     Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
-  currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
 ) -> wisp.Response {
   use req <- middleware(req)
