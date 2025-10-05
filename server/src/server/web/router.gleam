@@ -12,9 +12,6 @@ import server/dependencies.{type Dependencies}
 import server/domain/currencies/cmc_currency_handler
 import server/domain/rates/factories as rates_factories
 import server/domain/rates/rate_error.{type RateError}
-import server/domain/rates/rate_service_config.{
-  type RateServiceConfig, RateServiceConfig,
-}
 import server/env_config.{type EnvConfig}
 import server/integrations/coin_market_cap/client.{
   type CmcCryptoCurrency, type CmcListResponse, type CmcRequestError,
@@ -53,12 +50,6 @@ fn handle_websocket_v1(req, deps: Dependencies) {
 }
 
 fn handle_websocket_v2(req, deps: Dependencies) {
-  let create_rate_subscriber =
-    rates_factories.create_rate_subscriber_factory(
-      create_rate_service_config(deps),
-      deps.logger,
-    )
-
   mist.websocket(
     req,
     on_init: websocket_v2.on_init(
@@ -66,32 +57,30 @@ fn handle_websocket_v2(req, deps: Dependencies) {
       logger.with(deps.logger, "source", "websocket_v2"),
     ),
     handler: fn(state, message, conn) {
-      websocket_v2.handler(state, message, conn, create_rate_subscriber)
+      websocket_v2.handler(
+        state,
+        message,
+        conn,
+        rates_factories.create_rate_subscriber_factory(deps),
+      )
     },
     on_close: websocket_v2.on_close,
   )
 }
 
 fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
-  let get_rate =
-    rates_factories.create_rate_resolver(create_rate_service_config(deps))
-
   let handle_request =
     wisp_mist.handler(
-      handle_request(_, deps.request_cmc_cryptos, deps.currencies, get_rate),
+      handle_request(
+        _,
+        deps.request_cmc_cryptos,
+        deps.currencies,
+        rates_factories.create_rate_resolver(deps),
+      ),
       env_config.secret_key_base,
     )
 
   handle_request(req)
-}
-
-fn create_rate_service_config(deps: Dependencies) -> RateServiceConfig {
-  RateServiceConfig(
-    currencies: deps.currencies,
-    kraken_interface: deps.kraken_interface,
-    request_cmc_conversion: deps.request_cmc_conversion,
-    get_current_time_ms: deps.get_current_time_ms,
-  )
 }
 
 fn handle_request(
