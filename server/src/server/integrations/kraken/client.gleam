@@ -24,7 +24,7 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None}
-import gleam/otp/actor.{type StartError, type Started}
+import gleam/otp/actor.{type Initialised, type StartError, type Started}
 import gleam/result
 import gleam/set.{type Set}
 import gleam/string
@@ -47,7 +47,6 @@ pub opaque type KrakenClient {
 }
 
 type Msg {
-  Connect(Subject(stratus.InternalMessage(KrakenRequest)))
   SetSupportedSymbols(Set(String))
   Subscribe(String)
   ConfirmSubscribe(String)
@@ -56,7 +55,6 @@ type Msg {
 }
 
 type State {
-  New(logger: Logger)
   SymbolsPending(
     logger: Logger,
     price_store: PriceStore,
@@ -75,25 +73,43 @@ pub fn new(
   logger: Logger,
   create_price_store: fn() -> PriceStore,
 ) -> Result(KrakenClient, StartError) {
-  let kraken_loop = fn(state, msg) {
-    kraken_loop(state, msg, create_price_store)
+  let handle_msg = fn(state, msg) { kraken_loop(state, msg) }
+
+  let initialiser_wrapper = fn(self) {
+    initialiser(self, logger, create_price_store)
+    |> result.map_error(fn(err) { string.inspect(err) })
   }
 
-  use kraken_subject <- result.try(
-    New(logger)
-    |> actor.new
-    |> actor.on_message(kraken_loop)
-    |> actor.start
-    |> result.map(fn(started) { started.data }),
-  )
+  actor.new_with_initialiser(100, initialiser_wrapper)
+  |> actor.on_message(handle_msg)
+  |> actor.start
+  |> result.map(fn(started) { KrakenClient(started.data) })
+}
 
+fn initialiser(
+  self: Subject(Msg),
+  logger: Logger,
+  create_price_store: fn() -> PriceStore,
+) -> Result(Initialised(State, Msg, Subject(Msg)), StartError) {
   use websocket_subject <- result.try(
-    init_websocket(kraken_subject, logger)
+    init_websocket(self, logger)
     |> result.map(fn(started) { started.data }),
   )
 
-  actor.send(kraken_subject, Connect(websocket_subject))
-  Ok(KrakenClient(kraken_subject))
+  KrakenRequest(request.Subscribe, Instruments, None)
+  |> stratus.to_user_message
+  |> actor.send(websocket_subject, _)
+
+  let selector =
+    process.new_selector()
+    |> process.select(self)
+
+  let state = SymbolsPending(logger, create_price_store(), websocket_subject)
+
+  actor.initialised(state)
+  |> actor.selecting(selector)
+  |> actor.returning(self)
+  |> Ok
 }
 
 pub fn subscribe(client: KrakenClient, symbol: String) -> Nil {
@@ -106,24 +122,8 @@ pub fn unsubscribe(client: KrakenClient, symbol: String) -> Nil {
   actor.send(subject, Unsubscribe(symbol))
 }
 
-fn kraken_loop(
-  state: State,
-  msg: Msg,
-  create_price_store: fn() -> PriceStore,
-) -> actor.Next(State, Msg) {
+fn kraken_loop(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case msg {
-    Connect(websocket_subject) -> {
-      KrakenRequest(request.Subscribe, Instruments, None)
-      |> stratus.to_user_message
-      |> actor.send(websocket_subject, _)
-
-      actor.continue(SymbolsPending(
-        state.logger,
-        create_price_store(),
-        websocket_subject,
-      ))
-    }
-
     SetSupportedSymbols(supported_symbols) -> {
       // Updates the set of supported symbols based on Kraken's latest Instruments response.
 
@@ -256,10 +256,7 @@ fn init_websocket(
     init: fn() { #(#(reply_to, logger), None) },
     loop: websocket_loop,
   )
-  |> stratus.on_close(fn(_state) {
-    logger.info(logger, "kraken socket closed")
-    Nil
-  })
+  |> stratus.on_close(fn(_state) { logger.info(logger, "kraken socket closed") })
   |> stratus.initialize
 }
 

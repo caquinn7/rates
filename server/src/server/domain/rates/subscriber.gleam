@@ -139,7 +139,7 @@ fn initialiser(
   self: Subject(Msg),
   reply_to: Subject(#(SubscriptionId, Result(RateResponse, RateError))),
   config: Config,
-) -> Result(Initialised(State, Msg, Subject(Msg)), a) {
+) -> Result(Initialised(State, Msg, Subject(Msg)), String) {
   let state =
     State(
       self:,
