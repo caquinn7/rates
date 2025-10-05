@@ -23,8 +23,8 @@ import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Subject}
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
-import gleam/otp/actor.{type Next, type StartError}
+import gleam/option.{Some}
+import gleam/otp/actor.{type Initialised, type Next, type StartError}
 import gleam/result
 import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/domain/rates/internal/kraken_interface.{type KrakenInterface}
@@ -63,7 +63,6 @@ pub type SubscriptionResult =
   #(SubscriptionId, Result(RateResponse, RateError))
 
 type Msg {
-  Init(Subject(Msg))
   Subscribe(RateRequest)
   GetLatestRate(Subscription)
   AddCurrencies(List(Currency))
@@ -72,7 +71,7 @@ type Msg {
 
 type State {
   State(
-    self: Option(Subject(Msg)),
+    self: Subject(Msg),
     reply_to: Subject(SubscriptionResult),
     currency_symbols: Dict(Int, String),
     subscription_manager: SubscriptionManager,
@@ -119,15 +118,6 @@ pub fn new(
   reply_to: Subject(SubscriptionResult),
   config: Config,
 ) -> Result(RateSubscriber, StartError) {
-  let state =
-    State(
-      None,
-      reply_to,
-      currencies_to_dict(config.base.currencies),
-      config.subscription_manager,
-      config.logger,
-    )
-
   let handle_msg = fn(state, msg) {
     handle_msg(
       subscription_id,
@@ -139,16 +129,34 @@ pub fn new(
     )
   }
 
-  use rate_subscriber <- result.try(
-    state
-    |> actor.new
-    |> actor.on_message(handle_msg)
-    |> actor.start
-    |> result.map(fn(started) { RateSubscriber(subscription_id, started.data) }),
-  )
+  actor.new_with_initialiser(100, initialiser(_, reply_to, config))
+  |> actor.on_message(handle_msg)
+  |> actor.start
+  |> result.map(fn(started) { RateSubscriber(subscription_id, started.data) })
+}
 
-  actor.send(rate_subscriber.subject, Init(rate_subscriber.subject))
-  Ok(rate_subscriber)
+fn initialiser(
+  self: Subject(Msg),
+  reply_to: Subject(#(SubscriptionId, Result(RateResponse, RateError))),
+  config: Config,
+) -> Result(Initialised(State, Msg, Subject(Msg)), a) {
+  let state =
+    State(
+      self:,
+      reply_to:,
+      currency_symbols: currencies_to_dict(config.base.currencies),
+      subscription_manager: config.subscription_manager,
+      logger: config.logger,
+    )
+
+  let selector =
+    process.new_selector()
+    |> process.select(self)
+
+  actor.initialised(state)
+  |> actor.selecting(selector)
+  |> actor.returning(self)
+  |> Ok
 }
 
 pub fn subscription_id(rate_subscriber: RateSubscriber) {
@@ -211,8 +219,6 @@ fn handle_msg(
   get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
   case msg {
-    Init(subject) -> handle_init(state, subject)
-
     Subscribe(rate_request) ->
       handle_subscribe(
         subscription_id,
@@ -241,10 +247,6 @@ fn handle_msg(
 }
 
 // message handler functions
-
-fn handle_init(state: State, subject: Subject(Msg)) -> Next(State, Msg) {
-  actor.continue(State(..state, self: Some(subject)))
-}
 
 fn handle_subscribe(
   subscription_id: SubscriptionId,
@@ -493,12 +495,11 @@ fn update_subscription_manager(
 }
 
 fn schedule_next_update(state: State) -> Nil {
-  let assert Some(subject) = state.self
   let assert Some(subscription) =
     subscription_manager.get_subscription(state.subscription_manager)
 
   process.send_after(
-    subject,
+    state.self,
     subscription_manager.get_current_interval(state.subscription_manager),
     GetLatestRate(subscription),
   )
