@@ -1,8 +1,10 @@
 import gleam/erlang/atom.{type Atom}
 import gleeunit
+import glight
 import server/integrations/kraken/price_store.{type PriceStore}
 
 pub fn main() {
+  glight.configure([])
   gleeunit.main()
 }
 
