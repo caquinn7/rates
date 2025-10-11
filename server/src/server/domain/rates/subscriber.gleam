@@ -137,7 +137,7 @@ pub fn new(
 
 fn initialiser(
   self: Subject(Msg),
-  reply_to: Subject(#(SubscriptionId, Result(RateResponse, RateError))),
+  reply_to: Subject(SubscriptionResult),
   config: Config,
 ) -> Result(Initialised(State, Msg, Subject(Msg)), String) {
   let state =

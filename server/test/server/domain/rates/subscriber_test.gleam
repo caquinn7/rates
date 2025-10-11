@@ -12,6 +12,7 @@ import server/integrations/coin_market_cap/client.{
 }
 import server/integrations/kraken/price_store.{PriceEntry}
 import server/utils/logger
+import server_test
 import shared/currency.{Crypto, Fiat}
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response.{CoinMarketCap, Kraken}
@@ -262,7 +263,7 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
   let assert CmcError(RateRequest(1, 2781), _) = rate_err
 }
 
-pub fn subscribe_subscribes_then_schedules_get_latest_rate_test() {
+pub fn subscribe_schedules_get_latest_rate_test() {
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
@@ -369,4 +370,65 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   assert 4000.0 == rate_response.rate
 
   subscriber.stop(target)
+}
+
+pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", Some(1)),
+    Fiat(2781, "United States Dollar", "USD", "$"),
+  ]
+
+  let kraken_interface =
+    KrakenInterface(
+      get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
+      subscribe: fn(_) { Nil },
+      unsubscribe: fn(_) { Nil },
+      check_for_price: fn(_symbol) {
+        case server_test.get_then_increment("call_count") {
+          0 -> Ok(PriceEntry(100_000.0, 100))
+          _ -> Error(Nil)
+        }
+      },
+    )
+
+  let deps =
+    Dependencies(
+      currencies:,
+      subscription_refresh_interval_ms: 1000,
+      kraken_interface:,
+      request_cmc_cryptos: fn(_) { panic },
+      request_cmc_conversion: fn(_) {
+        CmcConversion(
+          1,
+          "BTC",
+          "Bitcoin",
+          1.0,
+          dict.insert(dict.new(), "2781", QuoteItem(100_001.0)),
+        )
+        |> Some
+        |> CmcResponse(CmcStatus(0, None), _)
+        |> Ok
+      },
+      get_current_time_ms: fn() { 1000 },
+      logger: logger.new(),
+    )
+  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+
+  let assert Ok(sub_id) = subscription_id.new("1")
+  let subject = process.new_subject()
+  let target = subscriber_factory(sub_id, subject)
+
+  // act
+  subscriber.subscribe(target, RateRequest(1, 2781))
+
+  // assert
+  let assert Ok(#(_, Ok(rate_response))) = process.receive(subject, 1000)
+
+  assert Kraken == rate_response.source
+  assert 100_000.0 == rate_response.rate
+
+  let assert Ok(#(_, Ok(rate_response))) = process.receive(subject, 1500)
+
+  assert CoinMarketCap == rate_response.source
+  assert 100_001.0 == rate_response.rate
 }
