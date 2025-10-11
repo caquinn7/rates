@@ -14,7 +14,6 @@ version = "1.0.0"
 
 [dependencies]
 shared = { path = "../shared" }
-client = { path = "../client" }
 gleam_stdlib = ">= 0.44.0 and < 2.0.0"
 wisp = ">= 1.5.3 and < 2.0.0"
 dot_env = ">= 1.2.0 and < 2.0.0"
