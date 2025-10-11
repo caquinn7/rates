@@ -18,21 +18,21 @@ pub fn get(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
 ) -> Response {
-  currencies
-  |> get_page_data(get_rate)
-  |> result.map_error(fn(_) { wisp.internal_server_error() })
-  |> result.map(fn(page_data) {
-    let page_data_json =
-      page_data
-      |> page_data.encode
-      |> json.to_string
+  case get_page_data(currencies, get_rate) {
+    Error(_) -> wisp.internal_server_error()
 
-    page_data_json
-    |> page_scaffold
-    |> element.to_document_string_tree
-    |> wisp.html_body(wisp.response(200), _)
-  })
-  |> result.unwrap_both
+    Ok(page_data) -> {
+      let page_data_json =
+        page_data
+        |> page_data.encode
+        |> json.to_string
+
+      page_data_json
+      |> page_scaffold
+      |> element.to_document_string
+      |> wisp.html_body(wisp.response(200), _)
+    }
+  }
 }
 
 fn get_page_data(

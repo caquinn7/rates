@@ -6,7 +6,6 @@ import gleam/list
 import gleam/option.{type Option, Some}
 import gleam/result
 import gleam/string
-import gleam/string_tree
 import mist
 import server/dependencies.{type Dependencies}
 import server/domain/currencies/cmc_currency_handler
@@ -111,9 +110,7 @@ fn handle_request(
       let handle_missing_symbol = fn() {
         wisp.json_body(
           wisp.response(400),
-          string_tree.from_string(
-            "{\"error\": \"Query parameter 'symbol' is required.\"}",
-          ),
+          "{\"error\": \"Query parameter 'symbol' is required.\"}",
         )
       }
       use <- bool.lazy_guard(symbol == "", handle_missing_symbol)
@@ -126,7 +123,7 @@ fn handle_request(
         Ok(currencies) ->
           currencies
           |> json.array(currency.encode)
-          |> json.to_string_tree
+          |> json.to_string
           |> wisp.json_response(200)
       }
     }
