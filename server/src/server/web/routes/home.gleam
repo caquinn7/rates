@@ -39,8 +39,11 @@ fn get_page_data(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
 ) -> Result(PageData, Nil) {
-  use btc <- result.try(list.find(currencies, fn(c) { c.symbol == "BTC" }))
-  use usd <- result.try(list.find(currencies, fn(c) { c.symbol == "USD" }))
+  let find_currency = fn(symbol) {
+    list.find(currencies, fn(c) { c.symbol == symbol })
+  }
+  use btc <- result.try(find_currency("BTC"))
+  use usd <- result.try(find_currency("USD"))
 
   let rate_req = RateRequest(btc.id, usd.id)
 
@@ -50,7 +53,7 @@ fn get_page_data(
     |> result.map_error(log_rate_request_error(rate_req, _)),
   )
 
-  Ok(PageData(currencies, rate_response))
+  Ok(PageData(currencies, [rate_response]))
 }
 
 fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {

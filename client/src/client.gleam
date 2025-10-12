@@ -551,13 +551,11 @@ pub fn map_conversion_inputs(
 
 pub fn main() -> Nil {
   let assert Ok(json_str) =
-    document.query_selector("#model")
-    |> result.map(browser_element.inner_text)
+    result.map(document.query_selector("#model"), browser_element.inner_text)
+    as "failed to find model element"
 
-  let page_data = case json.parse(json_str, page_data.decoder()) {
-    Ok(page_data) -> page_data
-    _ -> panic as "failed to decode page_data"
-  }
+  let assert Ok(page_data) = json.parse(json_str, page_data.decoder())
+    as "failed to decode page_data"
 
   let assert Ok(_) = auto_resize_input.register("auto-resize-input")
 
@@ -577,7 +575,8 @@ pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
 }
 
 pub fn model_from_page_data(page_data: PageData) {
-  let RateResponse(from, to, rate, _source, _timestamp) = page_data.rate
+  let assert [RateResponse(from, to, rate, _source, _timestamp)] =
+    page_data.rates
 
   let assert Ok(from_currency) =
     page_data.currencies
