@@ -99,21 +99,19 @@ fn handle_request(
     ["api", "currencies"] -> {
       use <- wisp.require_method(req, http.Get)
 
-      let symbol = {
+      let symbol =
         req
         |> wisp.get_query
         |> list.key_find("symbol")
         |> result.map(string.trim)
         |> result.unwrap("")
-      }
 
-      let handle_missing_symbol = fn() {
+      use <- bool.lazy_guard(symbol == "", fn() {
         wisp.json_body(
           wisp.response(400),
           "{\"error\": \"Query parameter 'symbol' is required.\"}",
         )
-      }
-      use <- bool.lazy_guard(symbol == "", handle_missing_symbol)
+      })
 
       let request_cryptos = fn() { request_cryptos(Some(symbol)) }
 

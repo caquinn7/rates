@@ -432,3 +432,67 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
   assert CoinMarketCap == rate_response.source
   assert 100_001.0 == rate_response.rate
 }
+
+pub fn add_currencies_enables_subscription_to_previously_unknown_currency_test() {
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", Some(1)),
+    Fiat(2781, "United States Dollar", "USD", "$"),
+  ]
+
+  let currency_to_add = Crypto(22_354, "QUAI", "QUAI Network", None)
+
+  let kraken_interface =
+    KrakenInterface(
+      get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
+      subscribe: fn(_) { Nil },
+      unsubscribe: fn(_) { Nil },
+      check_for_price: fn(_) { Error(Nil) },
+    )
+
+  let deps =
+    Dependencies(
+      currencies:,
+      subscription_refresh_interval_ms: 1000,
+      kraken_interface:,
+      request_cmc_cryptos: fn(_) { panic },
+      request_cmc_conversion: fn(_) {
+        CmcConversion(
+          currency_to_add.id,
+          currency_to_add.symbol,
+          currency_to_add.name,
+          1.0,
+          dict.insert(dict.new(), "2781", QuoteItem(0.05)),
+        )
+        |> Some
+        |> CmcResponse(CmcStatus(0, None), _)
+        |> Ok
+      },
+      get_current_time_ms: fn() { 1000 },
+      logger: logger.new(),
+    )
+  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+
+  let assert Ok(sub_id) = subscription_id.new("1")
+  let subject = process.new_subject()
+  let target = subscriber_factory(sub_id, subject)
+
+  let rate_request = RateRequest(currency_to_add.id, 2781)
+
+  // act
+  subscriber.subscribe(target, rate_request)
+
+  // assert initial attempt returns CurrencyNotFound
+  let assert Ok(#(_, Error(rate_err))) = process.receive(subject, 1000)
+  assert CurrencyNotFound(rate_request, currency_to_add.id) == rate_err
+
+  // act again
+  subscriber.add_currencies(target, [currency_to_add])
+
+  // assert second attempt succeeds now that the currency has now beed added
+  subscriber.subscribe(target, rate_request)
+
+  let assert Ok(#(_, Ok(rate_response))) = process.receive(subject, 1000)
+  assert currency_to_add.id == rate_response.from
+
+  subscriber.stop(target)
+}
