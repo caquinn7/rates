@@ -384,7 +384,7 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
       subscribe: fn(_) { Nil },
       unsubscribe: fn(_) { Nil },
       check_for_price: fn(_symbol) {
-        case get_then_increment("call_count") {
+        case get_and_increment("call_count") {
           0 -> Ok(PriceEntry(100_000.0, 100))
           _ -> Error(Nil)
         }
@@ -539,9 +539,13 @@ pub fn stop_unsubscribes_from_kraken_test() {
   let assert Ok(True) = process.receive(unsub_subject, 1000)
 }
 
-/// Gets the current value of the counter and increments it
+/// Gets the current value of the counter and increments it using the process dictionary.
 /// Returns the value BEFORE incrementing (0 on first call, 1 on second, etc.)
-fn get_then_increment(counter_name: String) -> Int {
+/// 
+/// **Important**: This function uses Erlang's process dictionary, so the counter
+/// state is local to the calling process. Calls from different processes will
+/// maintain separate counter instances.
+fn get_and_increment(counter_name: String) -> Int {
   let key = atom.create(counter_name)
   let current = get_or_zero(key)
   let _ = put_and_return_previous(key, current + 1)

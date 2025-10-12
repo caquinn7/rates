@@ -1,14 +1,13 @@
 import gleeunit/should
-import server/integrations/kraken/price_store.{PriceEntry}
-import server_test
+import server/integrations/kraken/price_store.{type PriceStore, PriceEntry}
 
 pub fn unable_to_create_twice_test() {
-  use _ <- server_test.with_price_store
+  use _ <- with_price_store
   assert Error(Nil) == price_store.new()
 }
 
 pub fn insert_symbol_that_does_not_exist_test() {
-  use store <- server_test.with_price_store
+  use store <- with_price_store
 
   let symbol = "BTC/USD"
   let expected_price = 90_000.0
@@ -27,7 +26,7 @@ pub fn insert_symbol_that_does_not_exist_test() {
 }
 
 pub fn insert_symbol_that_exists_test() {
-  use store <- server_test.with_price_store
+  use store <- with_price_store
 
   let symbol = "BTC/USD"
   let expected_price = 100_000.0
@@ -47,12 +46,12 @@ pub fn insert_symbol_that_exists_test() {
 }
 
 pub fn get_price_for_symbol_that_does_not_exist() {
-  use store <- server_test.with_price_store
+  use store <- with_price_store
   assert Error(Nil) == price_store.get_price(store, "BTC/USD")
 }
 
 pub fn get_store_test() {
-  use _ <- server_test.with_price_store
+  use _ <- with_price_store
   let assert Ok(_) = price_store.get_store()
 }
 
@@ -63,7 +62,7 @@ pub fn get_store_returns_error_when_not_initialized() {
 }
 
 pub fn delete_existing_symbol_test() {
-  use store <- server_test.with_price_store
+  use store <- with_price_store
 
   let symbol = "BTC/USD"
   price_store.insert_with_timestamp(store, symbol, 50_000.0, 1)
@@ -79,7 +78,7 @@ pub fn delete_existing_symbol_test() {
 }
 
 pub fn delete_non_existent_symbol_test() {
-  use store <- server_test.with_price_store
+  use store <- with_price_store
 
   // Should not crash or cause errors
   price_store.delete_price(store, "NON_EXISTENT")
@@ -90,7 +89,7 @@ pub fn delete_non_existent_symbol_test() {
 }
 
 pub fn delete_one_symbol_preserves_others_test() {
-  use store <- server_test.with_price_store
+  use store <- with_price_store
 
   price_store.insert_with_timestamp(store, "BTC/USD", 50_000.0, 1)
   price_store.insert_with_timestamp(store, "ETH/USD", 3000.0, 2)
@@ -102,4 +101,24 @@ pub fn delete_one_symbol_preserves_others_test() {
 
   // ETH/USD should still be there
   assert Ok(PriceEntry(3000.0, 2)) == price_store.get_price(store, "ETH/USD")
+}
+
+/// Creates a new `PriceStore`, passes it to the given function, and ensures
+/// the store is dropped afterward to avoid lingering state between tests.
+///
+/// This utility is intended for use in tests that require a fresh, isolated
+/// `PriceStore` instance. It ensures proper cleanup regardless of what the
+/// provided function does.
+///
+/// ## Example
+/// ```gleam
+/// with_price_store(fn(store) {
+///   price_store.insert(store, "BTC/USD", 50000.0)
+///   // ... perform assertions ...
+/// })
+/// ```
+fn with_price_store(fun: fn(PriceStore) -> a) {
+  let assert Ok(store) = price_store.new()
+  fun(store)
+  price_store.drop(store)
 }
