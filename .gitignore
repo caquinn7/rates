@@ -10,3 +10,4 @@ node_modules
 notes.txt
 resources/*
 *.log
+.lustre

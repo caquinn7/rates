@@ -111,7 +111,7 @@ fn page_scaffold(seed_json: String) -> Element(a) {
           attribute.href("/static/client.css"),
         ]),
         html.script(
-          [attribute.src("/static/client.mjs"), attribute.type_("module")],
+          [attribute.src("/static/client.js"), attribute.type_("module")],
           "",
         ),
         html.script(
