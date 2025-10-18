@@ -16,26 +16,30 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-pub fn register(name: String) -> Result(Nil, lustre.Error) {
-  lustre.component(init, update, view, [
-    component.on_attribute_change("id", fn(new_value) {
-      Ok(ParentSetId(new_value))
+const element_name = "auto-resize-input"
+
+const change_event = "change"
+
+pub fn register() -> Result(Nil, lustre.Error) {
+  let component_options = [
+    component.on_attribute_change("id", fn(id) { Ok(ParentSetId(id)) }),
+    component.on_attribute_change("value", fn(value) {
+      Ok(ParentSetValue(value))
     }),
-    component.on_attribute_change("value", fn(new_value) {
-      Ok(ParentSetValue(new_value))
-    }),
-    component.on_attribute_change("min-width", fn(new_value) {
-      new_value
+    component.on_attribute_change("min-width", fn(min_width) {
+      min_width
       |> int.parse
       |> result.map(ParentSetMinWidth)
     }),
     component.open_shadow_root(True),
-  ])
-  |> lustre.register(name)
+  ]
+
+  lustre.component(init, update, view, component_options)
+  |> lustre.register(element_name)
 }
 
 pub fn element(attrs: List(Attribute(msg))) -> Element(msg) {
-  element.element("auto-resize-input", attrs, [])
+  element.element(element_name, attrs, [])
 }
 
 pub fn id(id: String) -> Attribute(msg) {
@@ -55,10 +59,10 @@ pub fn on_change(handler: fn(String) -> msg) -> Attribute(msg) {
     decode.at(["detail"], decode.string)
     |> decode.map(handler)
 
-  event.on("change", decoder)
+  event.on(change_event, decoder)
 }
 
-pub type Model {
+type Model {
   Model(id: String, value: String, width: Int, min_width: Int)
 }
 
@@ -66,7 +70,7 @@ fn init(_) -> #(Model, Effect(Msg)) {
   #(Model("", "", 0, 0), effect.none())
 }
 
-pub type Msg {
+type Msg {
   ParentSetId(String)
   ParentSetValue(String)
   ParentSetMinWidth(Int)
@@ -85,15 +89,13 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     ParentSetMinWidth(min_width) -> #(Model(..model, min_width:), effect.none())
 
-    UserTypedValue(value) -> {
-      #(
-        Model(..model, value:),
-        effect.batch([
-          resize_input(model.id, model.min_width),
-          event.emit("change", json.string(value)),
-        ]),
-      )
-    }
+    UserTypedValue(value) -> #(
+      Model(..model, value:),
+      effect.batch([
+        resize_input(model.id, model.min_width),
+        event.emit(change_event, json.string(value)),
+      ]),
+    )
 
     UserResizedInput(width) -> #(Model(..model, width:), effect.none())
   }

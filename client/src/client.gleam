@@ -557,7 +557,7 @@ pub fn main() -> Nil {
   let assert Ok(page_data) = json.parse(json_str, page_data.decoder())
     as "failed to decode page_data"
 
-  let assert Ok(_) = auto_resize_input.register("auto-resize-input")
+  let assert Ok(_) = auto_resize_input.register()
 
   let app = lustre.application(init, update, view)
   let assert Ok(runtime) = lustre.start(app, "#app", page_data)
@@ -590,7 +590,7 @@ pub fn model_from_page_data(page_data: PageData) {
     page_data.currencies
     |> currency_collection.from_list
 
-  let make_selector = fn(side: Side, selected_currency: Currency) {
+  let currency_selector = fn(side: Side, selected_currency: Currency) {
     CurrencySelector(
       id: "currency-selector-" <> side.to_string(side),
       show_dropdown: False,
@@ -603,23 +603,20 @@ pub fn model_from_page_data(page_data: PageData) {
 
   let left_input =
     ConversionInput(
-      amount_input: AmountInput(
-        raw: "1",
-        parsed: Some(positive_float.from_float_unsafe(1.0)),
-      ),
-      currency_selector: make_selector(Left, from_currency),
+      AmountInput("1", Some(positive_float.from_float_unsafe(1.0))),
+      currency_selector(Left, from_currency),
     )
 
   let right_input =
     ConversionInput(
-      amount_input: AmountInput(
-        raw: currency_formatting.format_currency_amount(
+      AmountInput(
+        currency_formatting.format_currency_amount(
           to_currency,
           positive_float.from_float_unsafe(rate),
         ),
-        parsed: Some(positive_float.from_float_unsafe(rate)),
+        Some(positive_float.from_float_unsafe(rate)),
       ),
-      currency_selector: make_selector(Right, to_currency),
+      currency_selector(Right, to_currency),
     )
 
   let filter_currencies = fn(model, side) {
@@ -633,8 +630,8 @@ pub fn model_from_page_data(page_data: PageData) {
   }
 
   Model(
-    currencies: page_data.currencies,
-    conversion: Conversion(
+    page_data.currencies,
+    Conversion(
       conversion_inputs: #(left_input, right_input),
       rate: Some(positive_float.from_float_unsafe(rate)),
       last_edited: Left,
@@ -886,6 +883,7 @@ fn try_subscribe_to_rate_updates(model: Model) -> Effect(Msg) {
 
 fn build_rate_request(model: Model) -> RateRequest {
   let #(left_input, right_input) = model.conversion.conversion_inputs
+
   RateRequest(
     left_input.currency_selector.selected_currency.id,
     right_input.currency_selector.selected_currency.id,
