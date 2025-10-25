@@ -73,13 +73,12 @@ pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let assert Ok(runtime) = lustre.start(app, "#app", page_data)
 
-  // document.add_event_listener("click", fn(event) {
-  //   event
-  //   |> UserClickedInDocument
-  //   |> lustre.dispatch
-  //   |> lustre.send(runtime, _)
-  // })
-  Nil
+  document.add_event_listener("click", fn(event) {
+    event
+    |> UserClickedInDocument
+    |> lustre.dispatch
+    |> lustre.send(runtime, _)
+  })
 }
 
 pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
@@ -257,7 +256,42 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     UserClickedAddConverter -> todo
 
-    UserClickedInDocument(_) -> todo
+    UserClickedInDocument(event) -> {
+      let assert Ok(clicked_elem) =
+        event
+        |> browser_event.target
+        |> browser_element.cast
+
+      let close_dropdown = fn(converter, side) {
+        let currency_selector =
+          converter.get_converter_input(converter, side).currency_selector
+
+        let currency_selector_id = currency_selector.id
+        let dropdown_visible = currency_selector.show_dropdown
+
+        let assert Ok(currency_selector_elem) =
+          document.get_element_by_id(currency_selector_id)
+
+        let clicked_outside_dropdown =
+          !browser_element.contains(currency_selector_elem, clicked_elem)
+
+        let should_toggle = dropdown_visible && clicked_outside_dropdown
+        case should_toggle {
+          False -> converter
+          True -> converter.with_toggled_dropdown(converter, side)
+        }
+      }
+
+      let converters =
+        model.converters
+        |> list.map(fn(converter) {
+          converter
+          |> close_dropdown(Left)
+          |> close_dropdown(Right)
+        })
+
+      #(Model(..model, converters:), effect.none())
+    }
 
     ApiReturnedMatchedCurrencies(Error(err)) -> {
       echo "error fetching currencies"
@@ -266,22 +300,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     ApiReturnedMatchedCurrencies(Ok(matched_currencies)) -> {
-      let updated_master_list =
-        list.append(model.currencies, matched_currencies)
+      let master_list = list.append(model.currencies, matched_currencies)
 
-      let updated_converters =
+      let converters =
         list.map(model.converters, fn(conv) {
-          converter.with_master_currency_list(conv, updated_master_list)
+          converter.with_master_currency_list(conv, master_list)
         })
 
-      #(
-        Model(
-          ..model,
-          currencies: updated_master_list,
-          converters: updated_converters,
-        ),
-        effect.none(),
-      )
+      #(Model(..model, currencies: master_list, converters:), effect.none())
     }
   }
 }
