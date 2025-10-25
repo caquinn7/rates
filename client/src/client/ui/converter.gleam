@@ -384,6 +384,7 @@ pub type NavKey {
 
 pub type Effect {
   NoEffect
+  FocusOnCurrencyFilter(Side)
   ScrollToOption(side: Side, index: Int)
   RequestRate
   RequestCurrencies(String)
@@ -397,7 +398,7 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
     )
 
     UserClickedCurrencySelector(side) -> {
-      let model =
+      let converter =
         converter
         |> with_filtered_currencies(
           side,
@@ -408,7 +409,17 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
         |> with_focused_index(side, fn() { None })
         |> with_toggled_dropdown(side)
 
-      #(model, NoEffect)
+      let effect = {
+        let dropdown_visible =
+          get_converter_input(converter, side).currency_selector.show_dropdown
+
+        case dropdown_visible {
+          False -> NoEffect
+          True -> FocusOnCurrencyFilter(side)
+        }
+      }
+
+      #(converter, effect)
     }
 
     UserFilteredCurrencies(side, filter_text) -> {

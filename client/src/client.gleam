@@ -211,11 +211,18 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let effect = case converter_effect {
             converter.NoEffect -> effect.none()
 
-            converter.RequestCurrencies(symbol) ->
-              api.get_currencies(symbol, ApiReturnedMatchedCurrencies)
+            converter.FocusOnCurrencyFilter(side) ->
+              effect.before_paint(fn(_, _) {
+                let currency_selector_id =
+                  converter.get_converter_input(converter, side).currency_selector.id
 
-            converter.RequestRate ->
-              try_subscribe_to_rate_updates(model, converter)
+                let assert Ok(filter_elem) =
+                  document.query_selector(
+                    "#" <> currency_selector_id <> " input",
+                  )
+
+                browser_element.focus(filter_elem)
+              })
 
             converter.ScrollToOption(side, index) ->
               effect.before_paint(fn(_, _) {
@@ -235,6 +242,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
                 browser_element.scroll_into_view(target_option_elem)
               })
+
+            converter.RequestCurrencies(symbol) ->
+              api.get_currencies(symbol, ApiReturnedMatchedCurrencies)
+
+            converter.RequestRate ->
+              try_subscribe_to_rate_updates(model, converter)
           }
 
           #(model, effect)
