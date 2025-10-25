@@ -130,11 +130,12 @@ fn model_from_page_data(page_data: PageData) -> Model {
   let converter =
     Converter(
       "converter-1",
-      page_data.currencies,
+      [],
       #(left_input, right_input),
       Some(positive_float.from_float_unsafe(rate)),
       Left,
     )
+    |> converter.with_master_currency_list(page_data.currencies)
 
   Model(currencies: page_data.currencies, converters: [converter], socket: None)
 }
@@ -231,9 +232,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
                 let assert Ok(target_option_elem) =
                   array.get(option_elems, index)
-                let _ = browser_element.scroll_into_view(target_option_elem)
 
-                Nil
+                browser_element.scroll_into_view(target_option_elem)
               })
           }
 
