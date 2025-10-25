@@ -7,7 +7,7 @@ pub fn decode_rate_request_json_test() {
     == json.parse("{\"from\":1,\"to\":2781}", rate_request.decoder())
 }
 
-pub fn rate_request_encode_to_json_test() {
+pub fn encode_to_json_test() {
   RateRequest(1, 2781)
   |> rate_request.encode
   |> json.to_string

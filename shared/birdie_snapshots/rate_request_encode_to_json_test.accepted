@@ -1,7 +1,7 @@
 ---
-version: 1.4.0
+version: 1.4.1
 title: rate_request_encode_to_json_test
 file: ./test/shared/rates/rate_request_test.gleam
-test_name: rate_request_encode_to_json_test
+test_name: encode_to_json_test
 ---
 {"from":1,"to":2781}

@@ -134,6 +134,15 @@ pub fn index_map(
   |> pair.first
 }
 
+pub fn find_by_id(
+  collection: CurrencyCollection,
+  id: Int,
+) -> Result(Currency, Nil) {
+  collection
+  |> flatten
+  |> list.find(fn(currency) { currency.id == id })
+}
+
 /// Compares two currencies for sorting purposes.
 ///
 /// Sorting rules:
