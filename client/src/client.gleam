@@ -12,6 +12,7 @@ import client/socket.{
 }
 import client/ui/components/auto_resize_input
 import client/ui/converter.{type Converter, Converter}
+import gleam/dict
 import gleam/int
 import gleam/javascript/array
 import gleam/json
@@ -162,7 +163,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       let effect =
         model.converters
-        |> list.map(try_subscribe_to_rate_updates(model, _))
+        |> list.map(subscribe_to_rate_updates(model, _))
         |> effect.batch
 
       #(model, effect)
@@ -245,8 +246,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             converter.RequestCurrencies(symbol) ->
               api.get_currencies(symbol, ApiReturnedMatchedCurrencies)
 
-            converter.RequestRate ->
-              try_subscribe_to_rate_updates(model, converter)
+            converter.RequestRate -> subscribe_to_rate_updates(model, converter)
           }
 
           #(model, effect)
@@ -300,14 +300,31 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     ApiReturnedMatchedCurrencies(Ok(matched_currencies)) -> {
-      let master_list = list.append(model.currencies, matched_currencies)
+      let master_list = {
+        let currencies_to_dict = fn(currencies) {
+          currencies
+          |> list.map(fn(currency: Currency) { #(currency.id, currency) })
+          |> dict.from_list
+        }
+
+        // Convert both currency lists to dicts indexed by ID, then merge.
+        // This deduplicates currencies while giving server data precedence
+        // over existing client data for any conflicts.
+        model.currencies
+        |> currencies_to_dict
+        |> dict.merge(currencies_to_dict(matched_currencies))
+        |> dict.values
+      }
 
       let converters =
         list.map(model.converters, fn(conv) {
           converter.with_master_currency_list(conv, master_list)
         })
 
-      #(Model(..model, currencies: master_list, converters:), effect.none())
+      let model = Model(..model, currencies: master_list, converters:)
+      let effect = send_currencies_to_server(model, matched_currencies)
+
+      #(model, effect)
     }
   }
 }
@@ -325,10 +342,7 @@ pub fn model_with_converter(model: Model, converter: Converter) -> Model {
   Model(..model, converters:)
 }
 
-fn try_subscribe_to_rate_updates(
-  model: Model,
-  converter: Converter,
-) -> Effect(Msg) {
+fn subscribe_to_rate_updates(model: Model, converter: Converter) -> Effect(Msg) {
   case model.socket {
     None -> {
       echo "could not request rate. socket not initialized."
@@ -350,6 +364,22 @@ fn try_subscribe_to_rate_updates(
       |> json.to_string
       |> socket.send(socket, _)
     }
+  }
+}
+
+fn send_currencies_to_server(model: Model, currencies_to_add: List(Currency)) {
+  case model.socket {
+    None -> {
+      echo "could not add currencies. socket not initialized."
+      effect.none()
+    }
+
+    Some(socket) ->
+      currencies_to_add
+      |> AddCurrencies
+      |> websocket_request.encode
+      |> json.to_string
+      |> socket.send(socket, _)
   }
 }
 
