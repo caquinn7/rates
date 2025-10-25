@@ -396,10 +396,20 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
       NoEffect,
     )
 
-    UserClickedCurrencySelector(side) -> #(
-      with_toggled_dropdown(converter, side),
-      NoEffect,
-    )
+    UserClickedCurrencySelector(side) -> {
+      let model =
+        converter
+        |> with_filtered_currencies(
+          side,
+          "",
+          name_or_symbol_contains_filter,
+          get_default_currencies,
+        )
+        |> with_focused_index(side, fn() { None })
+        |> with_toggled_dropdown(side)
+
+      #(model, NoEffect)
+    }
 
     UserFilteredCurrencies(side, filter_text) -> {
       let converter =
@@ -486,7 +496,10 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
     }
 
     UserSelectedCurrency(side, currency) -> {
-      let converter = with_selected_currency(converter, side, currency)
+      let converter =
+        converter
+        |> with_selected_currency(side, currency)
+        |> with_toggled_dropdown(side)
 
       #(converter, RequestRate)
     }
