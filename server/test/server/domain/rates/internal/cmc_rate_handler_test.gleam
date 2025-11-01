@@ -82,7 +82,7 @@ pub fn get_rate_returns_rate_test() {
         "BTC",
         "Bitcoin",
         1.0,
-        dict.from_list([#("2781", QuoteItem(100_000.0))]),
+        dict.from_list([#("2781", QuoteItem(Some(100_000.0)))]),
       )),
     ))
   }
@@ -92,7 +92,29 @@ pub fn get_rate_returns_rate_test() {
     RateRequest(1, 2781)
     |> cmc_rate_handler.get_rate(request_conversion, get_current_time_ms)
 
-  assert Ok(RateResponse(1, 2781, 100_000.0, CoinMarketCap, 1)) == result
+  assert Ok(RateResponse(1, 2781, Some(100_000.0), CoinMarketCap, 1)) == result
+}
+
+pub fn get_rate_returns_rate_when_rate_is_none_test() {
+  let request_conversion = fn(conversion_params: CmcConversionParameters) {
+    Ok(CmcResponse(
+      CmcStatus(0, None),
+      Some(CmcConversion(
+        conversion_params.id,
+        "BTC",
+        "Bitcoin",
+        1.0,
+        dict.from_list([#("2781", QuoteItem(None))]),
+      )),
+    ))
+  }
+  let get_current_time_ms = fn() { 1 }
+
+  let result =
+    RateRequest(1, 2781)
+    |> cmc_rate_handler.get_rate(request_conversion, get_current_time_ms)
+
+  assert Ok(RateResponse(1, 2781, None, CoinMarketCap, 1)) == result
 }
 
 pub fn get_rate_unexpected_response_test() {

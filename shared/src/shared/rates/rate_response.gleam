@@ -1,8 +1,15 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import gleam/option.{type Option}
 
 pub type RateResponse {
-  RateResponse(from: Int, to: Int, rate: Float, source: Source, timestamp: Int)
+  RateResponse(
+    from: Int,
+    to: Int,
+    rate: Option(Float),
+    source: Source,
+    timestamp: Int,
+  )
 }
 
 pub type Source {
@@ -23,25 +30,25 @@ pub fn encode(rate_response: RateResponse) -> Json {
   json.object([
     #("from", json.int(from)),
     #("to", json.int(to)),
-    #("rate", json.float(rate)),
+    #("rate", json.nullable(rate, json.float)),
     #("source", json.string(source_to_string(source))),
     #("timestamp", json.int(timestamp)),
   ])
 }
 
 pub fn decoder() -> Decoder(RateResponse) {
-  let source_decoder = {
-    use decoded_string <- decode.then(decode.string)
-    case decoded_string {
-      "CoinMarketCap" -> decode.success(CoinMarketCap)
-      "Kraken" -> decode.success(Kraken)
-      _ -> decode.failure(CoinMarketCap, "Source")
-    }
-  }
+  let source_decoder =
+    decode.then(decode.string, fn(decoded_string) {
+      case decoded_string {
+        "CoinMarketCap" -> decode.success(CoinMarketCap)
+        "Kraken" -> decode.success(Kraken)
+        _ -> decode.failure(CoinMarketCap, "Source")
+      }
+    })
 
   use from <- decode.field("from", decode.int)
   use to <- decode.field("to", decode.int)
-  use rate <- decode.field("rate", decode.float)
+  use rate <- decode.field("rate", decode.optional(decode.float))
   use source <- decode.field("source", source_decoder)
   use timestamp <- decode.field("timestamp", decode.int)
   decode.success(RateResponse(from:, to:, rate:, source:, timestamp:))

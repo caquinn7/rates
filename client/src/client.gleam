@@ -87,7 +87,7 @@ pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
 }
 
 fn model_from_page_data(page_data: PageData) -> Model {
-  let assert [RateResponse(from, to, rate, _source, _timestamp)] =
+  let assert [RateResponse(from, to, Some(rate), _source, _timestamp)] =
     page_data.rates
 
   let assert Ok(from_currency) =
@@ -190,7 +190,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             False -> #(model, effect.none())
 
             True -> {
-              let assert Ok(rate) = positive_float.new(rate)
+              let rate =
+                option.map(rate, fn(r) {
+                  let assert Ok(r) = positive_float.new(r)
+                  r
+                })
+
               let target_converter = converter.with_rate(target_converter, rate)
               #(model_with_converter(model, target_converter), effect.none())
             }

@@ -59,7 +59,7 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
   assert sub_id == received_sub_id
   assert 1 == rate_response.from
   assert 2781 == rate_response.to
-  assert 100_000.0 == rate_response.rate
+  assert Some(100_000.0) == rate_response.rate
   assert Kraken == rate_response.source
   assert 100 == rate_response.timestamp
 }
@@ -90,7 +90,7 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
           "BTC",
           "Bitcoin",
           1.0,
-          dict.insert(dict.new(), "2781", QuoteItem(100_000.0)),
+          dict.insert(dict.new(), "2781", QuoteItem(Some(100_000.0))),
         )
         |> Some
         |> CmcResponse(CmcStatus(0, None), _)
@@ -116,7 +116,7 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
   assert sub_id == received_sub_id
   assert 1 == rate_response.from
   assert 2781 == rate_response.to
-  assert 100_000.0 == rate_response.rate
+  assert Some(100_000.0) == rate_response.rate
   assert CoinMarketCap == rate_response.source
   assert 100 == rate_response.timestamp
 }
@@ -147,7 +147,7 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
           "BTC",
           "Bitcoin",
           1.0,
-          dict.insert(dict.new(), "2781", QuoteItem(100_000.0)),
+          dict.insert(dict.new(), "2781", QuoteItem(Some(100_000.0))),
         )
         |> Some
         |> CmcResponse(CmcStatus(0, None), _)
@@ -173,7 +173,7 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
   assert sub_id == received_sub_id
   assert 1 == rate_response.from
   assert 2781 == rate_response.to
-  assert 100_000.0 == rate_response.rate
+  assert Some(100_000.0) == rate_response.rate
   assert CoinMarketCap == rate_response.source
   assert 100 == rate_response.timestamp
 }
@@ -305,7 +305,7 @@ pub fn subscribe_schedules_get_latest_rate_test() {
   assert sub_id == received_sub_id
   assert 1 == rate_response.from
   assert 2781 == rate_response.to
-  assert 100_000.0 == rate_response.rate
+  assert Some(100_000.0) == rate_response.rate
   assert Kraken == rate_response.source
   assert 100 == rate_response.timestamp
 
@@ -367,7 +367,7 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   assert sub_id == received_sub_id
   assert 1027 == rate_response.from
   assert 2781 == rate_response.to
-  assert 4000.0 == rate_response.rate
+  assert Some(4000.0) == rate_response.rate
 
   subscriber.stop(target)
 }
@@ -403,7 +403,7 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
           "BTC",
           "Bitcoin",
           1.0,
-          dict.insert(dict.new(), "2781", QuoteItem(100_001.0)),
+          dict.insert(dict.new(), "2781", QuoteItem(Some(100_001.0))),
         )
         |> Some
         |> CmcResponse(CmcStatus(0, None), _)
@@ -425,12 +425,12 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
   let assert Ok(#(_, Ok(rate_response))) = process.receive(subject, 1000)
 
   assert Kraken == rate_response.source
-  assert 100_000.0 == rate_response.rate
+  assert Some(100_000.0) == rate_response.rate
 
   let assert Ok(#(_, Ok(rate_response))) = process.receive(subject, 1500)
 
   assert CoinMarketCap == rate_response.source
-  assert 100_001.0 == rate_response.rate
+  assert Some(100_001.0) == rate_response.rate
 }
 
 pub fn add_currencies_enables_subscription_to_previously_unknown_currency_test() {
@@ -461,7 +461,7 @@ pub fn add_currencies_enables_subscription_to_previously_unknown_currency_test()
           currency_to_add.symbol,
           currency_to_add.name,
           1.0,
-          dict.insert(dict.new(), "2781", QuoteItem(0.05)),
+          dict.insert(dict.new(), "2781", QuoteItem(Some(0.05))),
         )
         |> Some
         |> CmcResponse(CmcStatus(0, None), _)

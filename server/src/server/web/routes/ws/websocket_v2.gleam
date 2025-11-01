@@ -220,7 +220,12 @@ fn log_subscription_response_success(
   |> logger.with("subscription_id", subscription_id.to_string(subscription_id))
   |> logger.with("rate_response.from", int.to_string(from))
   |> logger.with("rate_response.to", int.to_string(to))
-  |> logger.with("rate_response.rate", float.to_string(rate))
+  |> logger.with(
+    "rate_response.rate",
+    rate
+      |> option.map(float.to_string)
+      |> option.unwrap(""),
+  )
   |> logger.with(
     "rate_response.source",
     shared_rate_response.source_to_string(source),

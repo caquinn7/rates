@@ -1,4 +1,5 @@
 import gleam/dict.{type Dict}
+import gleam/option.{Some}
 import gleam/result
 import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/domain/rates/internal/kraken_symbol.{type KrakenSymbol}
@@ -99,7 +100,7 @@ fn execute_kraken_strategy(
         Ok(RateResponse(
           rate_request.from,
           rate_request.to,
-          price,
+          Some(price),
           rate_response.Kraken,
           price_entry.timestamp,
         )),

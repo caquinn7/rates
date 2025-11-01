@@ -176,7 +176,12 @@ fn log_rate_response_success(logger: Logger, rate_response: RateResponse) -> Nil
   logger
   |> logger.with("rate_response.from", int.to_string(rate_response.from))
   |> logger.with("rate_response.to", int.to_string(rate_response.to))
-  |> logger.with("rate_response.rate", float.to_string(rate_response.rate))
+  |> logger.with(
+    "rate_response.rate",
+    rate_response.rate
+      |> option.map(float.to_string)
+      |> option.unwrap(""),
+  )
   |> logger.with(
     "rate_response.source",
     rate_response.source_to_string(rate_response.source),

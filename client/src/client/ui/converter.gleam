@@ -68,7 +68,7 @@ pub fn with_master_currency_list(
   |> filter_currencies(Right)
 }
 
-pub fn with_rate(converter: Converter, rate: PositiveFloat) -> Converter {
+pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter {
   // When a new exchange rate comes in, we want to:
   // - Recalculate the opposite input field if the user previously entered a number
   // - Leave the inputs unchanged if there’s no valid parsed input
@@ -88,33 +88,43 @@ pub fn with_rate(converter: Converter, rate: PositiveFloat) -> Converter {
       // Compute the value for the *opposite* field using the new rate
       let converted_amount = case edited_side {
         // converting from left to right
-        Left -> positive_float.multiply(parsed_amount, rate)
+        Left -> option.map(rate, positive_float.multiply(parsed_amount, _))
+
         // converting from right to left
         Right ->
-          case positive_float.try_divide(parsed_amount, rate) {
-            Error(_) -> panic as "rate should not be zero"
-            Ok(x) -> x
-          }
+          option.then(rate, fn(r) {
+            case positive_float.try_divide(parsed_amount, r) {
+              Error(_) -> panic as "rate should not be zero"
+              Ok(x) -> Some(x)
+            }
+          })
       }
 
       // Update only the opposite side’s amount_input field with the converted value
       converter.inputs
-      |> map_converter_inputs(side.opposite_side(edited_side), fn(input) {
-        ConverterInput(
-          ..input,
-          amount_input: AmountInput(
-            currency_formatting.format_currency_amount(
-              input.currency_selector.selected_currency,
-              converted_amount,
-            ),
-            Some(converted_amount),
-          ),
-        )
-      })
+      |> map_converter_inputs(
+        side.opposite_side(edited_side),
+        fn(converter_input) {
+          let amount_input = case converted_amount {
+            None -> AmountInput("Price not tracked", None)
+
+            Some(amount) ->
+              AmountInput(
+                currency_formatting.format_currency_amount(
+                  converter_input.currency_selector.selected_currency,
+                  amount,
+                ),
+                Some(amount),
+              )
+          }
+
+          ConverterInput(..converter_input, amount_input:)
+        },
+      )
     }
   }
 
-  Converter(..converter, inputs:, rate: Some(rate))
+  Converter(..converter, inputs:, rate:)
 }
 
 pub fn with_amount(

@@ -49,7 +49,7 @@ pub type CmcConversion {
 }
 
 pub type QuoteItem {
-  QuoteItem(price: Float)
+  QuoteItem(price: Option(Float))
 }
 
 const base_url = "https://pro-api.coinmarketcap.com"
@@ -179,10 +179,11 @@ fn conversion_decoder() -> Decoder(CmcConversion) {
   //     }
   // }
   let int_or_float_decoder =
-    decode.one_of(decode.float, [decode.int |> decode.map(int.to_float)])
+    decode.float
+    |> decode.one_of(or: [decode.map(decode.int, int.to_float)])
 
   let quote_decoder = {
-    use price <- decode.field("price", int_or_float_decoder)
+    use price <- decode.field("price", decode.optional(int_or_float_decoder))
     decode.success(QuoteItem(price))
   }
 
