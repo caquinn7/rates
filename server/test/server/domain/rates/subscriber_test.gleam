@@ -8,8 +8,9 @@ import server/domain/rates/internal/kraken_interface.{KrakenInterface}
 import server/domain/rates/internal/kraken_symbol
 import server/domain/rates/rate_error.{CmcError, CurrencyNotFound}
 import server/domain/rates/subscriber
-import server/integrations/coin_market_cap/client.{
-  CmcConversion, CmcResponse, CmcStatus, QuoteItem,
+import server/integrations/coin_market_cap/client.{CmcResponse, CmcStatus}
+import server/integrations/coin_market_cap/cmc_conversion.{
+  CmcConversion, QuoteItem,
 }
 import server/integrations/kraken/price_store.{PriceEntry}
 import server/utils/logger

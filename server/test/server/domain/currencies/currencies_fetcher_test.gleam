@@ -9,8 +9,12 @@ import server/domain/currencies/currencies_fetcher.{
   Timeout,
 }
 import server/integrations/coin_market_cap/client.{
-  CmcCryptoCurrency, CmcFiatCurrency, CmcListResponse, CmcStatus, HttpError,
+  CmcListResponse, CmcStatus, HttpError,
 }
+import server/integrations/coin_market_cap/cmc_crypto_currency.{
+  CmcCryptoCurrency,
+}
+import server/integrations/coin_market_cap/cmc_fiat_currency.{CmcFiatCurrency}
 
 const good_cmc_status = CmcStatus(0, None)
 

@@ -1,8 +1,14 @@
 import gleam/option.{type Option, Some}
 import server/integrations/coin_market_cap/client.{
-  type CmcConversion, type CmcConversionParameters, type CmcCryptoCurrency,
-  type CmcFiatCurrency, type CmcListResponse, type CmcRequestError,
+  type CmcConversionParameters, type CmcListResponse, type CmcRequestError,
   type CmcResponse,
+}
+import server/integrations/coin_market_cap/cmc_conversion.{type CmcConversion}
+import server/integrations/coin_market_cap/cmc_crypto_currency.{
+  type CmcCryptoCurrency,
+}
+import server/integrations/coin_market_cap/cmc_fiat_currency.{
+  type CmcFiatCurrency,
 }
 
 pub fn create_crypto_requester(

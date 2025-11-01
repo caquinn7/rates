@@ -6,7 +6,10 @@ import server/domain/rates/internal/rate_source_strategy.{
 }
 import server/domain/rates/rate_error.{CmcError}
 import server/integrations/coin_market_cap/client.{
-  type CmcConversionParameters, CmcConversion, CmcResponse, CmcStatus, QuoteItem,
+  type CmcConversionParameters, CmcResponse, CmcStatus,
+}
+import server/integrations/coin_market_cap/cmc_conversion.{
+  CmcConversion, QuoteItem,
 }
 import server/integrations/kraken/price_store.{PriceEntry}
 import shared/rates/rate_request.{RateRequest}

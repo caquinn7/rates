@@ -1,8 +1,12 @@
 import gleam/option.{type Option}
 import server/domain/rates/internal/kraken_interface.{type KrakenInterface}
 import server/integrations/coin_market_cap/client.{
-  type CmcConversion, type CmcConversionParameters, type CmcCryptoCurrency,
-  type CmcListResponse, type CmcRequestError, type CmcResponse,
+  type CmcConversionParameters, type CmcListResponse, type CmcRequestError,
+  type CmcResponse,
+}
+import server/integrations/coin_market_cap/cmc_conversion.{type CmcConversion}
+import server/integrations/coin_market_cap/cmc_crypto_currency.{
+  type CmcCryptoCurrency,
 }
 import server/utils/logger.{type Logger}
 import shared/currency.{type Currency}

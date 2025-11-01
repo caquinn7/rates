@@ -13,7 +13,10 @@ import server/domain/rates/factories as rates_factories
 import server/domain/rates/rate_error.{type RateError}
 import server/env_config.{type EnvConfig}
 import server/integrations/coin_market_cap/client.{
-  type CmcCryptoCurrency, type CmcListResponse, type CmcRequestError,
+  type CmcListResponse, type CmcRequestError,
+}
+import server/integrations/coin_market_cap/cmc_crypto_currency.{
+  type CmcCryptoCurrency,
 }
 import server/utils/logger
 import server/web/routes/home
