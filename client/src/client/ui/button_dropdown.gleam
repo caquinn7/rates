@@ -1,4 +1,6 @@
+import gleam/bool
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/pair
 import lustre/attribute
 import lustre/element.{type Element}
@@ -14,6 +16,35 @@ pub type DropdownOption(msg) {
 pub type DropdownMode {
   Grouped
   Flat
+}
+
+pub type NavKey {
+  ArrowUp
+  ArrowDown
+  Enter
+  Other(String)
+}
+
+pub fn calculate_next_focused_index(
+  current_index: Option(Int),
+  key: NavKey,
+  option_count: Int,
+) -> Option(Int) {
+  use <- bool.guard(option_count == 0, None)
+
+  current_index
+  |> option.map(fn(index) {
+    case key {
+      ArrowDown -> { index + 1 } % option_count
+      ArrowUp -> { index - 1 + option_count } % option_count
+      _ -> index
+    }
+  })
+  |> option.or(case key {
+    ArrowDown -> Some(0)
+    ArrowUp -> Some(option_count - 1)
+    _ -> None
+  })
 }
 
 pub fn view(

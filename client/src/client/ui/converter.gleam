@@ -1,20 +1,21 @@
 import client/currency/collection.{type CurrencyCollection} as currency_collection
+import client/currency/filtering as currency_filtering
 import client/currency/formatting as currency_formatting
 import client/positive_float.{type PositiveFloat}
 import client/side.{type Side, Left, Right}
-import client/ui/button_dropdown.{DropdownOption, Flat, Grouped}
+import client/ui/button_dropdown.{
+  type NavKey, ArrowDown, ArrowUp, DropdownOption, Enter, Flat, Grouped, Other,
+}
 import client/ui/components/auto_resize_input
-import gleam/bool
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/pair
-import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import shared/currency.{type Currency, Crypto, Fiat}
+import shared/currency.{type Currency}
 import shared/rates/rate_request.{RateRequest}
 
 pub type Converter {
@@ -58,8 +59,8 @@ pub fn with_master_currency_list(
       converter,
       side,
       filter_text,
-      name_or_symbol_contains_filter,
-      get_default_currencies,
+      currency_filtering.currency_matches_filter,
+      currency_filtering.get_default_currencies,
     )
   }
 
@@ -241,28 +242,6 @@ pub fn with_focused_index(
   })
 }
 
-pub fn calculate_next_focused_index(
-  current_index: Option(Int),
-  key: NavKey,
-  option_count: Int,
-) -> Option(Int) {
-  use <- bool.guard(option_count == 0, None)
-
-  current_index
-  |> option.map(fn(index) {
-    case key {
-      ArrowDown -> { index + 1 } % option_count
-      ArrowUp -> { index - 1 + option_count } % option_count
-      _ -> index
-    }
-  })
-  |> option.or(case key {
-    ArrowDown -> Some(0)
-    ArrowUp -> Some(option_count - 1)
-    _ -> None
-  })
-}
-
 pub fn with_filtered_currencies(
   converter: Converter,
   side: Side,
@@ -302,41 +281,6 @@ pub fn with_filtered_currencies(
   })
 }
 
-pub fn get_default_currencies(all_currencies: List(Currency)) -> List(Currency) {
-  // want top 5 ranked cryptos
-  let cryptos =
-    all_currencies
-    |> list.filter(fn(currency) {
-      case currency {
-        Crypto(..) -> True
-        Fiat(..) -> False
-      }
-    })
-    |> list.sort(currency_collection.compare_currencies)
-    |> list.take(5)
-
-  // just want USD
-  let fiats =
-    all_currencies
-    |> list.filter(fn(currency) { currency.id == 2781 })
-
-  cryptos
-  |> list.append(fiats)
-}
-
-pub fn name_or_symbol_contains_filter(
-  currency: Currency,
-  filter_str: String,
-) -> Bool {
-  let is_match = fn(str) {
-    str
-    |> string.lowercase
-    |> string.contains(string.lowercase(filter_str))
-  }
-
-  is_match(currency.name) || is_match(currency.symbol)
-}
-
 pub fn converter_with_mapped_inputs(
   converter: Converter,
   side: Side,
@@ -360,6 +304,13 @@ pub fn map_converter_inputs(
   map_pair(inputs, fun)
 }
 
+pub fn get_converter_input(converter: Converter, side: Side) {
+  case side {
+    Left -> converter.inputs.0
+    Right -> converter.inputs.1
+  }
+}
+
 pub fn to_rate_request(converter: Converter) {
   let from =
     get_converter_input(converter, Left).currency_selector.selected_currency
@@ -370,26 +321,12 @@ pub fn to_rate_request(converter: Converter) {
   RateRequest(from.id, to.id)
 }
 
-pub fn get_converter_input(converter: Converter, side: Side) {
-  case side {
-    Left -> converter.inputs.0
-    Right -> converter.inputs.1
-  }
-}
-
 pub type Msg {
   UserEnteredAmount(Side, String)
   UserClickedCurrencySelector(Side)
   UserFilteredCurrencies(Side, String)
   UserPressedKeyInCurrencySelector(Side, NavKey)
   UserSelectedCurrency(Side, Currency)
-}
-
-pub type NavKey {
-  ArrowUp
-  ArrowDown
-  Enter
-  Other(String)
 }
 
 pub type Effect {
@@ -413,8 +350,8 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
         |> with_filtered_currencies(
           side,
           "",
-          name_or_symbol_contains_filter,
-          get_default_currencies,
+          currency_filtering.currency_matches_filter,
+          currency_filtering.get_default_currencies,
         )
         |> with_focused_index(side, fn() { None })
         |> with_toggled_dropdown(side)
@@ -438,8 +375,8 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
           converter,
           side,
           filter_text,
-          name_or_symbol_contains_filter,
-          get_default_currencies,
+          currency_filtering.currency_matches_filter,
+          currency_filtering.get_default_currencies,
         )
 
       let effect = {
@@ -467,7 +404,7 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
             let currency_selector =
               get_converter_input(converter, side).currency_selector
 
-            calculate_next_focused_index(
+            button_dropdown.calculate_next_focused_index(
               currency_selector.focused_index,
               key,
               currency_collection.length(currency_selector.currencies),
@@ -485,7 +422,7 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
         #(converter, effect)
       }
 
-      let select_currency_via_enter_key = fn(converter, side) {
+      let select_focused_currency = fn(converter, side) {
         let currency_selector =
           get_converter_input(converter, side).currency_selector
 
@@ -509,9 +446,8 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
       }
 
       case key {
-        ArrowDown -> navigate_currency_selector(converter, side, key)
-        ArrowUp -> navigate_currency_selector(converter, side, key)
-        Enter -> select_currency_via_enter_key(converter, side)
+        ArrowDown | ArrowUp -> navigate_currency_selector(converter, side, key)
+        Enter -> select_focused_currency(converter, side)
         Other(_) -> #(converter, NoEffect)
       }
     }
