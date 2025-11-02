@@ -107,7 +107,7 @@ pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter
         side.opposite_side(edited_side),
         fn(converter_input) {
           let amount_input = case converted_amount {
-            None -> AmountInput("Price not tracked", None)
+            None -> AmountInput("price not tracked", None)
 
             Some(amount) ->
               AmountInput(
@@ -346,8 +346,8 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
 
     UserClickedCurrencySelector(side) -> {
       let converter =
-        converter
-        |> with_filtered_currencies(
+        with_filtered_currencies(
+          converter,
           side,
           "",
           currency_filtering.currency_matches_filter,
@@ -429,20 +429,22 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
         let focused_index = currency_selector.focused_index
         let currencies = currency_selector.currencies
 
-        let converter = case focused_index {
-          None -> converter
-          Some(index) -> {
-            let assert Ok(selected_currency) =
-              currencies
-              |> currency_collection.at_index(index)
+        case focused_index {
+          None -> #(converter, NoEffect)
 
-            converter
-            |> with_selected_currency(side, selected_currency)
-            |> with_toggled_dropdown(side)
+          Some(index) -> {
+            let converter = {
+              let assert Ok(selected_currency) =
+                currency_collection.at_index(currencies, index)
+
+              converter
+              |> with_selected_currency(side, selected_currency)
+              |> with_toggled_dropdown(side)
+            }
+
+            #(converter, RequestRate)
           }
         }
-
-        #(converter, RequestRate)
       }
 
       case key {

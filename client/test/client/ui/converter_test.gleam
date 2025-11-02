@@ -3,8 +3,12 @@ import client/currency/filtering as currency_filtering
 import client/currency/formatting as currency_formatting
 import client/positive_float
 import client/side.{Left, Right}
+import client/ui/button_dropdown.{ArrowDown, ArrowUp, Enter, Other}
 import client/ui/converter.{
   AmountInput, Converter, ConverterInput, CurrencySelector,
+  FocusOnCurrencyFilter, NoEffect, RequestCurrencies, RequestRate,
+  ScrollToOption, UserClickedCurrencySelector, UserEnteredAmount,
+  UserFilteredCurrencies, UserPressedKeyInCurrencySelector,
 }
 import gleam/list
 import gleam/option.{None, Some}
@@ -805,6 +809,477 @@ pub fn map_converter_inputs_only_updates_targeted_side_test() {
 
   // Right side should remain completely unchanged
   assert updated_inputs.1 == right_input
+}
+
+// update - UserEnteredAmount
+
+pub fn update_user_entered_amount_calls_with_amount_test() {
+  let #(result_converter, effect) =
+    converter.update(empty_converter(), UserEnteredAmount(Left, "123"))
+
+  // Should call with_amount and update the state accordingly
+  // We don't need to test the detailed behavior (that's covered by with_amount tests)
+  // Just verify that the message routes to the right function
+  assert converter.get_converter_input(result_converter, Left).amount_input.raw
+    == "123"
+
+  assert effect == NoEffect
+}
+
+// update - UserClickedCurrencySelector
+
+pub fn update_user_clicked_currency_selector_resets_filter_to_empty_test() {
+  // Start with some filter text
+  let left_input =
+    ConverterInput(
+      ..empty_converter_input(),
+      currency_selector: CurrencySelector(
+        ..empty_converter_input().currency_selector,
+        currency_filter: "some_filter_text",
+      ),
+    )
+
+  let target =
+    Converter(..empty_converter(), inputs: #(
+      left_input,
+      empty_converter_input(),
+    ))
+
+  let #(result_converter, _) =
+    converter.update(target, UserClickedCurrencySelector(Left))
+
+  // Filter should be reset to empty string
+  assert converter.get_converter_input(result_converter, Left).currency_selector.currency_filter
+    == ""
+}
+
+pub fn update_user_clicked_currency_selector_resets_focused_index_test() {
+  // Start with some focused index
+  let left_input =
+    ConverterInput(
+      ..empty_converter_input(),
+      currency_selector: CurrencySelector(
+        ..empty_converter_input().currency_selector,
+        focused_index: Some(5),
+      ),
+    )
+
+  let target =
+    Converter(..empty_converter(), inputs: #(
+      left_input,
+      empty_converter_input(),
+    ))
+
+  let #(result_converter, _) =
+    converter.update(target, UserClickedCurrencySelector(Left))
+
+  // Focused index should be reset to None
+  assert converter.get_converter_input(result_converter, Left).currency_selector.focused_index
+    == None
+}
+
+pub fn update_user_clicked_currency_selector_toggles_dropdown_test() {
+  // Start with dropdown closed
+  let target = empty_converter()
+
+  let #(result_converter, _) =
+    converter.update(target, UserClickedCurrencySelector(Left))
+
+  // Dropdown should now be open
+  assert converter.get_converter_input(result_converter, Left).currency_selector.show_dropdown
+}
+
+pub fn update_user_clicked_currency_selector_returns_focus_effect_when_opening_test() {
+  // Start with dropdown closed
+  let #(_, effect) =
+    converter.update(empty_converter(), UserClickedCurrencySelector(Left))
+
+  assert effect == FocusOnCurrencyFilter(Left)
+}
+
+pub fn update_user_clicked_currency_selector_returns_no_effect_when_closing_test() {
+  // Start with dropdown open
+  let left_input =
+    ConverterInput(
+      ..empty_converter_input(),
+      currency_selector: CurrencySelector(
+        ..empty_converter_input().currency_selector,
+        show_dropdown: True,
+      ),
+    )
+
+  let target =
+    Converter(..empty_converter(), inputs: #(
+      left_input,
+      empty_converter_input(),
+    ))
+
+  let #(result_converter, effect) =
+    converter.update(target, UserClickedCurrencySelector(Left))
+
+  // Dropdown should now be closed
+  assert !converter.get_converter_input(result_converter, Left).currency_selector.show_dropdown
+
+  // Should return NoEffect when closing dropdown
+  assert effect == NoEffect
+}
+
+// update - UserFilteredCurrencies
+
+pub fn update_user_filtered_currencies_calls_with_filtered_currencies_test() {
+  let target =
+    Converter(..empty_converter(), master_currency_list: [
+      Crypto(1, "Bitcoin", "BTC", None),
+      Crypto(2, "Ethereum", "ETH", None),
+    ])
+
+  let #(result_converter, _) =
+    converter.update(target, UserFilteredCurrencies(Left, "bit"))
+
+  // Should call with_filtered_currencies and update the filter text
+  assert converter.get_converter_input(result_converter, Left).currency_selector.currency_filter
+    == "bit"
+}
+
+pub fn update_user_filtered_currencies_returns_no_effect_when_currencies_match_test() {
+  let target =
+    Converter(..empty_converter(), master_currency_list: [
+      Crypto(1, "Bitcoin", "BTC", None),
+      Crypto(2, "Ethereum", "ETH", None),
+    ])
+
+  let #(result_converter, effect) =
+    converter.update(target, UserFilteredCurrencies(Left, "bit"))
+
+  // Should have matching currencies (Bitcoin matches "bit")
+  let currencies =
+    converter.get_converter_input(result_converter, Left).currency_selector.currencies
+
+  let currency_list = currency_collection.flatten(currencies)
+  assert !list.is_empty(currency_list)
+
+  // Should return NoEffect when currencies match
+  assert effect == NoEffect
+}
+
+pub fn update_user_filtered_currencies_returns_request_currencies_when_no_match_test() {
+  let target =
+    Converter(..empty_converter(), master_currency_list: [
+      Crypto(1, "Bitcoin", "BTC", None),
+      Crypto(2, "Ethereum", "ETH", None),
+    ])
+
+  let #(result_converter, effect) =
+    converter.update(target, UserFilteredCurrencies(Left, "nonexistent"))
+
+  // Should have no matching currencies
+  let currencies =
+    converter.get_converter_input(result_converter, Left).currency_selector.currencies
+
+  let currency_list = currency_collection.flatten(currencies)
+  assert list.is_empty(currency_list)
+
+  // Should return RequestCurrencies effect with the filter text
+  assert effect == RequestCurrencies("nonexistent")
+}
+
+pub fn update_user_filtered_currencies_excludes_selected_currency_test() {
+  // Set up converter where the selected currency would match the filter
+  let left_input =
+    ConverterInput(
+      ..empty_converter_input(),
+      currency_selector: CurrencySelector(
+        ..empty_converter_input().currency_selector,
+        selected_currency: Crypto(1, "Bitcoin", "BTC", None),
+      ),
+    )
+
+  let target =
+    Converter(
+      ..empty_converter(),
+      master_currency_list: [
+        Crypto(1, "Bitcoin", "BTC", None),
+        Crypto(2, "Ethereum", "ETH", None),
+      ],
+      inputs: #(left_input, empty_converter_input()),
+    )
+
+  let #(result_converter, effect) =
+    converter.update(target, UserFilteredCurrencies(Left, "bit"))
+
+  // Bitcoin should be excluded even though it matches "bit" because it's selected
+  let currencies =
+    converter.get_converter_input(result_converter, Left).currency_selector.currencies
+
+  let currency_list = currency_collection.flatten(currencies)
+  assert list.is_empty(currency_list)
+
+  // Should return RequestCurrencies because no currencies are available after excluding selected
+  assert effect == RequestCurrencies("bit")
+}
+
+// update - UserPressedKeyInCurrencySelector
+
+pub fn update_user_pressed_key_arrow_down_updates_focused_index_test() {
+  // Set up converter with some currencies and no current focus
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", None),
+    Crypto(2, "Ethereum", "ETH", None),
+  ]
+
+  let left_input =
+    ConverterInput(
+      ..empty_converter_input(),
+      currency_selector: CurrencySelector(
+        ..empty_converter_input().currency_selector,
+        currencies: currency_collection.from_list(currencies),
+        focused_index: None,
+      ),
+    )
+
+  let target =
+    Converter(..empty_converter(), inputs: #(
+      left_input,
+      empty_converter_input(),
+    ))
+
+  let #(result_converter, effect) =
+    converter.update(target, UserPressedKeyInCurrencySelector(Left, ArrowDown))
+
+  // Should call with_focused_index and update the focused index
+  let focused_index =
+    converter.get_converter_input(result_converter, Left).currency_selector.focused_index
+
+  // First item should be focused
+  assert focused_index == Some(0)
+
+  // Should return ScrollToOption effect
+  assert effect == ScrollToOption(Left, 0)
+}
+
+pub fn update_user_pressed_key_arrow_up_updates_focused_index_test() {
+  // Set up converter with some currencies and current focus on second item
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", None),
+    Crypto(2, "Ethereum", "ETH", None),
+  ]
+
+  let left_input =
+    ConverterInput(
+      ..empty_converter_input(),
+      currency_selector: CurrencySelector(
+        ..empty_converter_input().currency_selector,
+        currencies: currency_collection.from_list(currencies),
+        // Currently on second item
+        focused_index: Some(1),
+      ),
+    )
+
+  let target =
+    Converter(..empty_converter(), inputs: #(
+      left_input,
+      empty_converter_input(),
+    ))
+
+  let #(result_converter, effect) =
+    converter.update(target, UserPressedKeyInCurrencySelector(Left, ArrowUp))
+
+  // Should move focus to first item
+  let focused_index =
+    converter.get_converter_input(result_converter, Left).currency_selector.focused_index
+
+  assert focused_index == Some(0)
+
+  assert effect == ScrollToOption(Left, 0)
+}
+
+pub fn update_user_pressed_key_enter_selects_focused_currency_test() {
+  // Set up converter with currencies and focus on second item
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", None),
+    Crypto(2, "Ethereum", "ETH", None),
+  ]
+
+  let left_input =
+    ConverterInput(
+      ..empty_converter_input(),
+      currency_selector: CurrencySelector(
+        ..empty_converter_input().currency_selector,
+        currencies: currency_collection.from_list(currencies),
+        // Focus on Ethereum
+        focused_index: Some(1),
+        // Dropdown is open
+        show_dropdown: True,
+      ),
+    )
+
+  let target =
+    Converter(..empty_converter(), inputs: #(
+      left_input,
+      empty_converter_input(),
+    ))
+
+  let #(result_converter, effect) =
+    converter.update(target, UserPressedKeyInCurrencySelector(Left, Enter))
+
+  // Should select the focused currency (Ethereum)
+  assert converter.get_converter_input(result_converter, Left).currency_selector.selected_currency.id
+    == 2
+
+  // Should close the dropdown
+  assert !converter.get_converter_input(result_converter, Left).currency_selector.show_dropdown
+
+  assert effect == RequestRate
+}
+
+pub fn update_user_pressed_key_enter_with_no_focus_returns_no_effect_test() {
+  // Set up converter with currencies but no focused index
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", None),
+    Crypto(2, "Ethereum", "ETH", None),
+  ]
+
+  let original_currency = Crypto(99, "Original", "ORIG", None)
+
+  let left_input =
+    ConverterInput(
+      ..empty_converter_input(),
+      currency_selector: CurrencySelector(
+        ..empty_converter_input().currency_selector,
+        currencies: currency_collection.from_list(currencies),
+        // No focus
+        focused_index: None,
+        selected_currency: original_currency,
+        show_dropdown: True,
+      ),
+    )
+
+  let target =
+    Converter(..empty_converter(), inputs: #(
+      left_input,
+      empty_converter_input(),
+    ))
+
+  let #(result_converter, effect) =
+    converter.update(target, UserPressedKeyInCurrencySelector(Left, Enter))
+
+  // Should not change selected currency
+  assert converter.get_converter_input(result_converter, Left).currency_selector.selected_currency
+    == original_currency
+
+  // Should not change dropdown state
+  assert converter.get_converter_input(result_converter, Left).currency_selector.show_dropdown
+
+  // Should return NoEffect when no currency is focused (nothing changed)
+  assert effect == NoEffect
+}
+
+pub fn update_user_pressed_key_other_does_nothing_test() {
+  let target = empty_converter()
+
+  let #(result_converter, effect) =
+    converter.update(
+      target,
+      UserPressedKeyInCurrencySelector(Left, Other("Space")),
+    )
+
+  // Should not change the converter
+  assert result_converter == target
+
+  assert effect == NoEffect
+}
+
+pub fn update_user_pressed_key_navigation_with_empty_list_returns_no_effect_test() {
+  // Set up converter with no currencies (empty list)
+  let left_input =
+    ConverterInput(
+      ..empty_converter_input(),
+      currency_selector: CurrencySelector(
+        ..empty_converter_input().currency_selector,
+        currencies: currency_collection.from_list([]),
+        focused_index: None,
+      ),
+    )
+
+  let target =
+    Converter(..empty_converter(), inputs: #(
+      left_input,
+      empty_converter_input(),
+    ))
+
+  let #(result_converter, effect) =
+    converter.update(target, UserPressedKeyInCurrencySelector(Left, ArrowDown))
+
+  // Should not set any focused index (still None)
+  let focused_index =
+    converter.get_converter_input(result_converter, Left).currency_selector.focused_index
+
+  assert focused_index == None
+
+  // Should return NoEffect when no focused index is set
+  assert effect == NoEffect
+}
+
+// update - UserSelectedCurrency
+
+pub fn update_user_selected_currency_calls_with_selected_currency_test() {
+  let new_currency = Crypto(999, "Test Currency", "TEST", None)
+
+  let #(result_converter, effect) =
+    converter.update(
+      empty_converter(),
+      converter.UserSelectedCurrency(Left, new_currency),
+    )
+
+  // Should call with_selected_currency and update the selected currency
+  assert converter.get_converter_input(result_converter, Left).currency_selector.selected_currency
+    == new_currency
+
+  assert effect == RequestRate
+}
+
+pub fn update_user_selected_currency_toggles_dropdown_test() {
+  // Start with dropdown open
+  let left_input =
+    ConverterInput(
+      ..empty_converter_input(),
+      currency_selector: CurrencySelector(
+        ..empty_converter_input().currency_selector,
+        show_dropdown: True,
+      ),
+    )
+
+  let initial_converter =
+    Converter(..empty_converter(), inputs: #(
+      left_input,
+      empty_converter_input(),
+    ))
+
+  let new_currency = Crypto(888, "Another Currency", "ANOT", None)
+
+  let #(result_converter, _) =
+    converter.update(
+      initial_converter,
+      converter.UserSelectedCurrency(Left, new_currency),
+    )
+
+  // Dropdown should be closed after selection
+  assert !converter.get_converter_input(result_converter, Left).currency_selector.show_dropdown
+
+  // Right side dropdown should be unchanged
+  assert !converter.get_converter_input(result_converter, Right).currency_selector.show_dropdown
+}
+
+pub fn update_user_selected_currency_returns_request_rate_effect_test() {
+  let new_currency = Crypto(777, "Rate Currency", "RATE", None)
+
+  let #(_, effect) =
+    converter.update(
+      empty_converter(),
+      converter.UserSelectedCurrency(Right, new_currency),
+    )
+
+  assert effect == RequestRate
 }
 
 // helper functions
