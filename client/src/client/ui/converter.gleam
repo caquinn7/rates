@@ -7,15 +7,17 @@ import client/ui/button_dropdown.{
   type NavKey, ArrowDown, ArrowUp, DropdownOption, Enter, Flat, Grouped, Other,
 }
 import client/ui/components/auto_resize_input
+import gleam/bool
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/pair
+import gleam/result
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
-import shared/currency.{type Currency}
+import shared/currency.{type Currency, Crypto}
 import shared/rates/rate_request.{RateRequest}
 
 pub type Converter {
@@ -45,6 +47,60 @@ pub type CurrencySelector {
     selected_currency: Currency,
     focused_index: Option(Int),
   )
+}
+
+pub type ConverterConstructionError {
+  EmptyCurrencyList
+  CurrencyNotFound(Side)
+}
+
+pub fn new(
+  id: String,
+  currencies: List(Currency),
+  selected_currency_ids: #(Int, Int),
+  left_amount: String,
+  rate: Option(PositiveFloat),
+) -> Result(Converter, ConverterConstructionError) {
+  let empty_converter_input = fn(side) {
+    ConverterInput(
+      AmountInput("", None),
+      CurrencySelector(
+        "currency-selector-" <> id <> "-" <> side.to_string(side),
+        False,
+        "",
+        currency_collection.from_list([]),
+        Crypto(0, "", "", None),
+        None,
+      ),
+    )
+  }
+
+  let empty_converter =
+    Converter(
+      id,
+      [],
+      #(empty_converter_input(Left), empty_converter_input(Right)),
+      None,
+      Left,
+    )
+
+  use <- bool.guard(list.is_empty(currencies), Error(EmptyCurrencyList))
+
+  let find_currency = fn(id, side) {
+    currencies
+    |> list.find(fn(c) { c.id == id })
+    |> result.replace_error(CurrencyNotFound(side))
+  }
+  use from_currency <- result.try(find_currency(selected_currency_ids.0, Left))
+  use to_currency <- result.try(find_currency(selected_currency_ids.1, Right))
+
+  empty_converter
+  |> with_master_currency_list(currencies)
+  |> with_selected_currency(Left, from_currency)
+  |> with_selected_currency(Right, to_currency)
+  |> with_rate(rate)
+  |> with_amount(Left, left_amount)
+  |> Ok
 }
 
 pub fn with_master_currency_list(

@@ -2,12 +2,10 @@ import client/api
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/event as browser_event
-import client/currency/collection as currency_collection
-import client/currency/formatting as currency_formatting
 import client/positive_float
-import client/side.{type Side, Left, Right}
+import client/side.{Left, Right}
 import client/ui/components/auto_resize_input
-import client/ui/converter.{type Converter, Converter}
+import client/ui/converter.{type Converter, type ConverterConstructionError}
 import client/websocket.{
   type WebSocket, type WebSocketEvent, InvalidUrl, OnClose, OnOpen,
   OnTextMessage,
@@ -34,7 +32,9 @@ import shared/rates/rate_response.{RateResponse}
 import shared/subscriptions/subscription_id
 import shared/subscriptions/subscription_request.{SubscriptionRequest}
 import shared/subscriptions/subscription_response.{SubscriptionResponse}
-import shared/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
+import shared/websocket_request.{AddCurrencies, Subscribe}
+
+const converter_id_prefix = "converter"
 
 pub type Model {
   Model(
@@ -44,58 +44,25 @@ pub type Model {
   )
 }
 
-pub fn model_from_page_data(page_data: PageData) -> Model {
+pub fn model_from_page_data(
+  page_data: PageData,
+) -> Result(Model, ConverterConstructionError) {
   let assert [RateResponse(from, to, Some(rate), _source, _timestamp)] =
     page_data.rates
 
-  let assert Ok(from_currency) =
-    list.find(page_data.currencies, fn(c) { c.id == from })
-    as "invalid currency id in page_data"
+  use converter <- result.try(converter.new(
+    converter_id_prefix <> "-1",
+    page_data.currencies,
+    #(from, to),
+    "1",
+    Some(positive_float.from_float_unsafe(rate)),
+  ))
 
-  let assert Ok(to_currency) =
-    list.find(page_data.currencies, fn(c) { c.id == to })
-    as "invalid currency id in page_data"
-
-  let currency_selector = fn(side: Side, selected_currency: Currency) {
-    converter.CurrencySelector(
-      id: "currency-selector-" <> side.to_string(side),
-      show_dropdown: False,
-      currency_filter: "",
-      currencies: currency_collection.from_list(page_data.currencies),
-      selected_currency:,
-      focused_index: None,
-    )
-  }
-
-  let left_input =
-    converter.ConverterInput(
-      converter.AmountInput("1", Some(positive_float.from_float_unsafe(1.0))),
-      currency_selector(Left, from_currency),
-    )
-
-  let right_input =
-    converter.ConverterInput(
-      converter.AmountInput(
-        currency_formatting.format_currency_amount(
-          to_currency,
-          positive_float.from_float_unsafe(rate),
-        ),
-        Some(positive_float.from_float_unsafe(rate)),
-      ),
-      currency_selector(Right, to_currency),
-    )
-
-  let converter =
-    Converter(
-      "converter-1",
-      [],
-      #(left_input, right_input),
-      Some(positive_float.from_float_unsafe(rate)),
-      Left,
-    )
-    |> converter.with_master_currency_list(page_data.currencies)
-
-  Model(currencies: page_data.currencies, converters: [converter], socket: None)
+  Ok(Model(
+    currencies: page_data.currencies,
+    converters: [converter],
+    socket: None,
+  ))
 }
 
 pub fn model_with_converter(model: Model, converter: Converter) -> Model {
@@ -125,7 +92,7 @@ pub fn get_next_converter_id(model: Model) -> String {
 
   let next_id = max_id + 1
 
-  "converter-" <> int.to_string(next_id)
+  converter_id_prefix <> "-" <> int.to_string(next_id)
 }
 
 pub fn main() -> Nil {
@@ -150,7 +117,12 @@ pub fn main() -> Nil {
 }
 
 pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
-  #(model_from_page_data(flags), websocket.init("/ws/v2", FromWebSocket))
+  let model = case model_from_page_data(flags) {
+    Error(err) -> panic as { "error building model: " <> string.inspect(err) }
+    Ok(m) -> m
+  }
+
+  #(model, websocket.init("/ws/v2", FromWebSocket))
 }
 
 pub type Msg {

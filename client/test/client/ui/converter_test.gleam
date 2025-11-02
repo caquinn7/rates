@@ -5,15 +5,77 @@ import client/positive_float
 import client/side.{Left, Right}
 import client/ui/button_dropdown.{ArrowDown, ArrowUp, Enter, Other}
 import client/ui/converter.{
-  AmountInput, Converter, ConverterInput, CurrencySelector,
-  FocusOnCurrencyFilter, NoEffect, RequestCurrencies, RequestRate,
-  ScrollToOption, UserClickedCurrencySelector, UserEnteredAmount,
+  AmountInput, Converter, ConverterInput, CurrencyNotFound, CurrencySelector,
+  EmptyCurrencyList, FocusOnCurrencyFilter, NoEffect, RequestCurrencies,
+  RequestRate, ScrollToOption, UserClickedCurrencySelector, UserEnteredAmount,
   UserFilteredCurrencies, UserPressedKeyInCurrencySelector,
 }
 import gleam/list
 import gleam/option.{None, Some}
 import shared/currency.{Crypto}
 import shared/rates/rate_request.{RateRequest}
+
+// new
+
+pub fn new_returns_error_when_currency_list_is_empty_test() {
+  assert converter.new("test", [], #(1, 2), "100", None)
+    == Error(EmptyCurrencyList)
+}
+
+pub fn new_returns_error_when_left_currency_id_not_found_test() {
+  let currencies = [
+    Crypto(1, "BTC", "Bitcoin", None),
+    Crypto(2, "ETH", "Ethereum", None),
+  ]
+
+  assert converter.new("test", currencies, #(999, 2), "100", None)
+    == Error(CurrencyNotFound(Left))
+}
+
+pub fn new_returns_error_when_right_currency_id_not_found_test() {
+  let currencies = [
+    Crypto(1, "BTC", "Bitcoin", None),
+    Crypto(2, "ETH", "Ethereum", None),
+  ]
+
+  assert converter.new("test", currencies, #(1, 999), "100", None)
+    == Error(CurrencyNotFound(Right))
+}
+
+pub fn new_returns_ok_with_valid_inputs_test() {
+  let currencies = [
+    Crypto(1, "BTC", "Bitcoin", None),
+    Crypto(2, "ETH", "Ethereum", None),
+  ]
+
+  let rate = Some(positive_float.from_float_unsafe(2.5))
+  let result =
+    converter.new("my-converter", currencies, #(1, 2), "100.50", rate)
+
+  let assert Ok(converter) = result
+
+  let left_converter_input = converter.get_converter_input(converter, Left)
+  let left_currency_selector = left_converter_input.currency_selector
+
+  let right_converter_input = converter.get_converter_input(converter, Right)
+  let right_currency_selector = right_converter_input.currency_selector
+
+  assert converter.id == "my-converter"
+  assert converter.last_edited == Left
+
+  assert left_currency_selector.id == "currency-selector-my-converter-left"
+  assert right_currency_selector.id == "currency-selector-my-converter-right"
+
+  assert converter.master_currency_list == currencies
+
+  assert left_currency_selector.selected_currency.id == 1
+  assert right_currency_selector.selected_currency.id == 2
+
+  assert converter.rate == rate
+
+  assert left_converter_input.amount_input.parsed
+    == Some(positive_float.from_float_unsafe(100.5))
+}
 
 // with_master_currency_list
 
@@ -225,9 +287,9 @@ pub fn with_rate_handles_none_rate_test() {
   assert converter.get_converter_input(result, Left).amount_input.parsed
     == Some(positive_float.from_float_unsafe(100.0))
 
-  // Right side should show "Price not tracked" when rate is None
+  // Right side should show "price not tracked" when rate is None
   let right_input = converter.get_converter_input(result, Right)
-  assert right_input.amount_input.raw == "Price not tracked"
+  assert right_input.amount_input.raw == "price not tracked"
   assert right_input.amount_input.parsed == None
 
   // Rate should be updated to None
