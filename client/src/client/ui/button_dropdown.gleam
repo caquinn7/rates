@@ -134,7 +134,7 @@ fn dropdown(
   html.div(
     [
       attribute.class(
-        "absolute z-10 border rounded-lg shadow-md max-h-64 overflow-y-auto",
+        "absolute z-10 border rounded-lg shadow-lg bg-base-100 max-h-64 overflow-y-auto",
       ),
       attribute.class(
         "min-w-max left-1/2 transform -translate-x-1/2 w-auto translate-y-3",
