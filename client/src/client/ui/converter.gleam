@@ -551,7 +551,7 @@ pub fn view(converter: Converter) -> Element(Msg) {
 
     conversion_input(
       amount_input(
-        "amount-input-" <> side.to_string(side),
+        "amount-input-" <> converter.id <> "-" <> side.to_string(side),
         target_conversion_input.amount_input,
         UserEnteredAmount(side, _),
       ),
