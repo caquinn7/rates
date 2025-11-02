@@ -25,6 +25,7 @@ import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/element/svg
+import lustre/event
 import rsvp
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData}
@@ -244,7 +245,26 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
     }
 
-    UserClickedAddConverter -> todo
+    UserClickedAddConverter -> {
+      let assert Ok(new_converter) =
+        converter.new(
+          get_next_converter_id(model),
+          model.currencies,
+          #(1, 2781),
+          "1",
+          None,
+        )
+
+      let model =
+        Model(
+          ..model,
+          converters: list.append(model.converters, [new_converter]),
+        )
+
+      let effect = subscribe_to_rate_updates(model, new_converter)
+
+      #(model, effect)
+    }
 
     UserClickedInDocument(event) -> {
       let assert Ok(clicked_elem) =
@@ -259,16 +279,19 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         let currency_selector_id = currency_selector.id
         let dropdown_visible = currency_selector.show_dropdown
 
-        let assert Ok(currency_selector_elem) =
-          document.get_element_by_id(currency_selector_id)
+        case document.get_element_by_id(currency_selector_id) {
+          Error(_) -> converter
 
-        let clicked_outside_dropdown =
-          !browser_element.contains(currency_selector_elem, clicked_elem)
+          Ok(currency_selector_elem) -> {
+            let clicked_outside_dropdown =
+              !browser_element.contains(currency_selector_elem, clicked_elem)
 
-        let should_toggle = dropdown_visible && clicked_outside_dropdown
-        case should_toggle {
-          False -> converter
-          True -> converter.with_toggled_dropdown(converter, side)
+            let should_toggle = dropdown_visible && clicked_outside_dropdown
+            case should_toggle {
+              False -> converter
+              True -> converter.with_toggled_dropdown(converter, side)
+            }
+          }
         }
       }
 
@@ -284,8 +307,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     ApiReturnedMatchedCurrencies(Error(err)) -> {
-      echo "error fetching currencies"
-      echo err
+      echo "error fetching currencies: " <> string.inspect(err)
       #(model, effect.none())
     }
 
@@ -432,7 +454,17 @@ fn main_content(model: Model) -> Element(Msg) {
       |> element.map(FromConverter(converter_model.id, _))
     })
 
-  html.div([attribute.class("container")], [
-    html.div([attribute.class("converters")], converter_elems),
+  let add_converter_button =
+    html.button(
+      [
+        attribute.class("btn btn-primary mt-6"),
+        event.on_click(UserClickedAddConverter),
+      ],
+      [html.text("+ Add Converter")],
+    )
+
+  html.div([attribute.class("container max-w-4xl mx-auto px-4")], [
+    html.div([attribute.class("converters space-y-6")], converter_elems),
+    html.div([attribute.class("flex justify-center")], [add_converter_button]),
   ])
 }
