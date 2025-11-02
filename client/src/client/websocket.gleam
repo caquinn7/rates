@@ -4,14 +4,14 @@ import gleam/result
 import gleam/uri.{Uri}
 import lustre/effect.{type Effect}
 
+pub type WebSocket
+
 pub type WebSocketEvent {
   InvalidUrl
   OnOpen(WebSocket)
   OnTextMessage(String)
   OnClose(WebSocketCloseReason)
 }
-
-pub type WebSocket
 
 pub type WebSocketCloseReason {
   // 1000
@@ -69,27 +69,28 @@ fn code_to_reason(code: Int) -> WebSocketCloseReason {
 /// If the path is a relative path, ditto, but the the path will be
 /// relative to the path from document.URL
 pub fn init(path: String, wrapper: fn(WebSocketEvent) -> a) -> Effect(a) {
-  use dispatch <- effect.from
-  case get_websocket_path(path) {
-    Ok(url) ->
-      do_init(
-        url,
-        fn(ws) { dispatch(wrapper(OnOpen(ws))) },
-        fn(text) { dispatch(wrapper(OnTextMessage(text))) },
-        fn(code) {
-          code
-          |> code_to_reason
-          |> OnClose
-          |> wrapper
-          |> dispatch
-        },
-      )
+  effect.from(fn(dispatch) {
+    case get_websocket_path(path) {
+      Ok(url) ->
+        do_init(
+          url,
+          fn(ws) { dispatch(wrapper(OnOpen(ws))) },
+          fn(text) { dispatch(wrapper(OnTextMessage(text))) },
+          fn(code) {
+            code
+            |> code_to_reason
+            |> OnClose
+            |> wrapper
+            |> dispatch
+          },
+        )
 
-    _ ->
-      InvalidUrl
-      |> wrapper
-      |> dispatch
-  }
+      _ ->
+        InvalidUrl
+        |> wrapper
+        |> dispatch
+    }
+  })
 }
 
 pub fn get_websocket_path(path: String) -> Result(String, Nil) {
@@ -125,6 +126,13 @@ fn convert_scheme(scheme: String) -> Result(String, Nil) {
   }
 }
 
+/// Send a text message over the web socket. This is asynchronous. There is no
+/// expectation of a reply. See `init`. Only works on an Non-Closed socket.
+/// Returns a `Effect(a)` that you must pass as second entry in the lustre `update` return.
+pub fn send(ws: WebSocket, msg: String) -> Effect(a) {
+  effect.from(fn(_) { do_send(ws, msg) })
+}
+
 @external(javascript, "../socket_ffi.mjs", "initSocket")
 fn do_init(
   url: String,
@@ -132,14 +140,6 @@ fn do_init(
   on_message: fn(String) -> Nil,
   on_close: fn(Int) -> Nil,
 ) -> Nil
-
-/// Send a text message over the web socket. This is asynchronous. There is no
-/// expectation of a reply. See `init`. Only works on an Non-Closed socket.
-/// Returns a `Effect(a)` that you must pass as second entry in the lustre `update` return.
-pub fn send(ws: WebSocket, msg: String) -> Effect(a) {
-  use _ <- effect.from
-  do_send(ws, msg)
-}
 
 @external(javascript, "../socket_ffi.mjs", "sendOverSocket")
 fn do_send(ws: WebSocket, msg: String) -> Nil

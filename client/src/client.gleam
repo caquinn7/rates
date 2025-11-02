@@ -6,12 +6,12 @@ import client/currency/collection as currency_collection
 import client/currency/formatting as currency_formatting
 import client/positive_float
 import client/side.{type Side, Left, Right}
-import client/socket.{
+import client/ui/components/auto_resize_input
+import client/ui/converter.{type Converter, Converter}
+import client/websocket.{
   type WebSocket, type WebSocketEvent, InvalidUrl, OnClose, OnOpen,
   OnTextMessage,
 }
-import client/ui/components/auto_resize_input
-import client/ui/converter.{type Converter, Converter}
 import gleam/dict
 import gleam/int
 import gleam/javascript/array
@@ -44,49 +44,7 @@ pub type Model {
   )
 }
 
-pub fn get_next_converter_id(model: Model) -> String {
-  let max_id =
-    model.converters
-    |> list.map(fn(converter) {
-      converter.id
-      |> string.split_once("-")
-      |> result.map(pair.second)
-      |> result.try(int.parse)
-      |> result.unwrap(0)
-    })
-    |> list.fold(0, int.max)
-
-  let next_id = max_id + 1
-
-  "converter-" <> int.to_string(next_id)
-}
-
-pub fn main() -> Nil {
-  let assert Ok(json_str) =
-    result.map(document.query_selector("#model"), browser_element.inner_text)
-    as "failed to find model element"
-
-  let assert Ok(page_data) = json.parse(json_str, page_data.decoder())
-    as "failed to decode page_data"
-
-  let assert Ok(_) = auto_resize_input.register()
-
-  let app = lustre.application(init, update, view)
-  let assert Ok(runtime) = lustre.start(app, "#app", page_data)
-
-  document.add_event_listener("click", fn(event) {
-    event
-    |> UserClickedInDocument
-    |> lustre.dispatch
-    |> lustre.send(runtime, _)
-  })
-}
-
-pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
-  #(model_from_page_data(flags), socket.init("/ws/v2", WsWrapper))
-}
-
-fn model_from_page_data(page_data: PageData) -> Model {
+pub fn model_from_page_data(page_data: PageData) -> Model {
   let assert [RateResponse(from, to, Some(rate), _source, _timestamp)] =
     page_data.rates
 
@@ -140,8 +98,63 @@ fn model_from_page_data(page_data: PageData) -> Model {
   Model(currencies: page_data.currencies, converters: [converter], socket: None)
 }
 
+pub fn model_with_converter(model: Model, converter: Converter) -> Model {
+  let converters =
+    model.converters
+    |> list.map(fn(conv) {
+      case conv.id == converter.id {
+        True -> converter
+        False -> conv
+      }
+    })
+
+  Model(..model, converters:)
+}
+
+pub fn get_next_converter_id(model: Model) -> String {
+  let max_id =
+    model.converters
+    |> list.map(fn(converter) {
+      converter.id
+      |> string.split_once("-")
+      |> result.map(pair.second)
+      |> result.try(int.parse)
+      |> result.unwrap(0)
+    })
+    |> list.fold(0, int.max)
+
+  let next_id = max_id + 1
+
+  "converter-" <> int.to_string(next_id)
+}
+
+pub fn main() -> Nil {
+  let assert Ok(json_str) =
+    result.map(document.query_selector("#model"), browser_element.inner_text)
+    as "failed to find model element"
+
+  let assert Ok(page_data) = json.parse(json_str, page_data.decoder())
+    as "failed to decode page_data"
+
+  let assert Ok(_) = auto_resize_input.register()
+
+  let app = lustre.application(init, update, view)
+  let assert Ok(runtime) = lustre.start(app, "#app", page_data)
+
+  document.add_event_listener("click", fn(event) {
+    event
+    |> UserClickedInDocument
+    |> lustre.dispatch
+    |> lustre.send(runtime, _)
+  })
+}
+
+pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
+  #(model_from_page_data(flags), websocket.init("/ws/v2", FromWebSocket))
+}
+
 pub type Msg {
-  WsWrapper(WebSocketEvent)
+  FromWebSocket(WebSocketEvent)
   FromConverter(String, converter.Msg)
   UserClickedAddConverter
   UserClickedInDocument(browser_event.Event)
@@ -150,15 +163,15 @@ pub type Msg {
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    WsWrapper(InvalidUrl) -> panic as "invalid url used to open websocket"
+    FromWebSocket(InvalidUrl) -> panic as "invalid url used to open websocket"
 
-    WsWrapper(OnClose(reason)) -> {
+    FromWebSocket(OnClose(reason)) -> {
       echo "socket closed. reason: " <> string.inspect(reason)
       // todo as "connection closed. open again? show msg?"
       #(model, effect.none())
     }
 
-    WsWrapper(OnOpen(socket)) -> {
+    FromWebSocket(OnOpen(socket)) -> {
       let model = Model(..model, socket: Some(socket))
 
       let effect =
@@ -169,7 +182,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect)
     }
 
-    WsWrapper(OnTextMessage(msg)) -> {
+    FromWebSocket(OnTextMessage(msg)) -> {
       case json.parse(msg, subscription_response.decoder()) {
         Error(_) -> {
           echo "failed to decode conversion response from server: " <> msg
@@ -334,19 +347,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-pub fn model_with_converter(model: Model, converter: Converter) -> Model {
-  let converters =
-    model.converters
-    |> list.map(fn(conv) {
-      case conv.id == converter.id {
-        True -> converter
-        False -> conv
-      }
-    })
-
-  Model(..model, converters:)
-}
-
 fn subscribe_to_rate_updates(model: Model, converter: Converter) -> Effect(Msg) {
   case model.socket {
     None -> {
@@ -367,7 +367,7 @@ fn subscribe_to_rate_updates(model: Model, converter: Converter) -> Effect(Msg) 
       |> Subscribe
       |> websocket_request.encode
       |> json.to_string
-      |> socket.send(socket, _)
+      |> websocket.send(socket, _)
     }
   }
 }
@@ -384,7 +384,7 @@ fn send_currencies_to_server(model: Model, currencies_to_add: List(Currency)) {
       |> AddCurrencies
       |> websocket_request.encode
       |> json.to_string
-      |> socket.send(socket, _)
+      |> websocket.send(socket, _)
   }
 }
 
