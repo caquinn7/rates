@@ -4,7 +4,8 @@ import client/currency/formatting as currency_formatting
 import client/positive_float.{type PositiveFloat}
 import client/side.{type Side, Left, Right}
 import client/ui/button_dropdown.{
-  type NavKey, ArrowDown, ArrowUp, DropdownOption, Enter, Flat, Grouped, Other,
+  type NavKey, ArrowDown, ArrowUp, Button, ButtonDropdown, Dropdown,
+  DropdownOption, Enter, Flat, Grouped, Other,
 }
 import client/ui/components/auto_resize_input
 import gleam/bool
@@ -628,16 +629,18 @@ fn currency_selector(
     _ -> Grouped
   }
 
-  button_dropdown.view(
+  ButtonDropdown(
     currency_selector.id,
-    currency_selector.selected_currency.symbol,
+    Button(currency_selector.selected_currency.symbol, on_btn_click),
+    Dropdown(
+      currency_selector.currency_filter,
+      dropdown_options,
+      dropdown_mode,
+      on_filter,
+      on_keydown_in_dropdown,
+      on_select,
+    ),
     currency_selector.show_dropdown,
-    currency_selector.currency_filter,
-    dropdown_options,
-    dropdown_mode,
-    on_btn_click,
-    on_filter,
-    on_keydown_in_dropdown,
-    on_select,
   )
+  |> button_dropdown.view
 }
