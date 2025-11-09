@@ -5,7 +5,7 @@ import client/browser/event as browser_event
 import client/positive_float
 import client/side.{Left, Right}
 import client/ui/components/auto_resize_input
-import client/ui/converter.{type Converter, type ConverterConstructionError}
+import client/ui/converter.{type Converter, type NewConverterError}
 import client/websocket.{
   type WebSocket, type WebSocketEvent, InvalidUrl, OnClose, OnOpen,
   OnTextMessage,
@@ -33,7 +33,7 @@ import shared/rates/rate_response.{RateResponse}
 import shared/subscriptions/subscription_id
 import shared/subscriptions/subscription_request.{SubscriptionRequest}
 import shared/subscriptions/subscription_response.{SubscriptionResponse}
-import shared/websocket_request.{AddCurrencies, Subscribe}
+import shared/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
 
 const converter_id_prefix = "converter"
 
@@ -47,7 +47,7 @@ pub type Model {
 
 pub fn model_from_page_data(
   page_data: PageData,
-) -> Result(Model, ConverterConstructionError) {
+) -> Result(Model, NewConverterError) {
   let assert [RateResponse(from, to, Some(rate), _source, _timestamp)] =
     page_data.rates
 
@@ -130,6 +130,7 @@ pub type Msg {
   FromWebSocket(WebSocketEvent)
   FromConverter(String, converter.Msg)
   UserClickedAddConverter
+  UserClickedDeleteConverter(String)
   UserClickedInDocument(browser_event.Event)
   ApiReturnedMatchedCurrencies(Result(List(Currency), rsvp.Error))
 }
@@ -165,24 +166,31 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Ok(SubscriptionResponse(sub_id, rate_response)) -> {
           let RateResponse(from, to, rate, _source, _timestamp) = rate_response
 
-          let assert Ok(target_converter) =
-            model.converters
-            |> list.find(fn(converter) {
-              converter.id == subscription_id.to_string(sub_id)
-            })
+          let target_converter = {
+            use target_converter <- result.try(
+              list.find(model.converters, fn(converter) {
+                converter.id == subscription_id.to_string(sub_id)
+              }),
+            )
 
-          let current_request = converter.to_rate_request(target_converter)
-          case current_request.from == from && current_request.to == to {
-            False -> #(model, effect.none())
+            let current_request = converter.to_rate_request(target_converter)
+            case current_request.from == from && current_request.to == to {
+              False -> Error(Nil)
+              True -> Ok(target_converter)
+            }
+          }
 
-            True -> {
+          case target_converter {
+            Error(_) -> #(model, effect.none())
+
+            Ok(converter) -> {
               let rate =
                 option.map(rate, fn(r) {
                   let assert Ok(r) = positive_float.new(r)
                   r
                 })
 
-              let target_converter = converter.with_rate(target_converter, rate)
+              let target_converter = converter.with_rate(converter, rate)
               #(model_with_converter(model, target_converter), effect.none())
             }
           }
@@ -262,6 +270,20 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         )
 
       let effect = subscribe_to_rate_updates(model, new_converter)
+
+      #(model, effect)
+    }
+
+    UserClickedDeleteConverter(converter_id) -> {
+      let model =
+        Model(
+          ..model,
+          converters: list.filter(model.converters, fn(converter) {
+            converter.id != converter_id
+          }),
+        )
+
+      let effect = unsubscribe_from_rate_updates(model, converter_id)
 
       #(model, effect)
     }
@@ -366,6 +388,29 @@ fn subscribe_to_rate_updates(model: Model, converter: Converter) -> Effect(Msg) 
   }
 }
 
+fn unsubscribe_from_rate_updates(
+  model: Model,
+  converter_id: String,
+) -> Effect(Msg) {
+  case model.socket {
+    None -> {
+      echo "could not unsubscribe from rate update. socket not initialized."
+      effect.none()
+    }
+
+    Some(socket) -> {
+      let assert Ok(sub_id) = subscription_id.new(converter_id)
+        as "invalid subscription id"
+
+      sub_id
+      |> Unsubscribe
+      |> websocket_request.encode
+      |> json.to_string
+      |> websocket.send(socket, _)
+    }
+  }
+}
+
 fn send_currencies_to_server(model: Model, currencies_to_add: List(Currency)) {
   case model.socket {
     None -> {
@@ -447,24 +492,74 @@ fn theme_controller() {
 }
 
 fn main_content(model: Model) -> Element(Msg) {
-  let converter_elems =
-    model.converters
-    |> list.map(fn(converter_model) {
-      converter.view(converter_model)
-      |> element.map(FromConverter(converter_model.id, _))
+  let converter_rows =
+    list.index_map(model.converters, fn(converter, index) {
+      let is_last_converter = list.length(model.converters) - 1 == index
+      let is_only_converter = list.length(model.converters) == 1
+      converter_row(converter, is_last_converter, is_only_converter)
     })
 
-  let add_converter_button =
+  html.div([attribute.class("container max-w-4xl mx-auto px-4")], [
+    html.div([attribute.class("flex justify-center")], [
+      html.div(
+        [attribute.class("converters flex flex-col mt-4")],
+        converter_rows,
+      ),
+    ]),
+  ])
+}
+
+fn converter_row(
+  converter: Converter,
+  show_add: Bool,
+  show_delete: Bool,
+) -> Element(Msg) {
+  let button = fn(color_class: String, text: String, on_click: Msg) -> Element(
+    Msg,
+  ) {
     html.button(
       [
-        attribute.class("btn btn-primary mt-6"),
-        event.on_click(UserClickedAddConverter),
+        attribute.class(color_class),
+        attribute.class("btn btn-circle btn text-lg"),
+        event.on_click(on_click),
       ],
-      [html.text("+ Add Converter")],
+      [html.text(text)],
     )
+  }
 
-  html.div([attribute.class("container max-w-4xl mx-auto px-4")], [
-    html.div([attribute.class("converters space-y-6")], converter_elems),
-    html.div([attribute.class("flex justify-center")], [add_converter_button]),
-  ])
+  let converter_elem =
+    converter
+    |> converter.view
+    |> element.map(FromConverter(converter.id, _))
+
+  let left_column = case show_add {
+    False -> html.div([attribute.class("w-12")], [])
+
+    True ->
+      html.div([attribute.class("w-12 flex justify-center")], [
+        button("btn-info", "+", UserClickedAddConverter),
+      ])
+  }
+
+  let right_column = case show_delete {
+    False ->
+      html.div([attribute.class("w-12 flex justify-center")], [
+        button("btn-warning", "x", UserClickedDeleteConverter(converter.id)),
+      ])
+
+    True -> html.div([attribute.class("w-12")], [])
+  }
+
+  html.div(
+    [
+      attribute.class(
+        "grid grid-cols-[3rem_1fr_3rem] items-center gap-4 w-full max-w-fit",
+      ),
+    ],
+    [
+      left_column,
+      converter_elem,
+      right_column,
+    ],
+  )
 }

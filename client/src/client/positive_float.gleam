@@ -167,8 +167,7 @@ pub fn try_divide(
 /// - For precise decimal formatting, consider using `to_fixed_string` instead.
 /// - The output format follows Gleam's `float.to_string` behavior.
 pub fn to_string(p: PositiveFloat) -> String {
-  use p <- with_value(p)
-  float.to_string(p)
+  with_value(p, float.to_string)
 }
 
 pub type ToFixedStringError {
@@ -204,8 +203,7 @@ pub fn to_fixed_string(
   p: PositiveFloat,
   precision: Int,
 ) -> Result(String, ToFixedStringError) {
-  let precision_invalid = precision < 0 || precision > 100
-  use <- bool.guard(precision_invalid, Error(InvalidPrecision))
+  use <- bool.guard(precision < 0 || precision > 100, Error(InvalidPrecision))
 
   let raw_str = with_value(p, to_fixed(_, precision))
 

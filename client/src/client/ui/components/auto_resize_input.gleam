@@ -107,7 +107,7 @@ fn view(model: Model) -> Element(Msg) {
       attribute.class(
         "px-3 py-3 border-2 border-base rounded-l-lg focus:outline-none",
       ),
-      attribute.class("font-light text-4xl text-center"),
+      attribute.class("font-light text-3xl text-center"),
       attribute.id(model.id),
       attribute.style("width", int.to_string(model.width) <> "px"),
       attribute.value(model.value),
@@ -123,42 +123,58 @@ fn view(model: Model) -> Element(Msg) {
   html.div([], [input, mirror_input])
 }
 
-fn resize_input(component_elem_id: String, min_width: Int) -> Effect(Msg) {
+fn resize_input(auto_resize_input_id: String, min_width: Int) -> Effect(Msg) {
   use dispatch, _root_element <- effect.before_paint
 
-  let assert Ok(component_elem) = document.get_element_by_id(component_elem_id)
+  case get_shadow_elements(auto_resize_input_id) {
+    Error(_) -> Nil
+
+    Ok(#(shadow_input_elem, shadow_input_mirror_elem)) -> {
+      let _ =
+        browser_element.copy_input_styles(
+          shadow_input_elem,
+          shadow_input_mirror_elem,
+        )
+
+      let new_width =
+        shadow_input_mirror_elem
+        |> browser_element.offset_width
+        |> int.to_float
+        |> fn(mirror_offset_width) {
+          ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"]
+          |> list.map(parse_pixel_count(shadow_input_elem, _))
+          |> float.sum
+          |> fn(x) { x +. mirror_offset_width +. 2.0 }
+        }
+        |> float.truncate
+        |> int.max(min_width)
+
+      new_width
+      |> UserResizedInput
+      |> dispatch
+    }
+  }
+}
+
+fn get_shadow_elements(
+  auto_resize_input_id: String,
+) -> Result(#(browser_element.Element, browser_element.Element), Nil) {
+  use component_elem <- result.try(document.get_element_by_id(
+    auto_resize_input_id,
+  ))
+
   let shadow_root = shadow_root.shadow_root(component_elem)
 
-  let assert Ok(shadow_input_elem) =
-    shadow_root.query_selector(shadow_root, "input")
+  use shadow_input_elem <- result.try(shadow_root.query_selector(
+    shadow_root,
+    "input",
+  ))
+  use shadow_input_mirror_elem <- result.try(shadow_root.query_selector(
+    shadow_root,
+    ".input-mirror",
+  ))
 
-  let assert Ok(shadow_input_mirror_elem) =
-    shadow_root.query_selector(shadow_root, ".input-mirror")
-
-  let _ =
-    browser_element.copy_input_styles(
-      shadow_input_elem,
-      shadow_input_mirror_elem,
-    )
-
-  let new_width =
-    shadow_input_mirror_elem
-    |> browser_element.offset_width
-    |> int.to_float
-    |> fn(mirror_offset_width) {
-      ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"]
-      |> list.map(parse_pixel_count(shadow_input_elem, _))
-      |> float.sum
-      |> fn(x) { x +. mirror_offset_width +. 2.0 }
-    }
-    |> float.truncate
-    |> int.max(min_width)
-
-  new_width
-  |> UserResizedInput
-  |> dispatch
-
-  Nil
+  Ok(#(shadow_input_elem, shadow_input_mirror_elem))
 }
 
 fn parse_pixel_count(

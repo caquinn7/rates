@@ -49,9 +49,9 @@ pub type CurrencySelector {
   )
 }
 
-pub type ConverterConstructionError {
+pub type NewConverterError {
   EmptyCurrencyList
-  CurrencyNotFound(Side)
+  SelectedCurrencyNotFound(Int)
 }
 
 pub fn new(
@@ -60,22 +60,22 @@ pub fn new(
   selected_currency_ids: #(Int, Int),
   left_amount: String,
   rate: Option(PositiveFloat),
-) -> Result(Converter, ConverterConstructionError) {
-  let empty_converter_input = fn(side) {
-    ConverterInput(
-      AmountInput("", None),
-      CurrencySelector(
-        "currency-selector-" <> id <> "-" <> side.to_string(side),
-        False,
-        "",
-        currency_collection.from_list([]),
-        Crypto(0, "", "", None),
-        None,
-      ),
-    )
-  }
+) -> Result(Converter, NewConverterError) {
+  let empty_converter = {
+    let empty_converter_input = fn(side) {
+      ConverterInput(
+        AmountInput("", None),
+        CurrencySelector(
+          "currency-selector-" <> id <> "-" <> side.to_string(side),
+          False,
+          "",
+          currency_collection.from_list([]),
+          Crypto(0, "", "", None),
+          None,
+        ),
+      )
+    }
 
-  let empty_converter =
     Converter(
       id,
       [],
@@ -83,16 +83,17 @@ pub fn new(
       None,
       Left,
     )
+  }
 
   use <- bool.guard(list.is_empty(currencies), Error(EmptyCurrencyList))
 
-  let find_currency = fn(id, side) {
+  let find_currency = fn(id) {
     currencies
     |> list.find(fn(c) { c.id == id })
-    |> result.replace_error(CurrencyNotFound(side))
+    |> result.replace_error(SelectedCurrencyNotFound(id))
   }
-  use from_currency <- result.try(find_currency(selected_currency_ids.0, Left))
-  use to_currency <- result.try(find_currency(selected_currency_ids.1, Right))
+  use from_currency <- result.try(find_currency(selected_currency_ids.0))
+  use to_currency <- result.try(find_currency(selected_currency_ids.1))
 
   empty_converter
   |> with_master_currency_list(currencies)
@@ -523,40 +524,38 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
 
 pub fn view(converter: Converter) -> Element(Msg) {
   let equal_sign =
-    html.p([attribute.class("text-3xl font-semi-bold")], [element.text("=")])
+    html.p([attribute.class("text-2xl font-semi-bold")], [element.text("=")])
 
   let conversion_input_elem = fn(side) {
-    let target_conversion_input = get_converter_input(converter, side)
+    let target_input = get_converter_input(converter, side)
 
     let on_currency_selected = fn(currency_id_str) {
       let assert Ok(currency_id) = int.parse(currency_id_str)
 
       let assert Ok(currency) =
-        target_conversion_input.currency_selector.currencies
+        target_input.currency_selector.currencies
         |> currency_collection.find_by_id(currency_id)
 
       UserSelectedCurrency(side, currency)
     }
 
-    let on_keydown_in_dropdown = fn(key_str) {
-      let nav_key = case key_str {
+    let on_keydown_in_dropdown = fn(key) {
+      UserPressedKeyInCurrencySelector(side, case key {
         "ArrowUp" -> ArrowUp
         "ArrowDown" -> ArrowDown
         "Enter" -> Enter
-        s -> Other(s)
-      }
-
-      UserPressedKeyInCurrencySelector(side, nav_key)
+        _ -> Other(key)
+      })
     }
 
     conversion_input(
       amount_input(
         "amount-input-" <> converter.id <> "-" <> side.to_string(side),
-        target_conversion_input.amount_input,
+        target_input.amount_input,
         UserEnteredAmount(side, _),
       ),
       currency_selector(
-        target_conversion_input.currency_selector,
+        target_input.currency_selector,
         UserClickedCurrencySelector(side),
         UserFilteredCurrencies(side, _),
         on_keydown_in_dropdown,
@@ -569,7 +568,7 @@ pub fn view(converter: Converter) -> Element(Msg) {
     [
       attribute.class(
         "flex flex-col md:flex-row "
-        <> "items-center justify-center p-4 "
+        <> "items-center justify-left py-4 "
         <> "space-y-4 md:space-y-0 md:space-x-4",
       ),
     ],
@@ -595,7 +594,7 @@ fn amount_input(
   auto_resize_input.element([
     auto_resize_input.id(id),
     auto_resize_input.value(amount_input.raw),
-    auto_resize_input.min_width(48),
+    auto_resize_input.min_width(184),
     on_change
       |> auto_resize_input.on_change
       |> event.debounce(300),

@@ -5,10 +5,10 @@ import client/positive_float
 import client/side.{Left, Right}
 import client/ui/button_dropdown.{ArrowDown, ArrowUp, Enter, Other}
 import client/ui/converter.{
-  AmountInput, Converter, ConverterInput, CurrencyNotFound, CurrencySelector,
-  EmptyCurrencyList, FocusOnCurrencyFilter, NoEffect, RequestCurrencies,
-  RequestRate, ScrollToOption, UserClickedCurrencySelector, UserEnteredAmount,
-  UserFilteredCurrencies, UserPressedKeyInCurrencySelector,
+  AmountInput, Converter, ConverterInput, CurrencySelector, EmptyCurrencyList,
+  FocusOnCurrencyFilter, NoEffect, RequestCurrencies, RequestRate,
+  ScrollToOption, SelectedCurrencyNotFound, UserClickedCurrencySelector,
+  UserEnteredAmount, UserFilteredCurrencies, UserPressedKeyInCurrencySelector,
 }
 import gleam/list
 import gleam/option.{None, Some}
@@ -29,7 +29,7 @@ pub fn new_returns_error_when_left_currency_id_not_found_test() {
   ]
 
   assert converter.new("test", currencies, #(999, 2), "100", None)
-    == Error(CurrencyNotFound(Left))
+    == Error(SelectedCurrencyNotFound(999))
 }
 
 pub fn new_returns_error_when_right_currency_id_not_found_test() {
@@ -39,7 +39,7 @@ pub fn new_returns_error_when_right_currency_id_not_found_test() {
   ]
 
   assert converter.new("test", currencies, #(1, 999), "100", None)
-    == Error(CurrencyNotFound(Right))
+    == Error(SelectedCurrencyNotFound(999))
 }
 
 pub fn new_returns_ok_with_valid_inputs_test() {

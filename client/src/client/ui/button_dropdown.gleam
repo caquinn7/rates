@@ -81,7 +81,7 @@ pub fn button(text, on_click) -> Element(msg) {
         "w-full rounded-r-lg border-2 border-base-content cursor-pointer",
       ),
       attribute.class(
-        "font-normal text-4xl text-left bg-base-content text-secondary-content",
+        "font-normal text-3xl text-left bg-base-content text-secondary-content",
       ),
       event.on_click(on_click),
     ],
