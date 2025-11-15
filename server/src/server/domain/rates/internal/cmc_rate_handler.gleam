@@ -1,6 +1,6 @@
 import gleam/dict
 import gleam/int
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/result
 import server/integrations/coin_market_cap/client.{
   type CmcConversionParameters, type CmcRequestError, type CmcResponse,
@@ -64,19 +64,21 @@ fn map_cmc_response(
     400, Some("Invalid value for \"convert_id\":" <> _), _ ->
       Error(CurrencyNotFound(rate_request.to))
 
-    0, _, Some(conversion) ->
-      conversion.quote
-      |> dict.get(int.to_string(rate_request.to))
-      |> result.map(fn(quote_item) {
-        RateResponse(
-          from: conversion.id,
-          to: rate_request.to,
-          rate: quote_item.price,
-          source: CoinMarketCap,
-          timestamp: get_current_time_ms(),
-        )
-      })
-      |> result.map_error(fn(_) { UnexpectedResponse(cmc_response) })
+    0, _, Some(conversion) -> {
+      let rate =
+        conversion.quote
+        |> dict.get(int.to_string(rate_request.to))
+        |> option.from_result
+        |> option.then(fn(quote_item) { quote_item.price })
+
+      Ok(RateResponse(
+        from: conversion.id,
+        to: rate_request.to,
+        rate:,
+        source: CoinMarketCap,
+        timestamp: get_current_time_ms(),
+      ))
+    }
 
     _, _, _ -> Error(UnexpectedResponse(cmc_response))
   }
