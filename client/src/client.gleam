@@ -24,6 +24,7 @@ import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/element/keyed
 import lustre/element/svg
 import lustre/event
 import rsvp
@@ -496,12 +497,13 @@ fn main_content(model: Model) -> Element(Msg) {
     list.index_map(model.converters, fn(converter, index) {
       let is_last_converter = list.length(model.converters) - 1 == index
       let is_only_converter = list.length(model.converters) == 1
-      converter_row(converter, is_last_converter, is_only_converter)
+      let row = converter_row(converter, is_last_converter, is_only_converter)
+      #(converter.id, row)
     })
 
   html.div([attribute.class("container max-w-4xl mx-auto px-4")], [
     html.div([attribute.class("flex justify-center")], [
-      html.div(
+      keyed.div(
         [attribute.class("converters flex flex-col mt-4")],
         converter_rows,
       ),
