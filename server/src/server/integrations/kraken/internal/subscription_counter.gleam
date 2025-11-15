@@ -113,14 +113,13 @@ pub fn confirm_subscription(
   let assert Error(_) = dict.get(counter.active, symbol)
 
   let pending_count = get_pending_count(counter, symbol)
-  case pending_count == 0 {
-    False ->
+  case pending_count > 0 {
+    False -> Error(Nil)
+    True ->
       Ok(SubscriptionCounter(
         dict.delete(counter.pending, symbol),
         dict.insert(counter.active, symbol, pending_count),
       ))
-
-    True -> Error(Nil)
   }
 }
 
