@@ -161,6 +161,7 @@ fn wait_for_kraken_symbols_loop(start_time: Int, timeout_ms: Int) -> Nil {
 fn start_server(env_config: EnvConfig, deps: Dependencies) -> Nil {
   let assert Ok(_) =
     mist.new(router.route_request(_, env_config, deps))
+    |> mist.bind("0.0.0.0")
     |> mist.port(8080)
     |> mist.start
 

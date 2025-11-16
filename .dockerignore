@@ -1,0 +1,21 @@
+# flyctl launch added from .gitignore
+**/*.beam
+**/*.ez
+**/*/build
+**/erl_crash.dump
+**/.env
+**/.envrc
+**/.DS_STORE
+**/*/priv/static/client*
+**/node_modules
+**/notes.txt
+**/resources/*
+**/*.log
+**/.lustre
+
+# flyctl launch added from server/build/packages/carpenter/.gitignore
+server/build/packages/carpenter/**/*.beam
+server/build/packages/carpenter/**/*.ez
+server/build/packages/carpenter/**/build
+server/build/packages/carpenter/**/erl_crash.dump
+fly.toml
