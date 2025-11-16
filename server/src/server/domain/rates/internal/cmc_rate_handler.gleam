@@ -1,6 +1,6 @@
 import gleam/dict
 import gleam/int
-import gleam/option.{None, Some}
+import gleam/option.{Some}
 import gleam/result
 import server/integrations/coin_market_cap/client.{
   type CmcConversionParameters, type CmcRequestError, type CmcResponse,

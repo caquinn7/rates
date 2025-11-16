@@ -20,6 +20,11 @@ const element_name = "auto-resize-input"
 
 const change_event = "change"
 
+/// Registers this component as a custom web component.
+/// 
+/// Uses a shadow DOM to encapsulate the input and mirror element, preventing
+/// style conflicts with the rest of the page while still allowing accurate
+/// width measurements through computed styles.
 pub fn register() -> Result(Nil, lustre.Error) {
   let component_options = [
     component.on_attribute_change("id", fn(id) { Ok(ParentSetId(id)) }),
@@ -30,6 +35,9 @@ pub fn register() -> Result(Nil, lustre.Error) {
       min_width
       |> int.parse
       |> result.map(ParentSetMinWidth)
+    }),
+    component.on_property_change("disabled", {
+      decode.map(decode.bool, ParentSetDisabled)
     }),
     component.open_shadow_root(True),
   ]
@@ -54,6 +62,10 @@ pub fn min_width(value: Int) -> Attribute(msg) {
   attribute.attribute("min-width", int.to_string(value))
 }
 
+pub fn disabled(is_disabled: Bool) -> Attribute(msg) {
+  attribute.property("disabled", json.bool(is_disabled))
+}
+
 pub fn on_change(handler: fn(String) -> msg) -> Attribute(msg) {
   let decoder =
     decode.at(["detail"], decode.string)
@@ -63,17 +75,18 @@ pub fn on_change(handler: fn(String) -> msg) -> Attribute(msg) {
 }
 
 type Model {
-  Model(id: String, value: String, width: Int, min_width: Int)
+  Model(id: String, value: String, width: Int, min_width: Int, disabled: Bool)
 }
 
 fn init(_) -> #(Model, Effect(Msg)) {
-  #(Model("", "", 0, 0), effect.none())
+  #(Model("", "", 0, 0, False), effect.none())
 }
 
 type Msg {
   ParentSetId(String)
   ParentSetValue(String)
   ParentSetMinWidth(Int)
+  ParentSetDisabled(Bool)
   UserTypedValue(String)
   UserResizedInput(Int)
 }
@@ -89,13 +102,20 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     ParentSetMinWidth(min_width) -> #(Model(..model, min_width:), effect.none())
 
-    UserTypedValue(value) -> #(
-      Model(..model, value:),
-      effect.batch([
-        resize_input(model.id, model.min_width),
-        event.emit(change_event, json.string(value)),
-      ]),
-    )
+    ParentSetDisabled(disabled) -> #(Model(..model, disabled:), effect.none())
+
+    UserTypedValue(value) ->
+      case model.disabled {
+        False -> #(
+          Model(..model, value:),
+          effect.batch([
+            resize_input(model.id, model.min_width),
+            event.emit(change_event, json.string(value)),
+          ]),
+        )
+
+        True -> #(model, effect.none())
+      }
 
     UserResizedInput(width) -> #(Model(..model, width:), effect.none())
   }
@@ -111,6 +131,11 @@ fn view(model: Model) -> Element(Msg) {
       attribute.id(model.id),
       attribute.style("width", int.to_string(model.width) <> "px"),
       attribute.value(model.value),
+      attribute.disabled(model.disabled),
+      case model.disabled {
+        True -> attribute.class("bg-base-200 text-base-content opacity-50")
+        False -> attribute.none()
+      },
       event.on_input(UserTypedValue),
     ])
 
@@ -123,6 +148,14 @@ fn view(model: Model) -> Element(Msg) {
   html.div([], [input, mirror_input])
 }
 
+/// Dynamically resizes the input element to fit its content.
+///
+/// Standard HTML inputs have fixed widths, causing text overflow. This function
+/// measures the actual text width using an invisible mirror element with identical
+/// styling, then updates the input width to match (respecting the minimum width).
+///
+/// The measurement runs before paint to avoid visual flickering, and the shadow DOM
+/// ensures the mirror element doesn't interfere with page layout.
 fn resize_input(auto_resize_input_id: String, min_width: Int) -> Effect(Msg) {
   use dispatch, _root_element <- effect.before_paint
 

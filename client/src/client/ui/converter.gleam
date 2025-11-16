@@ -139,24 +139,33 @@ pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter
   let edited_side_parsed_amount =
     get_converter_input(converter, edited_side).amount_input.parsed
 
-  // Decide how to update the inputs based on whether we have a parsed amount
-  let inputs = case edited_side_parsed_amount {
-    None -> converter.inputs
+  // Decide how to update the inputs based on whether we have both a rate and parsed amount
+  let inputs = case rate, edited_side_parsed_amount {
+    None, Some(_) -> {
+      // Rate is None but user has entered an amount, show "price not tracked" on opposite side
+      converter.inputs
+      |> map_converter_inputs(side.opposite_side(edited_side), fn(input) {
+        ConverterInput(
+          ..input,
+          amount_input: AmountInput("price not tracked", None),
+        )
+      })
+    }
 
-    Some(parsed_amount) -> {
+    None, None | Some(_), None -> converter.inputs
+
+    Some(rate_value), Some(parsed_amount) -> {
       // Compute the value for the *opposite* field using the new rate
       let converted_amount = case edited_side {
         // converting from left to right
-        Left -> option.map(rate, positive_float.multiply(parsed_amount, _))
+        Left -> Some(positive_float.multiply(parsed_amount, rate_value))
 
         // converting from right to left
         Right ->
-          option.then(rate, fn(r) {
-            case positive_float.try_divide(parsed_amount, r) {
-              Error(_) -> panic as "rate should not be zero"
-              Ok(x) -> Some(x)
-            }
-          })
+          case positive_float.try_divide(parsed_amount, rate_value) {
+            Error(_) -> panic as "rate should not be zero"
+            Ok(x) -> Some(x)
+          }
       }
 
       // Update only the opposite side’s amount_input field with the converted value
@@ -553,6 +562,7 @@ pub fn view(converter: Converter) -> Element(Msg) {
       amount_input(
         "amount-input-" <> converter.id <> "-" <> side.to_string(side),
         target_input.amount_input,
+        option.is_none(converter.rate),
         UserEnteredAmount(side, _),
       ),
       currency_selector(
@@ -590,12 +600,14 @@ fn conversion_input(
 fn amount_input(
   id: String,
   amount_input: AmountInput,
+  disabled: Bool,
   on_change: fn(String) -> Msg,
 ) -> Element(Msg) {
   auto_resize_input.element([
     auto_resize_input.id(id),
     auto_resize_input.value(amount_input.raw),
     auto_resize_input.min_width(184),
+    auto_resize_input.disabled(disabled),
     on_change
       |> auto_resize_input.on_change
       |> event.debounce(300),
