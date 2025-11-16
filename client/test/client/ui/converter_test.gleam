@@ -265,7 +265,7 @@ pub fn with_rate_no_conversion_when_no_parsed_amount_test() {
   assert result.last_edited == Left
 }
 
-pub fn with_rate_handles_none_rate_test() {
+pub fn with_rate_handles_none_rate_when_left_side_is_last_edited_test() {
   // Set up converter with valid amount on left side
   let left_input =
     ConverterInput(
@@ -277,26 +277,117 @@ pub fn with_rate_handles_none_rate_test() {
     Converter(
       ..empty_converter(),
       inputs: #(left_input, empty_converter_input()),
+      rate: Some(positive_float.from_float_unsafe(1.0)),
       last_edited: Left,
     )
 
   let result = converter.with_rate(target, None)
 
   // Left side should remain unchanged
-  assert converter.get_converter_input(result, Left).amount_input.raw == "100"
-  assert converter.get_converter_input(result, Left).amount_input.parsed
+  let left_amount_input =
+    converter.get_converter_input(result, Left).amount_input
+
+  assert left_amount_input.raw == "100"
+  assert left_amount_input.parsed
     == Some(positive_float.from_float_unsafe(100.0))
 
   // Right side should show "price not tracked" when rate is None
-  let right_input = converter.get_converter_input(result, Right)
-  assert right_input.amount_input.raw == "price not tracked"
-  assert right_input.amount_input.parsed == None
+  let right_amount_input =
+    converter.get_converter_input(result, Right).amount_input
+
+  assert right_amount_input.raw == "price not tracked"
+  assert right_amount_input.parsed == None
 
   // Rate should be updated to None
   assert result.rate == None
 
   // Other state should be preserved
   assert result.last_edited == Left
+}
+
+pub fn with_rate_handles_none_rate_when_right_side_is_last_edited_test() {
+  // Set up converter with valid amount on right side
+  let right_input =
+    ConverterInput(
+      AmountInput("250", Some(positive_float.from_float_unsafe(250.0))),
+      empty_converter_input().currency_selector,
+    )
+
+  let target =
+    Converter(
+      ..empty_converter(),
+      inputs: #(empty_converter_input(), right_input),
+      rate: Some(positive_float.from_float_unsafe(1.0)),
+      last_edited: Right,
+    )
+
+  let result = converter.with_rate(target, None)
+
+  // Right side should remain unchanged
+  let right_amount_input =
+    converter.get_converter_input(result, Right).amount_input
+
+  assert right_amount_input.raw == "250"
+  assert right_amount_input.parsed
+    == Some(positive_float.from_float_unsafe(250.0))
+
+  // Left side should show "price not tracked" when rate is None
+  let left_amount_input =
+    converter.get_converter_input(result, Left).amount_input
+
+  assert left_amount_input.raw == "price not tracked"
+  assert left_amount_input.parsed == None
+
+  // Rate should be updated to None
+  assert result.rate == None
+
+  // Other state should be preserved
+  assert result.last_edited == Right
+}
+
+pub fn with_rate_transitions_from_none_to_some_test() {
+  // Set up converter with None rate and "price not tracked" showing
+  let left_input =
+    ConverterInput(
+      AmountInput("100", Some(positive_float.from_float_unsafe(100.0))),
+      empty_converter_input().currency_selector,
+    )
+
+  let right_input =
+    ConverterInput(
+      AmountInput("price not tracked", None),
+      empty_converter_input().currency_selector,
+    )
+
+  let target =
+    Converter(
+      ..empty_converter(),
+      inputs: #(left_input, right_input),
+      last_edited: Left,
+    )
+
+  // Transition to valid rate
+  let rate = Some(positive_float.from_float_unsafe(3.0))
+  let result = converter.with_rate(target, rate)
+
+  // Left side should remain unchanged
+  let left_amount_input =
+    converter.get_converter_input(result, Left).amount_input
+
+  assert left_amount_input.raw == "100"
+  assert left_amount_input.parsed
+    == Some(positive_float.from_float_unsafe(100.0))
+
+  // Right side should now have converted value: 100 * 3.0 = 300
+  let right_amount_input =
+    converter.get_converter_input(result, Right).amount_input
+
+  assert right_amount_input.raw == "300"
+  assert right_amount_input.parsed
+    == Some(positive_float.from_float_unsafe(300.0))
+
+  // Rate should be updated
+  assert result.rate == rate
 }
 
 // with_amount
@@ -1348,11 +1439,11 @@ pub fn update_user_selected_currency_returns_request_rate_effect_test() {
 
 fn empty_converter() {
   Converter(
-    "",
-    [],
-    #(empty_converter_input(), empty_converter_input()),
-    None,
-    Left,
+    id: "",
+    master_currency_list: [],
+    inputs: #(empty_converter_input(), empty_converter_input()),
+    rate: None,
+    last_edited: Left,
   )
 }
 
@@ -1360,12 +1451,12 @@ fn empty_converter_input() {
   ConverterInput(
     AmountInput("", None),
     CurrencySelector(
-      "",
-      False,
-      "",
-      currency_collection.from_list([]),
-      Crypto(0, "", "", None),
-      None,
+      id: "",
+      show_dropdown: False,
+      currency_filter: "",
+      currencies: currency_collection.from_list([]),
+      selected_currency: Crypto(0, "", "", None),
+      focused_index: None,
     ),
   )
 }
