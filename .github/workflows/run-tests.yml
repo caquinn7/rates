@@ -1,0 +1,74 @@
+name: Run Tests
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+
+env: # Define global variables
+    OTP_VERSION: "28.1.1"
+    GLEAM_VERSION: "1.13.0"
+    REBAR3_VERSION: "3.25.1"
+
+jobs:
+    shared-tests:
+        name: Shared Tests
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Setup BEAM
+              uses: erlef/setup-beam@v1
+              with:
+                  otp-version: ${{ env.OTP_VERSION }}
+                  gleam-version: ${{ env.GLEAM_VERSION }}
+                  rebar3-version: ${{ env.REBAR3_VERSION }}
+            - name: Run Shared Tests
+              run: |
+                  cd shared
+                  gleam deps download
+                  gleam test
+                  gleam format --check src test
+
+    client-tests:
+        name: Client Tests
+        runs-on: ubuntu-latest
+        needs: shared-tests
+        steps:
+            - uses: actions/checkout@v4
+            - name: Setup BEAM
+              uses: erlef/setup-beam@v1
+              with:
+                  otp-version: ${{ env.OTP_VERSION }}
+                  gleam-version: ${{ env.GLEAM_VERSION }}
+                  rebar3-version: ${{ env.REBAR3_VERSION }}
+            - name: Run Client Tests
+              run: |
+                  cd client
+                  gleam deps download
+                  gleam test
+                  gleam format --check src test
+
+    server-tests:
+        name: Server Tests
+        runs-on: ubuntu-latest
+        needs: client-tests
+        steps:
+            - uses: actions/checkout@v4
+            - name: Setup BEAM
+              uses: erlef/setup-beam@v1
+              with:
+                  otp-version: ${{ env.OTP_VERSION }}
+                  gleam-version: ${{ env.GLEAM_VERSION }}
+                  rebar3-version: ${{ env.REBAR3_VERSION }}
+            # - name: Set environment variables from secrets
+            #   run: |
+            #       cd server
+            #       echo "COIN_MARKET_CAP_API_KEY=${{ secrets.COIN_MARKET_CAP_API_KEY }}" >> .env
+            #   shell: bash
+            - name: Run Server Tests
+              run: |
+                  cd server
+                  gleam deps download
+                  gleam test
+                  gleam format --check src test
