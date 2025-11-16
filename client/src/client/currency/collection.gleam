@@ -134,6 +134,15 @@ pub fn index_map(
   |> pair.first
 }
 
+pub fn find_by_id(
+  collection: CurrencyCollection,
+  id: Int,
+) -> Result(Currency, Nil) {
+  collection
+  |> flatten
+  |> list.find(fn(currency) { currency.id == id })
+}
+
 /// Compares two currencies for sorting purposes.
 ///
 /// Sorting rules:
@@ -143,7 +152,9 @@ pub fn index_map(
 pub fn compare_currencies(c1: Currency, c2: Currency) -> Order {
   case c1, c2 {
     Crypto(..), Fiat(..) -> order.Lt
+
     Fiat(..), Crypto(..) -> order.Gt
+
     Crypto(..), Crypto(..) ->
       case c1.rank, c2.rank {
         Some(_), None -> order.Lt
@@ -151,6 +162,7 @@ pub fn compare_currencies(c1: Currency, c2: Currency) -> Order {
         Some(r1), Some(r2) if r1 != r2 -> int.compare(r1, r2)
         _, _ -> string.compare(c1.name, c2.name)
       }
+
     Fiat(..), Fiat(..) ->
       case c1.symbol, c2.symbol {
         "USD", "USD" -> order.Eq

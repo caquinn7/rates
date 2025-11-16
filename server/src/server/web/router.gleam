@@ -13,12 +13,14 @@ import server/domain/rates/factories as rates_factories
 import server/domain/rates/rate_error.{type RateError}
 import server/env_config.{type EnvConfig}
 import server/integrations/coin_market_cap/client.{
-  type CmcCryptoCurrency, type CmcListResponse, type CmcRequestError,
+  type CmcListResponse, type CmcRequestError,
+}
+import server/integrations/coin_market_cap/cmc_crypto_currency.{
+  type CmcCryptoCurrency,
 }
 import server/utils/logger
 import server/web/routes/home
-import server/web/routes/ws/websocket
-import server/web/routes/ws/websocket_v2
+import server/web/routes/websocket
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
@@ -27,50 +29,34 @@ import wisp/wisp_mist
 
 pub fn route_request(req, env_config: EnvConfig, deps: Dependencies) {
   case request.path_segments(req) {
-    ["ws"] -> handle_websocket_v1(req, deps)
-    ["ws", "v2"] -> handle_websocket_v2(req, deps)
+    ["ws"] -> handle_websocket_request(req, deps)
     _ -> handle_http_request(req, env_config, deps)
   }
 }
 
-fn handle_websocket_v1(req, deps: Dependencies) {
+fn handle_websocket_request(req, deps: Dependencies) {
   mist.websocket(
     req,
     on_init: websocket.on_init(
       _,
-      deps.currencies,
-      deps.kraken_interface,
-      deps.request_cmc_conversion,
-      logger.with(deps.logger, "source", "websocket"),
-    ),
-    handler: websocket.handler,
-    on_close: websocket.on_close,
-  )
-}
-
-fn handle_websocket_v2(req, deps: Dependencies) {
-  mist.websocket(
-    req,
-    on_init: websocket_v2.on_init(
-      _,
       logger.with(deps.logger, "source", "websocket_v2"),
     ),
     handler: fn(state, message, conn) {
-      websocket_v2.handler(
+      websocket.handler(
         state,
         message,
         conn,
         rates_factories.create_rate_subscriber_factory(deps),
       )
     },
-    on_close: websocket_v2.on_close,
+    on_close: websocket.on_close,
   )
 }
 
 fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
-  let handle_request =
+  let handler =
     wisp_mist.handler(
-      handle_request(
+      route_http_request(
         _,
         deps.currencies,
         deps.request_cmc_cryptos,
@@ -79,10 +65,10 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
       env_config.secret_key_base,
     )
 
-  handle_request(req)
+  handler(req)
 }
 
-fn handle_request(
+fn route_http_request(
   req: wisp.Request,
   currencies: List(Currency),
   request_cryptos: fn(Option(String)) ->

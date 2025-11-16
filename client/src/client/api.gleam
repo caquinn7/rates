@@ -3,7 +3,7 @@ import lustre/effect.{type Effect}
 import rsvp
 import shared/currency.{type Currency}
 
-pub fn get_currency(
+pub fn get_currencies(
   symbol: String,
   handler: fn(Result(List(Currency), rsvp.Error)) -> msg,
 ) -> Effect(msg) {

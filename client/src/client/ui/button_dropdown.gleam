@@ -1,4 +1,6 @@
+import gleam/bool
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/pair
 import lustre/attribute
 import lustre/element.{type Element}
@@ -6,6 +8,30 @@ import lustre/element/html
 import lustre/element/keyed
 import lustre/element/svg
 import lustre/event
+
+pub type ButtonDropdown(msg) {
+  ButtonDropdown(
+    id: String,
+    button: Button(msg),
+    dropdown: Dropdown(msg),
+    show_dropdown: Bool,
+  )
+}
+
+pub type Button(msg) {
+  Button(text: String, on_click: msg)
+}
+
+pub type Dropdown(msg) {
+  Dropdown(
+    filter: String,
+    options: List(#(String, List(DropdownOption(msg)))),
+    mode: DropdownMode,
+    on_filter: fn(String) -> msg,
+    on_keydown: fn(String) -> msg,
+    on_option_click: fn(String) -> msg,
+  )
+}
 
 pub type DropdownOption(msg) {
   DropdownOption(value: String, display: Element(msg), is_focused: Bool)
@@ -16,33 +42,43 @@ pub type DropdownMode {
   Flat
 }
 
-pub fn view(
-  id: String,
-  btn_text: String,
-  show_dropdown: Bool,
-  filter: String,
-  options: List(#(String, List(DropdownOption(msg)))),
-  dropdown_mode: DropdownMode,
-  on_btn_click: msg,
-  on_filter: fn(String) -> msg,
-  on_keydown_in_dropdown: fn(String) -> msg,
-  on_option_click: fn(String) -> msg,
-) -> Element(msg) {
-  html.div([attribute.class("relative"), attribute.id(id)], [
-    button(btn_text, on_btn_click),
-    dropdown(
-      show_dropdown,
-      filter,
-      options,
-      dropdown_mode,
-      on_filter,
-      on_keydown_in_dropdown,
-      on_option_click,
-    ),
+pub type NavKey {
+  ArrowUp
+  ArrowDown
+  Enter
+  Other(String)
+}
+
+pub fn calculate_next_focused_index(
+  current_index: Option(Int),
+  key: NavKey,
+  option_count: Int,
+) -> Option(Int) {
+  use <- bool.guard(option_count == 0, None)
+
+  current_index
+  |> option.map(fn(index) {
+    case key {
+      ArrowDown -> { index + 1 } % option_count
+      ArrowUp -> { index - 1 + option_count } % option_count
+      _ -> index
+    }
+  })
+  |> option.or(case key {
+    ArrowDown -> Some(0)
+    ArrowUp -> Some(option_count - 1)
+    _ -> None
+  })
+}
+
+pub fn view(button_dropdown: ButtonDropdown(msg)) -> Element(msg) {
+  html.div([attribute.class("relative"), attribute.id(button_dropdown.id)], [
+    button(button_dropdown.button),
+    dropdown(button_dropdown.dropdown, button_dropdown.show_dropdown),
   ])
 }
 
-pub fn button(text, on_click) -> Element(msg) {
+fn button(button: Button(msg)) -> Element(msg) {
   html.button(
     [
       attribute.class("inline-flex items-center px-3 py-3"),
@@ -50,12 +86,12 @@ pub fn button(text, on_click) -> Element(msg) {
         "w-full rounded-r-lg border-2 border-base-content cursor-pointer",
       ),
       attribute.class(
-        "font-normal text-4xl text-left bg-base-content text-secondary-content",
+        "font-normal text-3xl text-left bg-base-content text-secondary-content",
       ),
-      event.on_click(on_click),
+      event.on_click(button.on_click),
     ],
     [
-      html.text(text),
+      html.text(button.text),
       svg.svg(
         [
           attribute.attribute("viewBox", "0 0 20 20"),
@@ -75,35 +111,27 @@ pub fn button(text, on_click) -> Element(msg) {
   )
 }
 
-fn dropdown(
-  visible: Bool,
-  filter: String,
-  options: List(#(String, List(DropdownOption(msg)))),
-  mode: DropdownMode,
-  on_filter: fn(String) -> msg,
-  on_keydown_in_dropdown: fn(String) -> msg,
-  on_option_click: fn(String) -> msg,
-) -> Element(msg) {
+fn dropdown(dropdown: Dropdown(msg), visible: Bool) -> Element(msg) {
   let filter_elem =
-    currency_filter_input(filter, on_filter, on_keydown_in_dropdown)
+    filter_input(dropdown.filter, dropdown.on_filter, dropdown.on_keydown)
 
-  let options_elem = case mode {
+  let options_elem = case dropdown.mode {
     Flat ->
-      options
+      dropdown.options
       |> list.flat_map(pair.second)
-      |> options_container(on_option_click)
+      |> options_container(dropdown.on_option_click)
 
     Grouped ->
-      options
+      dropdown.options
       |> list.filter(fn(group) { !list.is_empty(pair.second(group)) })
-      |> list.map(option_group(_, on_option_click))
+      |> list.map(option_group(_, dropdown.on_option_click))
       |> element.fragment
   }
 
   html.div(
     [
       attribute.class(
-        "absolute z-10 border rounded-lg shadow-md max-h-64 overflow-y-auto",
+        "absolute z-10 border rounded-lg shadow-lg bg-base-100 max-h-64 overflow-y-auto",
       ),
       attribute.class(
         "min-w-max left-1/2 transform -translate-x-1/2 w-auto translate-y-3",
@@ -114,10 +142,10 @@ fn dropdown(
   )
 }
 
-fn currency_filter_input(
+fn filter_input(
   value: String,
   on_input: fn(String) -> msg,
-  on_keydown_in_dropdown: fn(String) -> msg,
+  on_keydown: fn(String) -> msg,
 ) -> Element(msg) {
   let search_icon =
     svg.svg(
@@ -151,7 +179,7 @@ fn currency_filter_input(
       ),
       attribute.value(value),
       event.on_input(on_input),
-      event.on_keydown(on_keydown_in_dropdown),
+      event.on_keydown(on_keydown),
     ]),
     search_icon,
   ])

@@ -182,16 +182,25 @@ fn kraken_loop(state: State, msg: Msg) -> actor.Next(State, Msg) {
 
     ConfirmSubscribe(symbol) -> {
       let assert Ready(logger, _, _, _, subscription_counter:) = state
-      let assert Ok(subscription_counter) =
+
+      let confirmation =
         subscription_counter.confirm_subscription(subscription_counter, symbol)
 
-      subscription_counter.log_subscription_count(
-        subscription_counter,
-        logger,
-        symbol,
-      )
+      case confirmation {
+        Error(_) -> {
+          log_confirmation_error(logger, symbol)
+          actor.continue(Ready(..state, subscription_counter:))
+        }
 
-      actor.continue(Ready(..state, subscription_counter:))
+        Ok(subscription_counter) -> {
+          subscription_counter.log_subscription_count(
+            subscription_counter,
+            logger,
+            symbol,
+          )
+          actor.continue(Ready(..state, subscription_counter:))
+        }
+      }
     }
 
     Unsubscribe(symbol) -> {
@@ -322,6 +331,12 @@ fn log_symbols(logger: Logger, symbols: Set(String)) -> Nil {
   logger
   |> logger.with("count", int.to_string(set.size(symbols)))
   |> logger.info("Received pair symbols from Kraken")
+}
+
+fn log_confirmation_error(logger: Logger, symbol: String) -> Nil {
+  logger
+  |> logger.with("symbol", symbol)
+  |> logger.warning("Subscription confirmation failed")
 }
 
 fn log_price_update(logger: Logger, symbol: String, price: Float) -> Nil {

@@ -1,4 +1,3 @@
-import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/float
 import gleam/http/request.{type Request}
@@ -8,6 +7,13 @@ import gleam/json
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
+import server/integrations/coin_market_cap/cmc_conversion.{type CmcConversion}
+import server/integrations/coin_market_cap/cmc_crypto_currency.{
+  type CmcCryptoCurrency,
+}
+import server/integrations/coin_market_cap/cmc_fiat_currency.{
+  type CmcFiatCurrency,
+}
 
 pub type CmcRequestError {
   HttpError(httpc.HttpError)
@@ -26,30 +32,8 @@ pub type CmcStatus {
   CmcStatus(error_code: Int, error_message: Option(String))
 }
 
-pub type CmcCryptoCurrency {
-  CmcCryptoCurrency(id: Int, rank: Option(Int), name: String, symbol: String)
-}
-
-pub type CmcFiatCurrency {
-  CmcFiatCurrency(id: Int, name: String, sign: String, symbol: String)
-}
-
 pub type CmcConversionParameters {
   CmcConversionParameters(amount: Float, id: Int, convert_id: Int)
-}
-
-pub type CmcConversion {
-  CmcConversion(
-    id: Int,
-    symbol: String,
-    name: String,
-    amount: Float,
-    quote: Dict(String, QuoteItem),
-  )
-}
-
-pub type QuoteItem {
-  QuoteItem(price: Float)
 }
 
 const base_url = "https://pro-api.coinmarketcap.com"
@@ -87,7 +71,7 @@ pub fn get_crypto_currencies(
   )
 
   resp.body
-  |> json.parse(cmc_list_response_decoder(crypto_currency_decoder()))
+  |> json.parse(cmc_list_response_decoder(cmc_crypto_currency.decoder()))
   |> result.map_error(JsonDecodeError)
 }
 
@@ -111,7 +95,7 @@ pub fn get_fiat_currencies(
   )
 
   resp.body
-  |> json.parse(cmc_list_response_decoder(fiat_currency_decoder()))
+  |> json.parse(cmc_list_response_decoder(cmc_fiat_currency.decoder()))
   |> result.map_error(JsonDecodeError)
 }
 
@@ -138,7 +122,7 @@ pub fn get_conversion(
   )
 
   resp.body
-  |> json.parse(cmc_response_decoder(conversion_decoder()))
+  |> json.parse(cmc_response_decoder(cmc_conversion.decoder()))
   |> result.map_error(JsonDecodeError)
 }
 
@@ -146,52 +130,6 @@ fn set_headers(req: Request(a), api_key: String) -> Request(a) {
   req
   |> request.set_header("x-cmc_pro_api_key", api_key)
   |> request.set_header("accept", "application/json")
-}
-
-fn crypto_currency_decoder() -> Decoder(CmcCryptoCurrency) {
-  use id <- decode.field("id", decode.int)
-  use rank <- decode.optional_field("rank", None, decode.optional(decode.int))
-  use name <- decode.field("name", decode.string)
-  use symbol <- decode.field("symbol", decode.string)
-  decode.success(CmcCryptoCurrency(id, rank, name, symbol))
-}
-
-fn fiat_currency_decoder() -> Decoder(CmcFiatCurrency) {
-  use id <- decode.field("id", decode.int)
-  use name <- decode.field("name", decode.string)
-  use sign <- decode.field("sign", decode.string)
-  use symbol <- decode.field("symbol", decode.string)
-  decode.success(CmcFiatCurrency(id, name, sign, symbol))
-}
-
-fn conversion_decoder() -> Decoder(CmcConversion) {
-  // {
-  //     "id": 1,
-  //     "symbol": "BTC",
-  //     "name": "Bitcoin",
-  //     "amount": 1.5,
-  //     "last_updated": "2024-09-27T20:57:00.000Z",
-  //     "quote": {
-  //         "2010": {
-  //             "price": 245304.45530431595,
-  //             "last_updated": "2024-09-27T20:57:00.000Z"
-  //         }
-  //     }
-  // }
-  let int_or_float_decoder =
-    decode.one_of(decode.float, [decode.int |> decode.map(int.to_float)])
-
-  let quote_decoder = {
-    use price <- decode.field("price", int_or_float_decoder)
-    decode.success(QuoteItem(price))
-  }
-
-  use id <- decode.field("id", decode.int)
-  use symbol <- decode.field("symbol", decode.string)
-  use name <- decode.field("name", decode.string)
-  use amount <- decode.field("amount", int_or_float_decoder)
-  use quote <- decode.field("quote", decode.dict(decode.string, quote_decoder))
-  decode.success(CmcConversion(id, symbol, name, amount, quote))
 }
 
 fn cmc_list_response_decoder(

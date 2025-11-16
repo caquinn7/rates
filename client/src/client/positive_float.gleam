@@ -157,6 +157,19 @@ pub fn try_divide(
   result.map(float.divide(a, b), PositiveFloat)
 }
 
+/// Converts a `PositiveFloat` to its string representation.
+///
+/// This function returns the standard string representation of the underlying
+/// float value, which may include decimal places or scientific notation for
+/// very large or very small numbers.
+///
+/// ## Notes
+/// - For precise decimal formatting, consider using `to_fixed_string` instead.
+/// - The output format follows Gleam's `float.to_string` behavior.
+pub fn to_string(p: PositiveFloat) -> String {
+  with_value(p, float.to_string)
+}
+
 pub type ToFixedStringError {
   InvalidPrecision
   UnexpectedFormat
@@ -190,8 +203,7 @@ pub fn to_fixed_string(
   p: PositiveFloat,
   precision: Int,
 ) -> Result(String, ToFixedStringError) {
-  let precision_invalid = precision < 0 || precision > 100
-  use <- bool.guard(precision_invalid, Error(InvalidPrecision))
+  use <- bool.guard(precision < 0 || precision > 100, Error(InvalidPrecision))
 
   let raw_str = with_value(p, to_fixed(_, precision))
 

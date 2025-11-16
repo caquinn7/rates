@@ -12,8 +12,13 @@ import server/domain/currencies/currencies_fetcher
 import server/domain/rates/internal/kraken_interface
 import server/env_config.{type EnvConfig}
 import server/integrations/coin_market_cap/client.{
-  type CmcCryptoCurrency, type CmcFiatCurrency, type CmcListResponse,
-  type CmcRequestError,
+  type CmcListResponse, type CmcRequestError,
+}
+import server/integrations/coin_market_cap/cmc_crypto_currency.{
+  type CmcCryptoCurrency,
+}
+import server/integrations/coin_market_cap/cmc_fiat_currency.{
+  type CmcFiatCurrency,
 }
 import server/integrations/coin_market_cap/factories as cmc_factories
 import server/integrations/kraken/client as kraken_client

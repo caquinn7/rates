@@ -2,8 +2,13 @@ import gleam/list
 import gleam/option.{Some}
 import gleam/result
 import server/integrations/coin_market_cap/client.{
-  type CmcCryptoCurrency, type CmcFiatCurrency, type CmcListResponse,
-  type CmcRequestError, type CmcStatus, CmcStatus,
+  type CmcListResponse, type CmcRequestError, type CmcStatus, CmcStatus,
+}
+import server/integrations/coin_market_cap/cmc_crypto_currency.{
+  type CmcCryptoCurrency,
+}
+import server/integrations/coin_market_cap/cmc_fiat_currency.{
+  type CmcFiatCurrency,
 }
 import shared/currency.{type Currency, Crypto, Fiat}
 

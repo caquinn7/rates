@@ -1,0 +1,7 @@
+---
+version: 1.4.1
+title: encode_subscription_request_to_json_test
+file: ./test/shared/subscriptions/subscription_request_test.gleam
+test_name: encode_subscription_request_to_json_test
+---
+{"id":"1","rate_request":{"from":2,"to":3}}
