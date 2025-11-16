@@ -4,8 +4,8 @@ import gleam/http/request
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, Some}
+import gleam/regexp
 import gleam/result
-import gleam/string
 import mist
 import server/dependencies.{type Dependencies}
 import server/domain/currencies/cmc_currency_handler
@@ -39,7 +39,7 @@ fn handle_websocket_request(req, deps: Dependencies) {
     req,
     on_init: websocket.on_init(
       _,
-      logger.with(deps.logger, "source", "websocket_v2"),
+      logger.with(deps.logger, "source", "websocket"),
     ),
     handler: fn(state, message, conn) {
       websocket.handler(
@@ -89,13 +89,21 @@ fn route_http_request(
         req
         |> wisp.get_query
         |> list.key_find("symbol")
-        |> result.map(string.trim)
         |> result.unwrap("")
 
       use <- bool.lazy_guard(symbol == "", fn() {
         wisp.json_body(
           wisp.response(400),
           "{\"error\": \"Query parameter 'symbol' is required.\"}",
+        )
+      })
+
+      let assert Ok(re) = regexp.from_string("^[a-zA-Z0-9]+$")
+      let match = regexp.check(re, symbol)
+      use <- bool.lazy_guard(!match, fn() {
+        wisp.json_body(
+          wisp.response(400),
+          "{\"error\": \"'symbol' should only include one or more alphanumeric characters.\"}",
         )
       })
 
