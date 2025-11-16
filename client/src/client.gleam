@@ -124,7 +124,7 @@ pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
     Ok(m) -> m
   }
 
-  #(model, websocket.init("/ws/v2", FromWebSocket))
+  #(model, websocket.init("/ws", FromWebSocket))
 }
 
 pub type Msg {
