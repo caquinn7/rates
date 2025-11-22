@@ -124,16 +124,14 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 fn view(model: Model) -> Element(Msg) {
   let input =
     html.input([
-      attribute.class(
-        "px-3 py-3 border-2 border-base rounded-l-lg focus:outline-none",
-      ),
+      attribute.class("px-3 py-3 border-2 rounded-l-lg focus:outline-none"),
       attribute.class("font-light text-3xl text-center"),
       attribute.id(model.id),
       attribute.style("width", int.to_string(model.width) <> "px"),
       attribute.value(model.value),
       attribute.disabled(model.disabled),
       case model.disabled {
-        True -> attribute.class("bg-base-200 text-base-content opacity-50")
+        True -> attribute.class("opacity-75")
         False -> attribute.none()
       },
       event.on_input(UserTypedValue),

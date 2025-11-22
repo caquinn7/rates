@@ -45,7 +45,7 @@ pub fn x() -> Element(msg) {
 pub fn sun() -> Element(msg) {
   svg.svg(
     [
-      attribute.class("swap-on h-10 w-10 fill-current"),
+      attribute.class("swap-on h-7 w-10 fill-current"),
       attribute.attribute("xmlns", "http://www.w3.org/2000/svg"),
       attribute.attribute("viewbox", "0 0 24 24"),
     ],
@@ -63,7 +63,7 @@ pub fn sun() -> Element(msg) {
 pub fn moon() -> Element(msg) {
   svg.svg(
     [
-      attribute.class("swap-off h-10 w-10 fill-current"),
+      attribute.class("swap-off h-7 w-10 fill-current"),
       attribute.attribute("xmlns", "http://www.w3.org/2000/svg"),
       attribute.attribute("viewbox", "0 0 24 24"),
     ],

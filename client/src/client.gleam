@@ -2,6 +2,7 @@ import client/api
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/event as browser_event
+import client/browser/window
 import client/positive_float
 import client/side.{Left, Right}
 import client/ui/components/auto_resize_input
@@ -43,6 +44,7 @@ pub type Model {
     currencies: List(Currency),
     converters: List(Converter),
     socket: Option(WebSocket),
+    reconnect_attempts: Int,
   )
 }
 
@@ -64,6 +66,7 @@ pub fn model_from_page_data(
     currencies: page_data.currencies,
     converters: [converter],
     socket: None,
+    reconnect_attempts: 0,
   ))
 }
 
@@ -134,6 +137,7 @@ pub type Msg {
   UserClickedDeleteConverter(String)
   UserClickedInDocument(browser_event.Event)
   ApiReturnedMatchedCurrencies(Result(List(Currency), rsvp.Error))
+  AppScheduledReconnection
 }
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -142,12 +146,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     FromWebSocket(OnClose(reason)) -> {
       echo "socket closed. reason: " <> string.inspect(reason)
-      // todo as "connection closed. open again? show msg?"
-      #(model, effect.none())
+      #(
+        Model(..model, socket: None),
+        schedule_reconnection(model.reconnect_attempts),
+      )
     }
 
     FromWebSocket(OnOpen(socket)) -> {
-      let model = Model(..model, socket: Some(socket))
+      let model = Model(..model, socket: Some(socket), reconnect_attempts: 0)
 
       let effect =
         model.converters
@@ -361,6 +367,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       #(model, effect)
     }
+
+    AppScheduledReconnection -> #(
+      Model(..model, reconnect_attempts: model.reconnect_attempts + 1),
+      websocket.init("/ws", FromWebSocket),
+    )
   }
 }
 
@@ -428,22 +439,70 @@ fn send_currencies_to_server(model: Model, currencies_to_add: List(Currency)) {
   }
 }
 
+fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
+  effect.from(fn(dispatch) {
+    // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
+    let delay_ms =
+      int.min(1000 * int.bitwise_shift_left(1, reconnect_attempts), 30_000)
+
+    echo "reconnect attempt #"
+      <> int.to_string(reconnect_attempts + 1)
+      <> " in "
+      <> int.to_string(delay_ms / 1000)
+      <> " seconds."
+
+    let _ =
+      window.set_timeout(fn() { dispatch(AppScheduledReconnection) }, delay_ms)
+
+    Nil
+  })
+}
+
 fn view(model: Model) -> Element(Msg) {
   element.fragment([
-    header(),
+    header(model),
     main_content(model),
   ])
 }
 
-fn header() -> Element(Msg) {
+fn header(model: Model) -> Element(Msg) {
   html.div([attribute.class("navbar border-b")], [
     html.div([attribute.class("flex-1 pl-4")], [
       html.h1([attribute.class("w-full mx-auto max-w-screen-xl text-4xl")], [
         html.text("rates"),
       ]),
     ]),
-    html.div([attribute.class("flex-none")], [theme_controller()]),
+    html.div([attribute.class("flex-none gap-4 pr-4 flex items-center")], [
+      connection_status_indicator(model),
+      theme_controller(),
+    ]),
   ])
+}
+
+fn connection_status_indicator(model: Model) -> Element(Msg) {
+  let indicator = fn(color_class) {
+    html.div([attribute.class("inline-grid *:[grid-area:1/1]")], [
+      html.div([attribute.class("status animate-ping " <> color_class)], []),
+      html.div([attribute.class("status " <> color_class)], []),
+    ])
+  }
+
+  let badge = fn(indicator, text) {
+    html.div([attribute.class("badge border-base-content rounded-full")], [
+      indicator,
+      html.text(text),
+    ])
+  }
+
+  case model.socket, model.reconnect_attempts {
+    Some(_), _ -> badge(indicator("status-success"), "Connected")
+    None, 0 -> badge(indicator("status-warning"), "Connecting")
+    None, attempts ->
+      badge(
+        indicator("status-error"),
+        "Reconnecting (" <> int.to_string(attempts) <> ")",
+      )
+  }
 }
 
 fn theme_controller() {
