@@ -482,6 +482,17 @@ fn converter_row(
   show_add: Bool,
   show_delete: Bool,
 ) -> Element(Msg) {
+  let button = fn(color_class, icon, on_click) {
+    html.button(
+      [
+        attribute.class(color_class),
+        attribute.class("btn btn-circle"),
+        event.on_click(on_click),
+      ],
+      [icon],
+    )
+  }
+
   let converter_elem =
     converter
     |> converter.view
@@ -489,17 +500,16 @@ fn converter_row(
 
   let left_column = case show_add {
     False -> html.div([attribute.class("w-12")], [])
-
     True ->
       html.div([attribute.class("w-12 flex justify-center")], [
-        converter_row_button("btn-info", icons.plus(), UserClickedAddConverter),
+        button("btn-info", icons.plus(), UserClickedAddConverter),
       ])
   }
 
   let right_column = case show_delete {
     False ->
       html.div([attribute.class("w-12 flex justify-center")], [
-        converter_row_button(
+        button(
           "btn-warning",
           icons.x(),
           UserClickedDeleteConverter(converter.id),
@@ -520,20 +530,5 @@ fn converter_row(
       converter_elem,
       right_column,
     ],
-  )
-}
-
-fn converter_row_button(
-  color_class: String,
-  icon: Element(Msg),
-  on_click: Msg,
-) -> Element(Msg) {
-  html.button(
-    [
-      attribute.class(color_class),
-      attribute.class("btn btn-circle"),
-      event.on_click(on_click),
-    ],
-    [icon],
   )
 }
