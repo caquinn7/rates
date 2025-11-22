@@ -99,8 +99,8 @@ fn route_http_request(
       })
 
       let assert Ok(re) = regexp.from_string("^[a-zA-Z0-9]+$")
-      let match = regexp.check(re, symbol)
-      use <- bool.lazy_guard(!match, fn() {
+      let symbol_valid = regexp.check(re, symbol)
+      use <- bool.lazy_guard(!symbol_valid, fn() {
         wisp.json_body(
           wisp.response(400),
           "{\"error\": \"'symbol' should only include one or more alphanumeric characters.\"}",
