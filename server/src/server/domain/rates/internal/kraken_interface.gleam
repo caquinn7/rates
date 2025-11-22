@@ -50,7 +50,7 @@ pub fn new(
       |> price_store.get_price(price_store, _)
     }
 
-    retry.with_retry(get_price, 5, 50)
+    retry.attempt(get_price, 5, 50)
   }
 
   KrakenInterface(
