@@ -86,27 +86,23 @@ fn page_scaffold(seed_json: String) -> Element(a) {
         html.title([], "rates 💹"),
         html.style(
           [],
-          "
-        @font-face {
-          font-family: 'Roboto';
-          src: url('/static/fonts/roboto/Roboto-VariableFont_wdth,wght.ttf') format('truetype');
-          font-weight: 100 900;
-          /* Supports weights from 100 to 900 */
-          font-stretch: 75% 125%;
-          /* Supports widths (stretch) from 75% to 125% */
-          font-style: normal;
-        }
-        @font-face {
-          font-family: 'Roboto';
-          src: url('/static/fonts/roboto/Roboto-Italic-VariableFont_wdth,wght.ttf') format('truetype');
-          font-weight: 100 900;
-          font-stretch: 75% 125%;
-          font-style: italic;
-        }
-        body {
-          font-family: 'Roboto', sans-serif;
-        }
-      ",
+          "@font-face {
+            font-family: 'Roboto Mono';
+            src: url('/static/fonts/roboto-mono/RobotoMono-VariableFont_wght.ttf') format('truetype');
+            font-weight: 400;
+            font-style: normal;
+          }
+
+          @font-face {
+            font-family: 'Roboto Mono';
+            src: url('/static/fonts/roboto-mono/RobotoMono-Italic-VariableFont_wght.ttf') format('truetype');
+            font-weight: 400;
+            font-style: italic;
+          }
+
+          body {
+            font-family: 'Roboto Mono', monospace;
+          }",
         ),
         html.link([
           attribute.rel("stylesheet"),
