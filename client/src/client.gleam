@@ -14,6 +14,7 @@ import client/websocket.{
 }
 import client/websocket_client
 import gleam/dict
+import gleam/float
 import gleam/int
 import gleam/javascript/array
 import gleam/json
@@ -428,9 +429,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
 fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
   effect.from(fn(dispatch) {
-    // Exponential backoff: 1s, 2s, 4s, 8s, max 30s
-    let delay_ms =
-      int.min(1000 * int.bitwise_shift_left(1, reconnect_attempts), 30_000)
+    // Exponential backoff: 1s, 2s, 4s, 8s... up to 30s, then ±25% jitter (max ~37.5s)
+    let delay_ms = {
+      let base_delay_ms =
+        int.min(1000 * int.bitwise_shift_left(1, reconnect_attempts), 30_000)
+
+      let jitter_range = int.to_float(base_delay_ms) *. 0.25
+      let jitter = float.random() *. jitter_range *. 2.0 -. jitter_range
+      float.round(int.to_float(base_delay_ms) +. jitter)
+    }
 
     echo "reconnect attempt #"
       <> int.to_string(reconnect_attempts + 1)
