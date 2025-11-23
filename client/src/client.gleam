@@ -12,6 +12,7 @@ import client/websocket.{
   type WebSocket, type WebSocketEvent, InvalidUrl, OnClose, OnOpen,
   OnTextMessage,
 }
+import client/websocket_client
 import gleam/dict
 import gleam/int
 import gleam/javascript/array
@@ -33,9 +34,7 @@ import shared/currency.{type Currency}
 import shared/page_data.{type PageData}
 import shared/rates/rate_response.{RateResponse}
 import shared/subscriptions/subscription_id
-import shared/subscriptions/subscription_request.{SubscriptionRequest}
 import shared/subscriptions/subscription_response.{SubscriptionResponse}
-import shared/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
 
 const converter_id_prefix = "converter"
 
@@ -157,7 +156,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       let effect =
         model.converters
-        |> list.map(subscribe_to_rate_updates(model, _))
+        |> list.map(fn(converter) {
+          websocket_client.subscribe_to_rate(
+            socket,
+            subscription_id.from_string_unsafe(converter.id),
+            converter.to_rate_request(converter),
+          )
+        })
         |> effect.batch
 
       #(model, effect)
@@ -252,7 +257,21 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             converter.RequestCurrencies(symbol) ->
               api.get_currencies(symbol, ApiReturnedMatchedCurrencies)
 
-            converter.RequestRate -> subscribe_to_rate_updates(model, converter)
+            converter.RequestRate -> {
+              case model.socket {
+                None -> {
+                  echo "could not request rate. socket not initialized."
+                  effect.none()
+                }
+
+                Some(socket) ->
+                  websocket_client.subscribe_to_rate(
+                    socket,
+                    subscription_id.from_string_unsafe(converter.id),
+                    converter.to_rate_request(converter),
+                  )
+              }
+            }
           }
 
           #(model, effect)
@@ -276,7 +295,19 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           converters: list.append(model.converters, [new_converter]),
         )
 
-      let effect = subscribe_to_rate_updates(model, new_converter)
+      let effect = case model.socket {
+        None -> {
+          echo "could not request rate. socket not initialized."
+          effect.none()
+        }
+
+        Some(socket) ->
+          websocket_client.subscribe_to_rate(
+            socket,
+            subscription_id.from_string_unsafe(new_converter.id),
+            converter.to_rate_request(new_converter),
+          )
+      }
 
       #(model, effect)
     }
@@ -290,7 +321,18 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           }),
         )
 
-      let effect = unsubscribe_from_rate_updates(model, converter_id)
+      let effect = case model.socket {
+        None -> {
+          echo "could not unsubscribe from rate update. socket not initialized."
+          effect.none()
+        }
+
+        Some(socket) ->
+          websocket_client.unsubscribe_from_rate(
+            socket,
+            subscription_id.from_string_unsafe(converter_id),
+          )
+      }
 
       #(model, effect)
     }
@@ -363,7 +405,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         })
 
       let model = Model(..model, currencies: master_list, converters:)
-      let effect = send_currencies_to_server(model, matched_currencies)
+
+      let effect = case model.socket {
+        None -> {
+          echo "could not add currencies. socket not initialized."
+          effect.none()
+        }
+
+        Some(socket) ->
+          websocket_client.add_currencies(socket, matched_currencies)
+      }
 
       #(model, effect)
     }
@@ -372,70 +423,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, reconnect_attempts: model.reconnect_attempts + 1),
       websocket.init("/ws", FromWebSocket),
     )
-  }
-}
-
-fn subscribe_to_rate_updates(model: Model, converter: Converter) -> Effect(Msg) {
-  case model.socket {
-    None -> {
-      echo "could not request rate. socket not initialized."
-      effect.none()
-    }
-
-    Some(socket) -> {
-      let assert Ok(sub_id) = subscription_id.new(converter.id)
-        as "invalid subscription id"
-
-      let subscription_req =
-        converter
-        |> converter.to_rate_request
-        |> SubscriptionRequest(sub_id, _)
-
-      [subscription_req]
-      |> Subscribe
-      |> websocket_request.encode
-      |> json.to_string
-      |> websocket.send(socket, _)
-    }
-  }
-}
-
-fn unsubscribe_from_rate_updates(
-  model: Model,
-  converter_id: String,
-) -> Effect(Msg) {
-  case model.socket {
-    None -> {
-      echo "could not unsubscribe from rate update. socket not initialized."
-      effect.none()
-    }
-
-    Some(socket) -> {
-      let assert Ok(sub_id) = subscription_id.new(converter_id)
-        as "invalid subscription id"
-
-      sub_id
-      |> Unsubscribe
-      |> websocket_request.encode
-      |> json.to_string
-      |> websocket.send(socket, _)
-    }
-  }
-}
-
-fn send_currencies_to_server(model: Model, currencies_to_add: List(Currency)) {
-  case model.socket {
-    None -> {
-      echo "could not add currencies. socket not initialized."
-      effect.none()
-    }
-
-    Some(socket) ->
-      currencies_to_add
-      |> AddCurrencies
-      |> websocket_request.encode
-      |> json.to_string
-      |> websocket.send(socket, _)
   }
 }
 
@@ -488,7 +475,7 @@ fn connection_status_indicator(model: Model) -> Element(Msg) {
   }
 
   let badge = fn(indicator, text) {
-    html.div([attribute.class("badge border-base-content rounded-full")], [
+    html.div([attribute.class("badge border-none")], [
       indicator,
       html.text(text),
     ])

@@ -9,8 +9,13 @@ pub opaque type SubscriptionId {
 pub fn new(value: String) -> Result(SubscriptionId, Nil) {
   case string.trim(value) {
     "" -> Error(Nil)
-    s -> Ok(SubscriptionId(s))
+    trimmed -> Ok(SubscriptionId(trimmed))
   }
+}
+
+pub fn from_string_unsafe(value: String) -> SubscriptionId {
+  let assert Ok(sub_id) = new(value) as "invalid subscription id"
+  sub_id
 }
 
 pub fn to_string(id: SubscriptionId) -> String {
