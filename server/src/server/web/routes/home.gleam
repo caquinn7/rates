@@ -100,8 +100,12 @@ fn page_scaffold(seed_json: String) -> Element(a) {
             font-style: italic;
           }
 
+          :root {
+            --font-mono: 'Roboto Mono', monospace;
+          }
+
           body {
-            font-family: 'Roboto Mono', monospace;
+            font-family: var(--font-mono);
           }",
         ),
         html.link([
