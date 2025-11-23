@@ -36,7 +36,7 @@ pub type ConverterInput {
 }
 
 pub type AmountInput {
-  AmountInput(raw: String, parsed: Option(PositiveFloat))
+  AmountInput(raw: String, parsed: Option(PositiveFloat), should_glow: Bool)
 }
 
 pub type CurrencySelector {
@@ -65,7 +65,7 @@ pub fn new(
   let empty_converter = {
     let empty_converter_input = fn(side) {
       ConverterInput(
-        AmountInput("", None),
+        AmountInput("", None, False),
         CurrencySelector(
           "currency-selector-" <> id <> "-" <> side.to_string(side),
           False,
@@ -147,7 +147,7 @@ pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter
       |> map_converter_inputs(side.opposite_side(edited_side), fn(input) {
         ConverterInput(
           ..input,
-          amount_input: AmountInput("price not tracked", None),
+          amount_input: AmountInput("price not tracked", None, False),
         )
       })
     }
@@ -174,7 +174,7 @@ pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter
         side.opposite_side(edited_side),
         fn(converter_input) {
           let amount_input = case converted_amount {
-            None -> AmountInput("price not tracked", None)
+            None -> AmountInput("price not tracked", None, False)
 
             Some(amount) ->
               AmountInput(
@@ -183,6 +183,7 @@ pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter
                   amount,
                 ),
                 Some(amount),
+                True,
               )
           }
 
@@ -195,6 +196,15 @@ pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter
   Converter(..converter, inputs:, rate:)
 }
 
+pub fn with_glow_cleared(converter: Converter, side: Side) -> Converter {
+  converter_with_mapped_inputs(converter, side, fn(input) {
+    ConverterInput(
+      ..input,
+      amount_input: AmountInput(..input.amount_input, should_glow: False),
+    )
+  })
+}
+
 pub fn with_amount(
   converter: Converter,
   side: Side,
@@ -204,11 +214,21 @@ pub fn with_amount(
     // Set the raw string on the edited side, clear the parsed value
     converter.inputs
     |> map_converter_inputs(side, fn(input) {
-      ConverterInput(..input, amount_input: AmountInput(raw_amount, None))
+      ConverterInput(
+        ..input,
+        amount_input: AmountInput(
+          ..input.amount_input,
+          raw: raw_amount,
+          parsed: None,
+        ),
+      )
     })
     // Clear the raw and parsed value on the opposite side
     |> map_converter_inputs(side.opposite_side(side), fn(input) {
-      ConverterInput(..input, amount_input: AmountInput("", None))
+      ConverterInput(
+        ..input,
+        amount_input: AmountInput(..input.amount_input, raw: "", parsed: None),
+      )
     })
   }
 
@@ -218,7 +238,11 @@ pub fn with_amount(
     |> map_converter_inputs(side, fn(input) {
       ConverterInput(
         ..input,
-        amount_input: AmountInput(raw_amount, Some(parsed_amount)),
+        amount_input: AmountInput(
+          ..input.amount_input,
+          raw: raw_amount,
+          parsed: Some(parsed_amount),
+        ),
       )
     })
     // Compute and set the converted amount on the opposite side if a rate is available
@@ -240,7 +264,8 @@ pub fn with_amount(
       }
 
       let amount_input = case converted_amount {
-        None -> AmountInput("", None)
+        None ->
+          AmountInput(..opposite_input.amount_input, raw: "", parsed: None)
 
         Some(converted) -> {
           let raw_display =
@@ -249,7 +274,11 @@ pub fn with_amount(
               converted,
             )
 
-          AmountInput(raw_display, Some(converted))
+          AmountInput(
+            ..opposite_input.amount_input,
+            raw: raw_display,
+            parsed: Some(converted),
+          )
         }
       }
 
@@ -608,6 +637,7 @@ fn amount_input(
     auto_resize_input.value(amount_input.raw),
     auto_resize_input.min_width(184),
     auto_resize_input.disabled(disabled),
+    auto_resize_input.glow(amount_input.should_glow),
     on_change
       |> auto_resize_input.on_change
       |> event.debounce(300),

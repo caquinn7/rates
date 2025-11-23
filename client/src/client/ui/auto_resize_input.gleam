@@ -39,6 +39,9 @@ pub fn register() -> Result(Nil, lustre.Error) {
     component.on_property_change("disabled", {
       decode.map(decode.bool, ParentSetDisabled)
     }),
+    component.on_property_change("glow", {
+      decode.map(decode.bool, ParentSetGlow)
+    }),
     component.open_shadow_root(True),
   ]
 
@@ -74,12 +77,23 @@ pub fn on_change(handler: fn(String) -> msg) -> Attribute(msg) {
   event.on(change_event, decoder)
 }
 
+pub fn glow(should_glow: Bool) -> Attribute(msg) {
+  attribute.property("glow", json.bool(should_glow))
+}
+
 type Model {
-  Model(id: String, value: String, width: Int, min_width: Int, disabled: Bool)
+  Model(
+    id: String,
+    value: String,
+    width: Int,
+    min_width: Int,
+    disabled: Bool,
+    should_glow: Bool,
+  )
 }
 
 fn init(_) -> #(Model, Effect(Msg)) {
-  #(Model("", "", 0, 0, False), effect.none())
+  #(Model("", "", 0, 0, False, False), effect.none())
 }
 
 type Msg {
@@ -87,6 +101,7 @@ type Msg {
   ParentSetValue(String)
   ParentSetMinWidth(Int)
   ParentSetDisabled(Bool)
+  ParentSetGlow(Bool)
   UserTypedValue(String)
   UserResizedInput(Int)
 }
@@ -103,6 +118,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     ParentSetMinWidth(min_width) -> #(Model(..model, min_width:), effect.none())
 
     ParentSetDisabled(disabled) -> #(Model(..model, disabled:), effect.none())
+
+    ParentSetGlow(should_glow) -> #(Model(..model, should_glow:), effect.none())
 
     UserTypedValue(value) ->
       case model.disabled {
@@ -136,6 +153,10 @@ fn view(model: Model) -> Element(Msg) {
       case model.disabled {
         True -> attribute.class("opacity-75")
         False -> attribute.none()
+      },
+      case model.should_glow {
+        False -> attribute.none()
+        True -> attribute.class("animate-glow")
       },
       event.on_input(UserTypedValue),
     ])
