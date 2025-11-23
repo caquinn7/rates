@@ -14,33 +14,19 @@ pub type WebSocketEvent {
 }
 
 pub type WebSocketCloseReason {
-  // 1000
   Normal
-  // 1001
   GoingAway
-  // 1002
   ProtocolError
-  // 1003
   UnexpectedTypeOfData
-  // 1004 Reserved
-  // 1005
   NoCodeFromServer
-  // 1006, no close frame
   AbnormalClose
-  // 1007
   IncomprehensibleFrame
-  // 1008
   PolicyViolated
-  // 1009
   MessageTooBig
-  // 1010
   FailedExtensionNegotation
-  // 1011
   UnexpectedFailure
-  // 1015
   FailedTLSHandshake
-  // unlisted
-  OtherCloseReason
+  Other(Int)
 }
 
 fn code_to_reason(code: Int) -> WebSocketCloseReason {
@@ -57,7 +43,7 @@ fn code_to_reason(code: Int) -> WebSocketCloseReason {
     1010 -> FailedExtensionNegotation
     1011 -> UnexpectedFailure
     1015 -> FailedTLSHandshake
-    _ -> OtherCloseReason
+    _ -> Other(code)
   }
 }
 
@@ -108,11 +94,11 @@ pub fn get_websocket_path(path: String) -> Result(String, Nil) {
     ))
 
   use page_uri <- result.try(uri.parse(document.get_document_url()))
-  use merged <- result.try(uri.merge(page_uri, path_uri))
-  use merged_scheme <- result.try(option.to_result(merged.scheme, Nil))
-  use ws_scheme <- result.try(convert_scheme(merged_scheme))
+  use resolved_uri <- result.try(uri.merge(page_uri, path_uri))
+  use http_scheme <- result.try(option.to_result(resolved_uri.scheme, Nil))
+  use ws_scheme <- result.try(convert_scheme(http_scheme))
 
-  Uri(..merged, scheme: Some(ws_scheme))
+  Uri(..resolved_uri, scheme: Some(ws_scheme))
   |> uri.to_string
   |> Ok
 }
@@ -127,7 +113,7 @@ fn convert_scheme(scheme: String) -> Result(String, Nil) {
 }
 
 /// Send a text message over the web socket. This is asynchronous. There is no
-/// expectation of a reply. See `init`. Only works on an Non-Closed socket.
+/// expectation of a reply. See `init`. Only works on a Non-Closed socket.
 /// Returns a `Effect(a)` that you must pass as second entry in the lustre `update` return.
 pub fn send(ws: WebSocket, msg: String) -> Effect(a) {
   effect.from(fn(_) { do_send(ws, msg) })
