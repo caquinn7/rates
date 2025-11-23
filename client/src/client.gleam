@@ -1,18 +1,18 @@
-import client/api
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/event as browser_event
 import client/browser/window
+import client/net/http_client
+import client/net/websocket_client
 import client/positive_float
 import client/side.{Left, Right}
-import client/ui/components/auto_resize_input
+import client/ui/auto_resize_input
 import client/ui/converter.{type Converter, type NewConverterError}
 import client/ui/icons
 import client/websocket.{
   type WebSocket, type WebSocketEvent, InvalidUrl, OnClose, OnOpen,
   OnTextMessage,
 }
-import client/websocket_client
 import gleam/dict
 import gleam/float
 import gleam/int
@@ -256,7 +256,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               })
 
             converter.RequestCurrencies(symbol) ->
-              api.get_currencies(symbol, ApiReturnedMatchedCurrencies)
+              http_client.get_currencies(symbol, ApiReturnedMatchedCurrencies)
 
             converter.RequestRate -> {
               case model.socket {

@@ -3,11 +3,11 @@ import client/currency/filtering as currency_filtering
 import client/currency/formatting as currency_formatting
 import client/positive_float.{type PositiveFloat}
 import client/side.{type Side, Left, Right}
+import client/ui/auto_resize_input
 import client/ui/button_dropdown.{
   type NavKey, ArrowDown, ArrowUp, Button, ButtonDropdown, Dropdown,
   DropdownOption, Enter, Flat, Grouped, Other,
 }
-import client/ui/components/auto_resize_input
 import gleam/bool
 import gleam/int
 import gleam/list
