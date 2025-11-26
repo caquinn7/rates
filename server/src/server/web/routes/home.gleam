@@ -71,7 +71,7 @@ fn page_scaffold(seed_json: String) -> Element(a) {
   html.html(
     [
       attribute.attribute("lang", "en"),
-      attribute.attribute("data-theme", "business"),
+      attribute.attribute("data-theme", "dracula"),
     ],
     [
       html.head([], [
@@ -98,6 +98,21 @@ fn page_scaffold(seed_json: String) -> Element(a) {
             src: url('/static/fonts/roboto-mono/RobotoMono-Italic-VariableFont_wght.ttf') format('truetype');
             font-weight: 400;
             font-style: italic;
+          }
+
+          @keyframes glow {
+            0%, 100% {
+              color: inherit;
+              box-shadow: none;
+            }
+            25% {
+              color: var(--glow-color);
+              box-shadow: 0 0 4px var(--glow-color)
+            }
+          }
+
+          .animate-glow {
+            animation: glow 2s ease-in-out;
           }
 
           :root {

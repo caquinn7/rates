@@ -157,6 +157,20 @@ pub fn try_divide(
   result.map(float.divide(a, b), PositiveFloat)
 }
 
+/// Returns `True` if the first `PositiveFloat` is strictly less than the second, otherwise `False`.
+pub fn is_less_than(a: PositiveFloat, b: PositiveFloat) -> Bool {
+  use a <- with_value(a)
+  use b <- with_value(b)
+  a <. b
+}
+
+/// Returns `True` if the first `PositiveFloat` is strictly greater than the second, otherwise `False`.
+pub fn is_greater_than(a: PositiveFloat, b: PositiveFloat) -> Bool {
+  use a <- with_value(a)
+  use b <- with_value(b)
+  a >. b
+}
+
 /// Converts a `PositiveFloat` to its string representation.
 ///
 /// This function returns the standard string representation of the underlying

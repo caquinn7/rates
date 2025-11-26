@@ -5,7 +5,7 @@ import client/browser/window
 import client/net/http_client
 import client/net/websocket_client
 import client/positive_float
-import client/side.{Left, Right}
+import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
 import client/ui/converter.{type Converter, type NewConverterError}
 import client/ui/icons
@@ -138,6 +138,7 @@ pub type Msg {
   UserClickedInDocument(browser_event.Event)
   ApiReturnedMatchedCurrencies(Result(List(Currency), rsvp.Error))
   AppScheduledReconnection
+  AppScheduledRateChangeIndicatorReset(String, Side)
 }
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -180,16 +181,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let RateResponse(from, to, rate, _source, _timestamp) = rate_response
 
           let target_converter = {
-            use target_converter <- result.try(
+            use converter <- result.try(
               list.find(model.converters, fn(converter) {
                 converter.id == subscription_id.to_string(sub_id)
               }),
             )
 
-            let current_request = converter.to_rate_request(target_converter)
+            let current_request = converter.to_rate_request(converter)
             case current_request.from == from && current_request.to == to {
               False -> Error(Nil)
-              True -> Ok(target_converter)
+              True -> Ok(converter)
             }
           }
 
@@ -197,14 +198,32 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             Error(_) -> #(model, effect.none())
 
             Ok(converter) -> {
-              let rate =
-                option.map(rate, fn(r) {
+              let model =
+                rate
+                |> option.map(fn(r) {
                   let assert Ok(r) = positive_float.new(r)
                   r
                 })
+                |> converter.with_rate(converter, _)
+                |> model_with_converter(model, _)
 
-              let target_converter = converter.with_rate(converter, rate)
-              #(model_with_converter(model, target_converter), effect.none())
+              let effect =
+                effect.from(fn(dispatch) {
+                  let _ =
+                    window.set_timeout(
+                      fn() {
+                        dispatch(AppScheduledRateChangeIndicatorReset(
+                          converter.id,
+                          side.opposite_side(converter.last_edited),
+                        ))
+                      },
+                      3000,
+                    )
+
+                  Nil
+                })
+
+              #(model, effect)
             }
           }
         }
@@ -212,72 +231,73 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     FromConverter(converter_id, converter_msg) -> {
-      let assert Ok(target_converter) =
-        model.converters
-        |> list.find(fn(converter) { converter.id == converter_id })
+      model.converters
+      |> list.find(fn(converter) { converter.id == converter_id })
+      |> result.map(fn(target_converter) {
+        case converter.update(target_converter, converter_msg) {
+          #(converter, converter_effect) -> {
+            let model = model_with_converter(model, converter)
 
-      case converter.update(target_converter, converter_msg) {
-        #(converter, converter_effect) -> {
-          let model = model_with_converter(model, converter)
+            let effect = case converter_effect {
+              converter.NoEffect -> effect.none()
 
-          let effect = case converter_effect {
-            converter.NoEffect -> effect.none()
+              converter.FocusOnCurrencyFilter(side) ->
+                effect.before_paint(fn(_, _) {
+                  let currency_selector_id =
+                    converter.get_converter_input(converter, side).currency_selector.id
 
-            converter.FocusOnCurrencyFilter(side) ->
-              effect.before_paint(fn(_, _) {
-                let currency_selector_id =
-                  converter.get_converter_input(converter, side).currency_selector.id
+                  let assert Ok(filter_elem) =
+                    document.query_selector(
+                      "#" <> currency_selector_id <> " input",
+                    )
 
-                let assert Ok(filter_elem) =
-                  document.query_selector(
-                    "#" <> currency_selector_id <> " input",
-                  )
+                  browser_element.focus(filter_elem)
+                })
 
-                browser_element.focus(filter_elem)
-              })
+              converter.ScrollToOption(side, index) ->
+                effect.before_paint(fn(_, _) {
+                  let currency_selector_id =
+                    converter.get_converter_input(converter, side).currency_selector.id
 
-            converter.ScrollToOption(side, index) ->
-              effect.before_paint(fn(_, _) {
-                let currency_selector_id =
-                  converter.get_converter_input(converter, side).currency_selector.id
+                  let option_elems =
+                    document.query_selector_all(
+                      "#"
+                      <> currency_selector_id
+                      <> " .options-container"
+                      <> " .dd-option",
+                    )
 
-                let option_elems =
-                  document.query_selector_all(
-                    "#"
-                    <> currency_selector_id
-                    <> " .options-container"
-                    <> " .dd-option",
-                  )
+                  let assert Ok(target_option_elem) =
+                    array.get(option_elems, index)
 
-                let assert Ok(target_option_elem) =
-                  array.get(option_elems, index)
+                  browser_element.scroll_into_view(target_option_elem)
+                })
 
-                browser_element.scroll_into_view(target_option_elem)
-              })
+              converter.RequestCurrencies(symbol) ->
+                http_client.get_currencies(symbol, ApiReturnedMatchedCurrencies)
 
-            converter.RequestCurrencies(symbol) ->
-              http_client.get_currencies(symbol, ApiReturnedMatchedCurrencies)
+              converter.RequestRate -> {
+                case model.socket {
+                  None -> {
+                    echo "could not request rate. socket not initialized."
+                    effect.none()
+                  }
 
-            converter.RequestRate -> {
-              case model.socket {
-                None -> {
-                  echo "could not request rate. socket not initialized."
-                  effect.none()
+                  Some(socket) ->
+                    websocket_client.subscribe_to_rate(
+                      socket,
+                      subscription_id.from_string_unsafe(converter.id),
+                      converter.to_rate_request(converter),
+                    )
                 }
-
-                Some(socket) ->
-                  websocket_client.subscribe_to_rate(
-                    socket,
-                    subscription_id.from_string_unsafe(converter.id),
-                    converter.to_rate_request(converter),
-                  )
               }
             }
-          }
 
-          #(model, effect)
+            #(model, effect)
+          }
         }
-      }
+      })
+      |> result.unwrap(#(model, effect.none()))
     }
 
     UserClickedAddConverter -> {
@@ -424,6 +444,24 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, reconnect_attempts: model.reconnect_attempts + 1),
       websocket.init("/ws", FromWebSocket),
     )
+
+    AppScheduledRateChangeIndicatorReset(converter_id, side) -> {
+      let target_converter =
+        model.converters
+        |> list.find(fn(converter) { converter.id == converter_id })
+
+      let model = case target_converter {
+        Error(_) -> model
+
+        Ok(converter) ->
+          model_with_converter(
+            model,
+            converter.with_glow_cleared(converter, side),
+          )
+      }
+
+      #(model, effect.none())
+    }
   }
 }
 
@@ -460,12 +498,18 @@ fn view(model: Model) -> Element(Msg) {
 }
 
 fn header(model: Model) -> Element(Msg) {
-  html.div([attribute.class("navbar border-b")], [
-    html.div([attribute.class("flex-1 pl-4")], [
-      html.h1([attribute.class("w-full mx-auto max-w-screen-xl text-4xl")], [
+  let site_name =
+    html.h1(
+      [
+        attribute.class("w-full mx-auto max-w-screen-xl text-4xl"),
+      ],
+      [
         html.text("rates"),
-      ]),
-    ]),
+      ],
+    )
+
+  html.div([attribute.class("navbar border-b")], [
+    html.div([attribute.class("flex-1 pl-4")], [site_name]),
     html.div([attribute.class("flex-none gap-4 pr-4 flex items-center")], [
       connection_status_indicator(model),
       theme_controller(),

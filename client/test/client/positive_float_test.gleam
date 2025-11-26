@@ -99,6 +99,7 @@ pub fn is_zero_returns_false_for_known_small_value_test() {
 }
 
 // multiply
+
 pub fn multiply_by_one_returns_self_test() {
   qcheck.given(max_bounded_positive_float(0.0), fn(p) {
     let one = positive_float.from_float_unsafe(1.0)
@@ -126,6 +127,7 @@ pub fn multiply_test() {
 }
 
 // try_divide
+
 pub fn try_divide_by_zero_returns_error_test() {
   let p1 = positive_float.from_float_unsafe(1.0)
   let p2 = positive_float.from_float_unsafe(0.0)
@@ -157,6 +159,48 @@ pub fn try_divide_test() {
   let b_val = positive_float.unwrap(b)
 
   assert a_val /. b_val == positive_float.unwrap(result)
+}
+
+// is_less_than
+
+pub fn is_less_than_returns_true_when_first_value_is_less_than_second_test() {
+  let a = positive_float.from_float_unsafe(0.01)
+  let b = positive_float.from_float_unsafe(0.02)
+
+  assert positive_float.is_less_than(a, b)
+}
+
+pub fn is_less_than_returns_false_when_first_value_is_equal_to_second_test() {
+  let a = positive_float.from_float_unsafe(0.01)
+  assert !positive_float.is_less_than(a, a)
+}
+
+pub fn is_less_than_returns_false_when_first_value_is_less_than_second_test() {
+  let a = positive_float.from_float_unsafe(0.01)
+  let b = positive_float.from_float_unsafe(0.02)
+
+  assert !positive_float.is_less_than(b, a)
+}
+
+// is_greater_than
+
+pub fn is_greater_than_returns_true_when_first_value_is_greater_than_second_test() {
+  let a = positive_float.from_float_unsafe(0.02)
+  let b = positive_float.from_float_unsafe(0.01)
+
+  assert positive_float.is_greater_than(a, b)
+}
+
+pub fn is_greater_than_returns_false_when_first_value_is_equal_to_second_test() {
+  let a = positive_float.from_float_unsafe(0.01)
+  assert !positive_float.is_greater_than(a, a)
+}
+
+pub fn is_greater_than_returns_false_when_first_value_is_less_than_second_test() {
+  let a = positive_float.from_float_unsafe(0.01)
+  let b = positive_float.from_float_unsafe(0.02)
+
+  assert !positive_float.is_greater_than(a, b)
 }
 
 // to_fixed_string
