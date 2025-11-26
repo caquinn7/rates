@@ -6,6 +6,7 @@ import gleam/float
 import gleam/int
 import gleam/json
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import lustre
@@ -36,11 +37,14 @@ pub fn register() -> Result(Nil, lustre.Error) {
       |> int.parse
       |> result.map(ParentSetMinWidth)
     }),
-    component.on_property_change("disabled", {
-      decode.map(decode.bool, ParentSetDisabled)
-    }),
-    component.on_property_change("glow", {
-      decode.map(decode.bool, ParentSetGlow)
+    component.on_property_change(
+      "disabled",
+      decode.map(decode.bool, ParentSetDisabled),
+    ),
+    component.on_property_change("border_color", {
+      decode.string
+      |> decode.optional
+      |> decode.map(ParentSetBorderColor)
     }),
     component.open_shadow_root(True),
   ]
@@ -77,8 +81,8 @@ pub fn on_change(handler: fn(String) -> msg) -> Attribute(msg) {
   event.on(change_event, decoder)
 }
 
-pub fn glow(should_glow: Bool) -> Attribute(msg) {
-  attribute.property("glow", json.bool(should_glow))
+pub fn border_color(color: Option(String)) -> Attribute(msg) {
+  attribute.property("border_color", json.nullable(color, json.string))
 }
 
 type Model {
@@ -88,12 +92,12 @@ type Model {
     width: Int,
     min_width: Int,
     disabled: Bool,
-    should_glow: Bool,
+    border_color: Option(String),
   )
 }
 
 fn init(_) -> #(Model, Effect(Msg)) {
-  #(Model("", "", 0, 0, False, False), effect.none())
+  #(Model("", "", 0, 0, False, None), effect.none())
 }
 
 type Msg {
@@ -101,7 +105,7 @@ type Msg {
   ParentSetValue(String)
   ParentSetMinWidth(Int)
   ParentSetDisabled(Bool)
-  ParentSetGlow(Bool)
+  ParentSetBorderColor(Option(String))
   UserTypedValue(String)
   UserResizedInput(Int)
 }
@@ -119,7 +123,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     ParentSetDisabled(disabled) -> #(Model(..model, disabled:), effect.none())
 
-    ParentSetGlow(should_glow) -> #(Model(..model, should_glow:), effect.none())
+    ParentSetBorderColor(border_color) -> #(
+      Model(..model, border_color:),
+      effect.none(),
+    )
 
     UserTypedValue(value) ->
       case model.disabled {
@@ -154,9 +161,13 @@ fn view(model: Model) -> Element(Msg) {
         True -> attribute.class("opacity-75")
         False -> attribute.none()
       },
-      case model.should_glow {
-        False -> attribute.none()
-        True -> attribute.class("animate-glow")
+      case model.border_color {
+        None -> attribute.none()
+        Some(_) -> attribute.class("animate-glow")
+      },
+      case model.border_color {
+        None -> attribute.none()
+        Some(color) -> attribute.style("--glow-color", "var(" <> color <> ")")
       },
       event.on_input(UserTypedValue),
     ])

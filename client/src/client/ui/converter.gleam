@@ -36,7 +36,11 @@ pub type ConverterInput {
 }
 
 pub type AmountInput {
-  AmountInput(raw: String, parsed: Option(PositiveFloat), should_glow: Bool)
+  AmountInput(
+    raw: String,
+    parsed: Option(PositiveFloat),
+    border_color: Option(BorderColor),
+  )
 }
 
 pub type CurrencySelector {
@@ -48,6 +52,20 @@ pub type CurrencySelector {
     selected_currency: Currency,
     focused_index: Option(Int),
   )
+}
+
+pub type BorderColor {
+  SuccessColor
+  ErrorColor
+  WarningColor
+}
+
+fn border_color_to_css_var(color: BorderColor) -> String {
+  case color {
+    SuccessColor -> "--color-success"
+    ErrorColor -> "--color-error"
+    WarningColor -> "--color-warning"
+  }
 }
 
 pub type NewConverterError {
@@ -65,7 +83,7 @@ pub fn new(
   let empty_converter = {
     let empty_converter_input = fn(side) {
       ConverterInput(
-        AmountInput("", None, False),
+        AmountInput("", None, None),
         CurrencySelector(
           "currency-selector-" <> id <> "-" <> side.to_string(side),
           False,
@@ -127,13 +145,24 @@ pub fn with_master_currency_list(
   |> filter_currencies(Right)
 }
 
-pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter {
+pub fn with_rate(converter, rate) -> Converter {
+  with_rate_with_custom_glow(converter, rate, border_color_from_rate_change)
+}
+
+fn with_rate_with_custom_glow(
+  converter: Converter,
+  rate: Option(PositiveFloat),
+  color_from_rate_change: fn(Option(PositiveFloat), Option(PositiveFloat)) ->
+    Option(BorderColor),
+) -> Converter {
   // When a new exchange rate comes in, we want to:
   // - Recalculate the opposite input field if the user previously entered a number
   // - Leave the inputs unchanged if there’s no valid parsed input
   // - Always update the stored rate
 
+  let previous_rate = converter.rate
   let edited_side = converter.last_edited
+  let opposite_side = side.opposite_side(edited_side)
 
   // Try to get the parsed amount from the side the user last edited
   let edited_side_parsed_amount =
@@ -144,10 +173,10 @@ pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter
     None, Some(_) -> {
       // Rate is None but user has entered an amount, show "price not tracked" on opposite side
       converter.inputs
-      |> map_converter_inputs(side.opposite_side(edited_side), fn(input) {
+      |> map_converter_inputs(opposite_side, fn(input) {
         ConverterInput(
           ..input,
-          amount_input: AmountInput("price not tracked", None, False),
+          amount_input: AmountInput("price not tracked", None, None),
         )
       })
     }
@@ -174,7 +203,7 @@ pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter
         side.opposite_side(edited_side),
         fn(converter_input) {
           let amount_input = case converted_amount {
-            None -> AmountInput("price not tracked", None, False)
+            None -> AmountInput("price not tracked", None, None)
 
             Some(amount) ->
               AmountInput(
@@ -183,7 +212,7 @@ pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter
                   amount,
                 ),
                 Some(amount),
-                True,
+                color_from_rate_change(previous_rate, rate),
               )
           }
 
@@ -196,11 +225,27 @@ pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter
   Converter(..converter, inputs:, rate:)
 }
 
+pub fn border_color_from_rate_change(
+  previous_rate: Option(PositiveFloat),
+  new_rate: Option(PositiveFloat),
+) -> Option(BorderColor) {
+  case previous_rate, new_rate {
+    Some(x), Some(y) if x == y -> Some(WarningColor)
+    Some(x), Some(y) ->
+      case positive_float.is_less_than(x, y) {
+        False -> Some(ErrorColor)
+        True -> Some(SuccessColor)
+      }
+    None, _ -> Some(WarningColor)
+    Some(_), None -> None
+  }
+}
+
 pub fn with_glow_cleared(converter: Converter, side: Side) -> Converter {
   converter_with_mapped_inputs(converter, side, fn(input) {
     ConverterInput(
       ..input,
-      amount_input: AmountInput(..input.amount_input, should_glow: False),
+      amount_input: AmountInput(..input.amount_input, border_color: None),
     )
   })
 }
@@ -632,12 +677,16 @@ fn amount_input(
   disabled: Bool,
   on_change: fn(String) -> Msg,
 ) -> Element(Msg) {
+  let border_color =
+    amount_input.border_color
+    |> option.map(border_color_to_css_var)
+
   auto_resize_input.element([
     auto_resize_input.id(id),
     auto_resize_input.value(amount_input.raw),
     auto_resize_input.min_width(184),
     auto_resize_input.disabled(disabled),
-    auto_resize_input.glow(amount_input.should_glow),
+    auto_resize_input.border_color(border_color),
     on_change
       |> auto_resize_input.on_change
       |> event.debounce(300),

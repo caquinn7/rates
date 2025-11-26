@@ -101,18 +101,18 @@ fn page_scaffold(seed_json: String) -> Element(a) {
           }
 
           @keyframes glow {
-            0%, 100% { 
-              border-color: inherit;
+            0%, 100% {
+              color: inherit;
               box-shadow: none;
             }
-            50% { 
-              border-color: rgb(59, 130, 246);
-              box-shadow: 0 0 20px rgba(59, 130, 246, 0.5);
+            25% {
+              color: var(--glow-color);
+              box-shadow: 0 0 4px var(--glow-color)
             }
           }
 
           .animate-glow {
-            animation: glow 1s ease-in-out;
+            animation: glow 2s ease-in-out;
           }
 
           :root {

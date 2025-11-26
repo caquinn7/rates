@@ -138,7 +138,7 @@ pub type Msg {
   UserClickedInDocument(browser_event.Event)
   ApiReturnedMatchedCurrencies(Result(List(Currency), rsvp.Error))
   AppScheduledReconnection
-  AppScheduledGlowClear(String, Side)
+  AppScheduledRateChangeIndicatorReset(String, Side)
 }
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -181,16 +181,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let RateResponse(from, to, rate, _source, _timestamp) = rate_response
 
           let target_converter = {
-            use target_converter <- result.try(
+            use converter <- result.try(
               list.find(model.converters, fn(converter) {
                 converter.id == subscription_id.to_string(sub_id)
               }),
             )
 
-            let current_request = converter.to_rate_request(target_converter)
+            let current_request = converter.to_rate_request(converter)
             case current_request.from == from && current_request.to == to {
               False -> Error(Nil)
-              True -> Ok(target_converter)
+              True -> Ok(converter)
             }
           }
 
@@ -198,40 +198,30 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             Error(_) -> #(model, effect.none())
 
             Ok(converter) -> {
-              let rate =
-                option.map(rate, fn(r) {
+              let model =
+                rate
+                |> option.map(fn(r) {
                   let assert Ok(r) = positive_float.new(r)
                   r
                 })
+                |> converter.with_rate(converter, _)
+                |> model_with_converter(model, _)
 
-              let target_converter = converter.with_rate(converter, rate)
-              let model = model_with_converter(model, target_converter)
-              let effect = {
-                let should_clear_glow =
-                  converter.get_converter_input(
-                    target_converter,
-                    side.opposite_side(target_converter.last_edited),
-                  ).amount_input.should_glow
+              let effect =
+                effect.from(fn(dispatch) {
+                  let _ =
+                    window.set_timeout(
+                      fn() {
+                        dispatch(AppScheduledRateChangeIndicatorReset(
+                          converter.id,
+                          side.opposite_side(converter.last_edited),
+                        ))
+                      },
+                      3000,
+                    )
 
-                case should_clear_glow {
-                  False -> effect.none()
-                  True ->
-                    effect.from(fn(dispatch) {
-                      let _ =
-                        window.set_timeout(
-                          fn() {
-                            dispatch(AppScheduledGlowClear(
-                              target_converter.id,
-                              side.opposite_side(target_converter.last_edited),
-                            ))
-                          },
-                          1000,
-                        )
-
-                      Nil
-                    })
-                }
-              }
+                  Nil
+                })
 
               #(model, effect)
             }
@@ -455,7 +445,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       websocket.init("/ws", FromWebSocket),
     )
 
-    AppScheduledGlowClear(converter_id, side) -> {
+    AppScheduledRateChangeIndicatorReset(converter_id, side) -> {
       let target_converter =
         model.converters
         |> list.find(fn(converter) { converter.id == converter_id })
@@ -508,12 +498,18 @@ fn view(model: Model) -> Element(Msg) {
 }
 
 fn header(model: Model) -> Element(Msg) {
-  html.div([attribute.class("navbar border-b")], [
-    html.div([attribute.class("flex-1 pl-4")], [
-      html.h1([attribute.class("w-full mx-auto max-w-screen-xl text-4xl")], [
+  let site_name =
+    html.h1(
+      [
+        attribute.class("w-full mx-auto max-w-screen-xl text-4xl"),
+      ],
+      [
         html.text("rates"),
-      ]),
-    ]),
+      ],
+    )
+
+  html.div([attribute.class("navbar border-b")], [
+    html.div([attribute.class("flex-1 pl-4")], [site_name]),
     html.div([attribute.class("flex-none gap-4 pr-4 flex items-center")], [
       connection_status_indicator(model),
       theme_controller(),
