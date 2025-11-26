@@ -71,7 +71,7 @@ fn page_scaffold(seed_json: String) -> Element(a) {
   html.html(
     [
       attribute.attribute("lang", "en"),
-      attribute.attribute("data-theme", "business"),
+      attribute.attribute("data-theme", "dracula"),
     ],
     [
       html.head([], [
