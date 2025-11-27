@@ -6,10 +6,10 @@ import client/side.{Left, Right}
 import client/ui/button_dropdown.{ArrowDown, ArrowUp, Enter, Other}
 import client/ui/converter.{
   AmountInput, Converter, ConverterInput, CurrencySelector, EmptyCurrencyList,
-  ErrorColor, FocusOnCurrencyFilter, NoEffect, RequestCurrencies, RequestRate,
-  ScrollToOption, SelectedCurrencyNotFound, SuccessColor,
+  ErrorColor, FocusOnCurrencyFilter, InfoColor, NoEffect, RequestCurrencies,
+  RequestRate, ScrollToOption, SelectedCurrencyNotFound, SuccessColor,
   UserClickedCurrencySelector, UserEnteredAmount, UserFilteredCurrencies,
-  UserPressedKeyInCurrencySelector, WarningColor,
+  UserPressedKeyInCurrencySelector,
 }
 import gleam/list
 import gleam/option.{None, Some}
@@ -492,8 +492,7 @@ pub fn border_color_from_rate_change_returns_warning_when_rates_equal_test() {
   let prev = Some(positive_float.from_float_unsafe(2.0))
   let new = Some(positive_float.from_float_unsafe(2.0))
 
-  assert converter.border_color_from_rate_change(prev, new)
-    == Some(WarningColor)
+  assert converter.border_color_from_rate_change(prev, new) == Some(InfoColor)
 }
 
 pub fn border_color_from_rate_change_returns_success_when_rate_increases_test() {
@@ -515,8 +514,7 @@ pub fn border_color_from_rate_change_returns_warning_when_no_previous_rate_test(
   let prev = None
   let new = Some(positive_float.from_float_unsafe(2.0))
 
-  assert converter.border_color_from_rate_change(prev, new)
-    == Some(WarningColor)
+  assert converter.border_color_from_rate_change(prev, new) == Some(InfoColor)
 }
 
 pub fn border_color_from_rate_change_returns_none_when_new_rate_is_none_test() {

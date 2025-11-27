@@ -57,14 +57,14 @@ pub type CurrencySelector {
 pub type BorderColor {
   SuccessColor
   ErrorColor
-  WarningColor
+  InfoColor
 }
 
 fn border_color_to_css_var(color: BorderColor) -> String {
   case color {
     SuccessColor -> "--color-success"
     ErrorColor -> "--color-error"
-    WarningColor -> "--color-warning"
+    InfoColor -> "--color-info"
   }
 }
 
@@ -230,13 +230,13 @@ pub fn border_color_from_rate_change(
   new_rate: Option(PositiveFloat),
 ) -> Option(BorderColor) {
   case previous_rate, new_rate {
-    Some(x), Some(y) if x == y -> Some(WarningColor)
+    Some(x), Some(y) if x == y -> Some(InfoColor)
     Some(x), Some(y) ->
       case positive_float.is_less_than(x, y) {
         False -> Some(ErrorColor)
         True -> Some(SuccessColor)
       }
-    None, _ -> Some(WarningColor)
+    None, _ -> Some(InfoColor)
     Some(_), None -> None
   }
 }
