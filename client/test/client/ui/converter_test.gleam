@@ -5,9 +5,9 @@ import client/positive_float
 import client/side.{Left, Right}
 import client/ui/button_dropdown.{ArrowDown, ArrowUp, Enter, Other}
 import client/ui/converter.{
-  AmountInput, Converter, ConverterInput, CurrencySelector, EmptyCurrencyList,
-  ErrorColor, FocusOnCurrencyFilter, InfoColor, NoEffect, RequestCurrencies,
-  RequestRate, ScrollToOption, SelectedCurrencyNotFound, SuccessColor,
+  AmountInput, Converter, ConverterInput, CurrencySelector, Decreased,
+  EmptyCurrencyList, FocusOnCurrencyFilter, Increased, NoChange, NoEffect,
+  RequestCurrencies, RequestRate, ScrollToOption, SelectedCurrencyNotFound,
   UserClickedCurrencySelector, UserEnteredAmount, UserFilteredCurrencies,
   UserPressedKeyInCurrencySelector,
 }
@@ -488,33 +488,32 @@ pub fn with_rate_sets_left_border_color_to_some_when_right_side_edited_test() {
 
 // border_color_from_rate_change
 
-pub fn border_color_from_rate_change_returns_warning_when_rates_equal_test() {
+pub fn border_color_from_rate_change_returns_no_change_when_rates_equal_test() {
   let prev = Some(positive_float.from_float_unsafe(2.0))
   let new = Some(positive_float.from_float_unsafe(2.0))
 
-  assert converter.border_color_from_rate_change(prev, new) == Some(InfoColor)
+  assert converter.border_color_from_rate_change(prev, new) == Some(NoChange)
 }
 
-pub fn border_color_from_rate_change_returns_success_when_rate_increases_test() {
+pub fn border_color_from_rate_change_returns_increased_when_rate_increases_test() {
   let prev = Some(positive_float.from_float_unsafe(2.0))
   let new = Some(positive_float.from_float_unsafe(3.0))
 
-  assert converter.border_color_from_rate_change(prev, new)
-    == Some(SuccessColor)
+  assert converter.border_color_from_rate_change(prev, new) == Some(Increased)
 }
 
-pub fn border_color_from_rate_change_returns_error_when_rate_decreases_test() {
+pub fn border_color_from_rate_change_returns_decreased_when_rate_decreases_test() {
   let prev = Some(positive_float.from_float_unsafe(3.0))
   let new = Some(positive_float.from_float_unsafe(2.0))
 
-  assert converter.border_color_from_rate_change(prev, new) == Some(ErrorColor)
+  assert converter.border_color_from_rate_change(prev, new) == Some(Decreased)
 }
 
-pub fn border_color_from_rate_change_returns_warning_when_no_previous_rate_test() {
+pub fn border_color_from_rate_change_returns_no_change_when_no_previous_rate_test() {
   let prev = None
   let new = Some(positive_float.from_float_unsafe(2.0))
 
-  assert converter.border_color_from_rate_change(prev, new) == Some(InfoColor)
+  assert converter.border_color_from_rate_change(prev, new) == Some(NoChange)
 }
 
 pub fn border_color_from_rate_change_returns_none_when_new_rate_is_none_test() {

@@ -39,7 +39,7 @@ pub type AmountInput {
   AmountInput(
     raw: String,
     parsed: Option(PositiveFloat),
-    border_color: Option(BorderColor),
+    border_color: Option(RateChangeColor),
   )
 }
 
@@ -54,17 +54,17 @@ pub type CurrencySelector {
   )
 }
 
-pub type BorderColor {
-  SuccessColor
-  ErrorColor
-  InfoColor
+pub type RateChangeColor {
+  Increased
+  Decreased
+  NoChange
 }
 
-fn border_color_to_css_var(color: BorderColor) -> String {
+fn rate_change_color_to_css_var(color: RateChangeColor) -> String {
   case color {
-    SuccessColor -> "--color-success"
-    ErrorColor -> "--color-error"
-    InfoColor -> "--color-info"
+    Increased -> "--color-success"
+    Decreased -> "--color-error"
+    NoChange -> "--color-info"
   }
 }
 
@@ -153,7 +153,7 @@ fn with_rate_with_custom_glow(
   converter: Converter,
   rate: Option(PositiveFloat),
   color_from_rate_change: fn(Option(PositiveFloat), Option(PositiveFloat)) ->
-    Option(BorderColor),
+    Option(RateChangeColor),
 ) -> Converter {
   // When a new exchange rate comes in, we want to:
   // - Recalculate the opposite input field if the user previously entered a number
@@ -228,15 +228,15 @@ fn with_rate_with_custom_glow(
 pub fn border_color_from_rate_change(
   previous_rate: Option(PositiveFloat),
   new_rate: Option(PositiveFloat),
-) -> Option(BorderColor) {
+) -> Option(RateChangeColor) {
   case previous_rate, new_rate {
-    Some(x), Some(y) if x == y -> Some(InfoColor)
+    Some(x), Some(y) if x == y -> Some(NoChange)
     Some(x), Some(y) ->
       case positive_float.is_less_than(x, y) {
-        False -> Some(ErrorColor)
-        True -> Some(SuccessColor)
+        False -> Some(Decreased)
+        True -> Some(Increased)
       }
-    None, _ -> Some(InfoColor)
+    None, _ -> Some(NoChange)
     Some(_), None -> None
   }
 }
@@ -679,7 +679,7 @@ fn amount_input(
 ) -> Element(Msg) {
   let border_color =
     amount_input.border_color
-    |> option.map(border_color_to_css_var)
+    |> option.map(rate_change_color_to_css_var)
 
   auto_resize_input.element([
     auto_resize_input.id(id),
