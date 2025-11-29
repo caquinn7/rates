@@ -1,6 +1,7 @@
 import gleam/int
 import gleam/json
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import lustre/attribute
@@ -8,6 +9,9 @@ import lustre/element.{type Element}
 import lustre/element/html
 import server/domain/rates/rate_error.{type RateError}
 import server/utils/logger
+import shared/converter_input_state.{
+  type ConverterInputState, ConverterInputState,
+}
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
 import shared/rates/rate_request.{type RateRequest, RateRequest}
@@ -17,8 +21,9 @@ import wisp.{type Response}
 pub fn get(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  state: Option(List(ConverterInputState)),
 ) -> Response {
-  case get_page_data(currencies, get_rate) {
+  case get_page_data(currencies, get_rate, state) {
     Error(_) -> wisp.internal_server_error()
 
     Ok(page_data) -> {
@@ -38,22 +43,35 @@ pub fn get(
 fn get_page_data(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  state: Option(List(ConverterInputState)),
 ) -> Result(PageData, Nil) {
-  let find_currency = fn(symbol) {
-    list.find(currencies, fn(c) { c.symbol == symbol })
+  let find_currency = fn(id) {
+    list.find(currencies, fn(currency) { currency.id == id })
   }
-  use btc <- result.try(find_currency("BTC"))
-  use usd <- result.try(find_currency("USD"))
 
-  let rate_req = RateRequest(btc.id, usd.id)
+  use state <- result.try(case state {
+    None | Some([]) -> {
+      use btc <- result.try(find_currency(1))
+      use usd <- result.try(find_currency(2781))
+      Ok([ConverterInputState(btc.id, usd.id, "1")])
+    }
 
-  use rate_response <- result.try(
+    Some(state) -> Ok(state)
+  })
+
+  state
+  |> list.filter_map(fn(converter_input_state) {
+    use from <- result.try(find_currency(converter_input_state.from_id))
+    use to <- result.try(find_currency(converter_input_state.to_id))
+    Ok(RateRequest(from.id, to.id))
+  })
+  |> list.filter_map(fn(rate_req) {
     rate_req
     |> get_rate
-    |> result.map_error(log_rate_request_error(rate_req, _)),
-  )
-
-  Ok(PageData(currencies, [rate_response]))
+    |> result.map_error(log_rate_request_error(rate_req, _))
+  })
+  |> PageData(currencies, _)
+  |> Ok
 }
 
 fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {

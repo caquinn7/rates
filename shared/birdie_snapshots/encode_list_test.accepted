@@ -1,0 +1,7 @@
+---
+version: 1.4.1
+title: encode_list_test
+file: ./test/shared/converter_input_state_test.gleam
+test_name: encode_list_test
+---
+1|2781|1.0;2|2781|2.0;3|2781|3

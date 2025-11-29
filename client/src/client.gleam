@@ -1,6 +1,7 @@
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/event as browser_event
+import client/browser/history
 import client/browser/window
 import client/net/http_client
 import client/net/websocket_client
@@ -14,6 +15,7 @@ import client/websocket.{
   OnTextMessage,
 }
 import gleam/dict
+import gleam/dynamic
 import gleam/float
 import gleam/int
 import gleam/javascript/array
@@ -31,9 +33,10 @@ import lustre/element/html
 import lustre/element/keyed
 import lustre/event
 import rsvp
+import shared/converter_input_state.{ConverterInputState}
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData}
-import shared/rates/rate_response.{RateResponse}
+import shared/rates/rate_response.{type RateResponse, RateResponse}
 import shared/subscriptions/subscription_id
 import shared/subscriptions/subscription_response.{SubscriptionResponse}
 
@@ -51,20 +54,28 @@ pub type Model {
 pub fn model_from_page_data(
   page_data: PageData,
 ) -> Result(Model, NewConverterError) {
-  let assert [RateResponse(from, to, Some(rate), _source, _timestamp)] =
+  let assert [RateResponse(_from, _to, Some(_rate), _source, _timestamp), ..] =
     page_data.rates
 
-  use converter <- result.try(converter.new(
-    converter_id_prefix <> "-1",
-    page_data.currencies,
-    #(from, to),
-    "1",
-    Some(positive_float.from_float_unsafe(rate)),
-  ))
+  let to_converter = fn(rate_response: RateResponse, converter_id) {
+    converter.new(
+      converter_id,
+      page_data.currencies,
+      #(rate_response.from, rate_response.to),
+      // todo: need to get encoded amount here
+      "1",
+      option.map(rate_response.rate, positive_float.from_float_unsafe),
+    )
+  }
 
-  Ok(Model(
+  page_data.rates
+  |> list.index_map(fn(rate_response, idx) {
+    to_converter(rate_response, converter_id_prefix <> int.to_string(idx + 1))
+  })
+  |> result.all
+  |> result.map(Model(
     currencies: page_data.currencies,
-    converters: [converter],
+    converters: _,
     socket: None,
     reconnect_attempts: 0,
   ))
@@ -316,7 +327,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           converters: list.append(model.converters, [new_converter]),
         )
 
-      let effect = case model.socket {
+      let subscribe_effect = case model.socket {
         None -> {
           echo "could not request rate. socket not initialized."
           effect.none()
@@ -330,7 +341,25 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           )
       }
 
-      #(model, effect)
+      let _ = {
+        let encoded_converters =
+          model.converters
+          |> list.map(fn(converter) {
+            ConverterInputState(
+              converter.get_selected_currency_id(converter, Left),
+              converter.get_selected_currency_id(converter, Right),
+              converter.get_amount(converter, Left),
+            )
+          })
+          |> converter_input_state.encode_list
+
+        let updated_url =
+          window.get_url_with_updated_query_param("state", encoded_converters)
+
+        history.replace_state(dynamic.nil(), Some(updated_url))
+      }
+
+      #(model, subscribe_effect)
     }
 
     UserClickedDeleteConverter(converter_id) -> {
