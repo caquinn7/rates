@@ -39,7 +39,7 @@ pub fn get(
   }
 }
 
-fn get_page_data(
+pub fn get_page_data(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
   state: List(ConverterInputState),
@@ -58,19 +58,26 @@ fn get_page_data(
     state -> Ok(state)
   })
 
-  state
-  |> list.filter_map(fn(converter_input_state) {
-    use from <- result.try(find_currency(converter_input_state.from))
-    use to <- result.try(find_currency(converter_input_state.to))
-    Ok(RateRequest(from.id, to.id))
-  })
-  |> list.filter_map(fn(rate_req) {
-    rate_req
-    |> get_rate
-    |> result.map_error(log_rate_request_error(rate_req, _))
-  })
-  |> PageData(currencies, _, state)
-  |> Ok
+  let rate_responses =
+    state
+    |> list.filter_map(fn(converter_input_state) {
+      use from <- result.try(find_currency(converter_input_state.from))
+      use to <- result.try(find_currency(converter_input_state.to))
+      Ok(RateRequest(from.id, to.id))
+    })
+    |> list.filter_map(fn(rate_req) {
+      rate_req
+      |> get_rate
+      |> result.map_error(log_rate_request_error(rate_req, _))
+    })
+
+  case rate_responses {
+    [] -> Error(Nil)
+    _ ->
+      rate_responses
+      |> PageData(currencies, _, state)
+      |> Ok
+  }
 }
 
 fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {
