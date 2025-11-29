@@ -1,0 +1,7 @@
+---
+version: 1.4.1
+title: encode_converter_input_state_to_json_test
+file: ./test/shared/converter_input_state_test.gleam
+test_name: encode_converter_input_state_to_json_test
+---
+{"from":1,"to":2781,"amount":"1,000.0"}

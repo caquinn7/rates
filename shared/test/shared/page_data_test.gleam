@@ -1,6 +1,7 @@
 import birdie
 import gleam/json
 import gleam/option.{Some}
+import shared/converter_input_state.{ConverterInputState}
 import shared/currency.{Crypto, Fiat}
 import shared/page_data.{PageData}
 import shared/rates/rate_response.{Kraken, RateResponse}
@@ -12,6 +13,7 @@ pub fn encode_page_data_to_json_test() {
       Fiat(2781, "United States Dollar", "USD", "$"),
     ],
     [RateResponse(1, 2781, Some(100_000.0), Kraken, 1_756_654_456)],
+    [ConverterInputState(1, 2781, "0.5")],
   )
   |> page_data.encode
   |> json.to_string
@@ -20,7 +22,7 @@ pub fn encode_page_data_to_json_test() {
 
 pub fn decode_page_data_json_test() {
   let json =
-    "{\"currencies\":[{\"type\":\"crypto\",\"id\":1,\"name\":\"Bitcoin\",\"symbol\":\"BTC\",\"rank\":1},{\"type\":\"fiat\",\"id\":2781,\"name\":\"United States Dollar\",\"symbol\":\"USD\",\"sign\":\"$\"}],\"rate\":[{\"from\":1,\"to\":2781,\"rate\":1.0e5,\"source\":\"Kraken\",\"timestamp\":1756654456}]}"
+    "{\"currencies\":[{\"type\":\"crypto\",\"id\":1,\"name\":\"Bitcoin\",\"symbol\":\"BTC\",\"rank\":1},{\"type\":\"fiat\",\"id\":2781,\"name\":\"United States Dollar\",\"symbol\":\"USD\",\"sign\":\"$\"}],\"rates\":[{\"from\":1,\"to\":2781,\"rate\":1.0e5,\"source\":\"Kraken\",\"timestamp\":1756654456}],\"state\":[{\"from\":1,\"to\":2781,\"amount\":\"0.5\"}]}"
 
   let expected =
     PageData(
@@ -29,7 +31,8 @@ pub fn decode_page_data_json_test() {
         Fiat(2781, "United States Dollar", "USD", "$"),
       ],
       [RateResponse(1, 2781, Some(100_000.0), Kraken, 1_756_654_456)],
+      [ConverterInputState(1, 2781, "0.5")],
     )
 
-  assert Ok(expected) == json.parse(json, page_data.decoder())
+  assert json.parse(json, page_data.decoder()) == Ok(expected)
 }

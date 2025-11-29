@@ -1,4 +1,6 @@
+import gleam/bit_array
 import gleam/bool
+import gleam/dynamic/decode
 import gleam/http
 import gleam/http/request
 import gleam/json
@@ -82,15 +84,21 @@ fn route_http_request(
       use <- wisp.require_method(req, http.Get)
 
       let state = {
-        let state_param =
+        let query_param =
           req
           |> wisp.get_query
           |> list.key_find("state")
           |> result.unwrap("")
 
-        state_param
-        |> converter_input_state.decode_list
-        |> option.from_result
+        let url_decoded_state =
+          query_param
+          |> bit_array.base64_url_decode
+          |> result.try(bit_array.to_string)
+          |> result.unwrap("")
+
+        url_decoded_state
+        |> json.parse(decode.list(converter_input_state.decoder()))
+        |> result.unwrap([])
       }
 
       home.get(currencies, get_rate, state)

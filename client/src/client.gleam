@@ -14,6 +14,7 @@ import client/websocket.{
   type WebSocket, type WebSocketEvent, InvalidUrl, OnClose, OnOpen,
   OnTextMessage,
 }
+import gleam/bit_array
 import gleam/dict
 import gleam/dynamic
 import gleam/float
@@ -57,20 +58,30 @@ pub fn model_from_page_data(
   let assert [RateResponse(_from, _to, Some(_rate), _source, _timestamp), ..] =
     page_data.rates
 
-  let to_converter = fn(rate_response: RateResponse, converter_id) {
+  let to_converter = fn(rate_response: RateResponse, converter_id, amount) {
     converter.new(
       converter_id,
       page_data.currencies,
       #(rate_response.from, rate_response.to),
-      // todo: need to get encoded amount here
-      "1",
+      amount,
       option.map(rate_response.rate, positive_float.from_float_unsafe),
     )
   }
 
   page_data.rates
   |> list.index_map(fn(rate_response, idx) {
-    to_converter(rate_response, converter_id_prefix <> int.to_string(idx + 1))
+    let input_state_amount =
+      list.find(page_data.state, fn(state) {
+        rate_response.from == state.from && rate_response.to == state.to
+      })
+      |> result.map(fn(state) { state.amount })
+      |> result.unwrap("1")
+
+    to_converter(
+      rate_response,
+      converter_id_prefix <> int.to_string(idx + 1),
+      input_state_amount,
+    )
   })
   |> result.all
   |> result.map(Model(
@@ -351,7 +362,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               converter.get_amount(converter, Left),
             )
           })
-          |> converter_input_state.encode_list
+          |> json.array(converter_input_state.encode)
+          |> json.to_string
+          |> bit_array.from_string
+          |> bit_array.base64_url_encode(False)
 
         let updated_url =
           window.get_url_with_updated_query_param("state", encoded_converters)

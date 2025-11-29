@@ -1,7 +1,6 @@
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import lustre/attribute
@@ -21,7 +20,7 @@ import wisp.{type Response}
 pub fn get(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
-  state: Option(List(ConverterInputState)),
+  state: List(ConverterInputState),
 ) -> Response {
   case get_page_data(currencies, get_rate, state) {
     Error(_) -> wisp.internal_server_error()
@@ -43,26 +42,26 @@ pub fn get(
 fn get_page_data(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
-  state: Option(List(ConverterInputState)),
+  state: List(ConverterInputState),
 ) -> Result(PageData, Nil) {
   let find_currency = fn(id) {
     list.find(currencies, fn(currency) { currency.id == id })
   }
 
   use state <- result.try(case state {
-    None | Some([]) -> {
+    [] -> {
       use btc <- result.try(find_currency(1))
       use usd <- result.try(find_currency(2781))
       Ok([ConverterInputState(btc.id, usd.id, "1")])
     }
 
-    Some(state) -> Ok(state)
+    state -> Ok(state)
   })
 
   state
   |> list.filter_map(fn(converter_input_state) {
-    use from <- result.try(find_currency(converter_input_state.from_id))
-    use to <- result.try(find_currency(converter_input_state.to_id))
+    use from <- result.try(find_currency(converter_input_state.from))
+    use to <- result.try(find_currency(converter_input_state.to))
     Ok(RateRequest(from.id, to.id))
   })
   |> list.filter_map(fn(rate_req) {
@@ -70,7 +69,7 @@ fn get_page_data(
     |> get_rate
     |> result.map_error(log_rate_request_error(rate_req, _))
   })
-  |> PageData(currencies, _)
+  |> PageData(currencies, _, state)
   |> Ok
 }
 
