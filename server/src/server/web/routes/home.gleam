@@ -58,6 +58,7 @@ pub fn get_page_data(
     state -> Ok(state)
   })
 
+  // todo: what if currency in state is one that was added after page load?
   let rate_responses =
     state
     |> list.filter_map(fn(converter_input_state) {

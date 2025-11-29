@@ -8,6 +8,7 @@ import client/net/websocket_client
 import client/positive_float
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
+import client/ui/button_dropdown.{Enter}
 import client/ui/converter.{type Converter, type NewConverterError}
 import client/ui/icons
 import client/websocket.{
@@ -298,7 +299,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               converter.RequestCurrencies(symbol) ->
                 http_client.get_currencies(symbol, ApiReturnedMatchedCurrencies)
 
-              converter.RequestRate -> {
+              converter.RequestRate ->
                 case model.socket {
                   None -> {
                     echo "could not request rate. socket not initialized."
@@ -312,7 +313,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                       converter.to_rate_request(converter),
                     )
                 }
-              }
+            }
+
+            let _ = case converter_msg {
+              converter.UserEnteredAmount(_, _) -> encode_state_in_url(model)
+              converter.UserPressedKeyInCurrencySelector(_, Enter) ->
+                encode_state_in_url(model)
+              converter.UserSelectedCurrency(_, _) -> encode_state_in_url(model)
+              _ -> Nil
             }
 
             #(model, effect)
