@@ -352,26 +352,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           )
       }
 
-      let _ = {
-        let encoded_converters =
-          model.converters
-          |> list.map(fn(converter) {
-            ConverterInputState(
-              converter.get_selected_currency_id(converter, Left),
-              converter.get_selected_currency_id(converter, Right),
-              converter.get_amount(converter, Left),
-            )
-          })
-          |> json.array(converter_input_state.encode)
-          |> json.to_string
-          |> bit_array.from_string
-          |> bit_array.base64_url_encode(False)
-
-        let updated_url =
-          window.get_url_with_updated_query_param("state", encoded_converters)
-
-        history.replace_state(dynamic.nil(), Some(updated_url))
-      }
+      let _ = encode_state_in_url(model)
 
       #(model, subscribe_effect)
     }
@@ -385,7 +366,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           }),
         )
 
-      let effect = case model.socket {
+      let unsubscribe_effect = case model.socket {
         None -> {
           echo "could not unsubscribe from rate update. socket not initialized."
           effect.none()
@@ -398,7 +379,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           )
       }
 
-      #(model, effect)
+      let _ = encode_state_in_url(model)
+
+      #(model, unsubscribe_effect)
     }
 
     UserClickedInDocument(event) -> {
@@ -506,6 +489,27 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.none())
     }
   }
+}
+
+fn encode_state_in_url(model: Model) {
+  let encoded_state =
+    model.converters
+    |> list.map(fn(converter) {
+      ConverterInputState(
+        converter.get_selected_currency_id(converter, Left),
+        converter.get_selected_currency_id(converter, Right),
+        converter.get_amount(converter, Left),
+      )
+    })
+    |> json.array(converter_input_state.encode)
+    |> json.to_string
+    |> bit_array.from_string
+    |> bit_array.base64_url_encode(False)
+
+  let updated_url =
+    window.get_url_with_updated_query_param("state", encoded_state)
+
+  history.replace_state(dynamic.nil(), Some(updated_url))
 }
 
 fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
