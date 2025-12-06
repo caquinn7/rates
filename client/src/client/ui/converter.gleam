@@ -452,6 +452,17 @@ pub fn get_converter_input(converter: Converter, side: Side) {
   }
 }
 
+pub fn get_selected_currency_id(converter: Converter, side: Side) -> Int {
+  get_converter_input(converter, side).currency_selector.selected_currency.id
+}
+
+pub fn get_parsed_amount(
+  converter: Converter,
+  side: Side,
+) -> Option(PositiveFloat) {
+  get_converter_input(converter, side).amount_input.parsed
+}
+
 pub fn to_rate_request(converter: Converter) {
   let from =
     get_converter_input(converter, Left).currency_selector.selected_currency

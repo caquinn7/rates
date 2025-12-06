@@ -1,6 +1,7 @@
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/event as browser_event
+import client/browser/history
 import client/browser/window
 import client/net/http_client
 import client/net/websocket_client
@@ -14,6 +15,7 @@ import client/websocket.{
   OnTextMessage,
 }
 import gleam/dict
+import gleam/dynamic
 import gleam/float
 import gleam/int
 import gleam/javascript/array
@@ -31,6 +33,7 @@ import lustre/element/html
 import lustre/element/keyed
 import lustre/event
 import rsvp
+import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData}
 import shared/rates/rate_response.{RateResponse}
@@ -42,6 +45,7 @@ const converter_id_prefix = "converter"
 pub type Model {
   Model(
     currencies: List(Currency),
+    added_currencies: List(Int),
     converters: List(Converter),
     socket: Option(WebSocket),
     reconnect_attempts: Int,
@@ -64,6 +68,7 @@ pub fn model_from_page_data(
 
   Ok(Model(
     currencies: page_data.currencies,
+    added_currencies: [],
     converters: [converter],
     socket: None,
     reconnect_attempts: 0,
@@ -98,6 +103,41 @@ pub fn get_next_converter_id(model: Model) -> String {
   let next_id = max_id + 1
 
   converter_id_prefix <> "-" <> int.to_string(next_id)
+}
+
+pub fn model_to_client_state(model: Model) {
+  let converter_states =
+    model.converters
+    |> list.map(fn(converter) {
+      let amount =
+        converter
+        |> converter.get_parsed_amount(Left)
+        |> option.map(positive_float.unwrap)
+        |> option.unwrap(1.0)
+
+      ConverterState(
+        converter.get_selected_currency_id(converter, Left),
+        converter.get_selected_currency_id(converter, Right),
+        amount,
+      )
+    })
+
+  let added_currencies =
+    model.added_currencies
+    |> list.filter(fn(currency_id) {
+      // only include added currency ids in use by a converter
+      list.any(converter_states, fn(converter_state) {
+        converter_state.from == currency_id || converter_state.to == currency_id
+      })
+    })
+    |> list.filter_map(fn(currency_id) {
+      // map each added currency id to its symbol
+      model.currencies
+      |> list.find(fn(currency) { currency.id == currency_id })
+      |> result.map(fn(currency) { currency.symbol })
+    })
+
+  ClientState(converters: converter_states, added_currencies:)
 }
 
 pub fn main() -> Nil {
@@ -330,6 +370,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           )
       }
 
+      let _ = encode_state_in_url(model)
+
       #(model, effect)
     }
 
@@ -425,7 +467,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           converter.with_master_currency_list(conv, master_list)
         })
 
-      let model = Model(..model, currencies: master_list, converters:)
+      let model =
+        Model(
+          ..model,
+          currencies: master_list,
+          added_currencies: list.map(matched_currencies, fn(c) { c.id }),
+          converters:,
+        )
 
       let effect = case model.socket {
         None -> {
@@ -463,6 +511,18 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.none())
     }
   }
+}
+
+fn encode_state_in_url(model: Model) {
+  let encoded_state =
+    model
+    |> model_to_client_state
+    |> client_state.encode
+
+  let updated_url =
+    window.get_url_with_updated_query_param("state", encoded_state)
+
+  history.replace_state(dynamic.nil(), Some(updated_url))
 }
 
 fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
