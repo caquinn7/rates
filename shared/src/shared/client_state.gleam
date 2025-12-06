@@ -20,22 +20,27 @@ pub type ConverterState {
 pub fn encode(state: ClientState) -> String {
   let ClientState(converters, added_currencies) = state
 
-  let converters_str =
-    converters
-    |> list.map(encode_converter_state)
-    |> string.join(";")
-
+  let converters_str = encode_converter_states(converters)
   case string.join(added_currencies, ",") {
     "" -> "v1:" <> converters_str
     s -> "v1:" <> converters_str <> "|" <> s
   }
 }
 
+pub fn encode_converter_states(converter_states: List(ConverterState)) -> String {
+  converter_states
+  |> list.map(encode_converter_state)
+  |> string.join(";")
+}
+
 pub fn encode_converter_state(converter_state: ConverterState) -> String {
   let ConverterState(from, to, amount) = converter_state
 
-  let converter_str = int.to_string(from) <> "-" <> int.to_string(to)
-
+  // Encode amount for URL, omitting it entirely when possible to minimize URL length:
+  // - If amount is 1.0 (the default), omit it from the URL
+  // - If amount is negative (invalid), omit it from the URL
+  // - Otherwise, optimize the encoding: whole numbers (e.g., 100.0) are encoded
+  //   as integers ("100") rather than floats ("100.0") to save space
   let amount_str = case amount {
     1.0 -> ""
     x if x <. 0.0 -> ""
@@ -48,6 +53,7 @@ pub fn encode_converter_state(converter_state: ConverterState) -> String {
     }
   }
 
+  let converter_str = int.to_string(from) <> "-" <> int.to_string(to)
   case amount_str {
     "" -> converter_str
     _ -> converter_str <> "-" <> amount_str
@@ -63,22 +69,7 @@ pub type DecodeError {
 }
 
 pub fn decode(encoded: String) -> Result(ClientState, DecodeError) {
-  let validate_prefix = fn() {
-    use #(prefix, content) <- result.try(
-      encoded
-      |> string.split_once(":")
-      |> result.replace_error(VersionMissing),
-    )
-
-    case prefix {
-      "" -> Error(VersionMissing)
-      "v1" -> Ok(#(prefix, content))
-      _ -> Error(InvalidVersion(prefix))
-    }
-  }
-
-  use #(_prefix, content) <- result.try(validate_prefix())
-
+  use content <- result.try(decode_version(encoded))
   use #(converters_str, currencies_str) <- result.try(
     case string.split(content, "|") {
       [""] -> Ok(#("", ""))
@@ -89,17 +80,35 @@ pub fn decode(encoded: String) -> Result(ClientState, DecodeError) {
     },
   )
 
-  use converters <- result.try(case string.split(converters_str, ";") {
+  use converters <- result.try(decode_converter_states(converters_str))
+  let added_currencies = split_and_remove_empty_strings(currencies_str, ",")
+  Ok(ClientState(converters:, added_currencies:))
+}
+
+pub fn decode_version(encoded: String) -> Result(String, DecodeError) {
+  use #(prefix, content) <- result.try(
+    encoded
+    |> string.split_once(":")
+    |> result.replace_error(VersionMissing),
+  )
+
+  case prefix {
+    "" -> Error(VersionMissing)
+    "v1" -> Ok(content)
+    _ -> Error(InvalidVersion(prefix))
+  }
+}
+
+pub fn decode_converter_states(
+  encoded: String,
+) -> Result(List(ConverterState), DecodeError) {
+  case string.split(encoded, ";") {
     [""] -> Ok([])
     parts ->
       parts
       |> list.map(fn(part) { decode_converter_state(part) })
       |> result.all
-  })
-
-  let added_currencies = split_and_remove_empty_strings(currencies_str, ",")
-
-  Ok(ClientState(converters:, added_currencies:))
+  }
 }
 
 pub fn decode_converter_state(
