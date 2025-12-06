@@ -17,6 +17,7 @@ import client/websocket.{
 import gleam/dict
 import gleam/dynamic
 import gleam/float
+import gleam/function
 import gleam/int
 import gleam/javascript/array
 import gleam/json
@@ -55,21 +56,45 @@ pub type Model {
 pub fn model_from_page_data(
   page_data: PageData,
 ) -> Result(Model, NewConverterError) {
-  let assert [RateResponse(from, to, Some(rate), _source, _timestamp)] =
-    page_data.rates
+  let build_converter = fn(rate_response, converter_id, amount) {
+    let assert RateResponse(from, to, Some(rate), _source, _timestamp) =
+      rate_response
 
-  use converter <- result.try(converter.new(
-    converter_id_prefix <> "-1",
-    page_data.currencies,
-    #(from, to),
-    "1",
-    Some(positive_float.from_float_unsafe(rate)),
-  ))
+    converter.new(
+      converter_id,
+      page_data.currencies,
+      #(from, to),
+      float.to_string(amount),
+      Some(positive_float.from_float_unsafe(rate)),
+    )
+  }
+
+  let converters =
+    page_data.converters
+    |> list.index_map(fn(converter_state, idx) {
+      page_data.rates
+      |> list.find(fn(rate_resp) {
+        rate_resp.from == converter_state.from
+        && rate_resp.to == converter_state.to
+      })
+      |> result.try(fn(rate_resp) {
+        rate_resp
+        |> build_converter(
+          converter_id_prefix <> int.to_string(idx + 1),
+          converter_state.amount,
+        )
+        |> result.map_error(fn(err) {
+          echo "error building converter: " <> string.inspect(err)
+          Nil
+        })
+      })
+    })
+    |> list.filter_map(function.identity)
 
   Ok(Model(
     currencies: page_data.currencies,
     added_currencies: [],
-    converters: [converter],
+    converters:,
     socket: None,
     reconnect_attempts: 0,
   ))

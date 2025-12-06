@@ -3,7 +3,7 @@ import gleam/http
 import gleam/http/request
 import gleam/json
 import gleam/list
-import gleam/option.{type Option, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/regexp
 import gleam/result
 import mist
@@ -21,6 +21,7 @@ import server/integrations/coin_market_cap/cmc_crypto_currency.{
 import server/utils/logger
 import server/web/routes/home
 import server/web/routes/websocket
+import shared/client_state
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
@@ -79,7 +80,24 @@ fn route_http_request(
   case wisp.path_segments(req) {
     [] -> {
       use <- wisp.require_method(req, http.Get)
-      home.get(currencies, get_rate)
+
+      let state = {
+        let state_param =
+          req
+          |> wisp.get_query
+          |> list.key_find("state")
+          |> result.unwrap("")
+
+        case state_param {
+          "" -> None
+          _ ->
+            state_param
+            |> client_state.decode
+            |> option.from_result
+        }
+      }
+
+      home.get(currencies, get_rate, state)
     }
 
     ["api", "currencies"] -> {
