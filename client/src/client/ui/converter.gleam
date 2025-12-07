@@ -277,15 +277,21 @@ pub fn with_amount(
     })
   }
 
-  let map_successful_parse = fn(raw_amount, parsed_amount) {
+  let map_successful_parse = fn(parsed_amount: PositiveFloat) {
     // Update the side the user edited
     converter.inputs
     |> map_converter_inputs(side, fn(input) {
+      let raw_display =
+        currency_formatting.format_currency_amount(
+          input.currency_selector.selected_currency,
+          parsed_amount,
+        )
+
       ConverterInput(
         ..input,
         amount_input: AmountInput(
           ..input.amount_input,
-          raw: raw_amount,
+          raw: raw_display,
           parsed: Some(parsed_amount),
         ),
       )
@@ -333,7 +339,7 @@ pub fn with_amount(
 
   let inputs = case positive_float.parse(raw_amount) {
     Error(_) -> map_failed_parse()
-    Ok(parsed) -> map_successful_parse(raw_amount, parsed)
+    Ok(parsed) -> map_successful_parse(parsed)
   }
 
   Converter(..converter, inputs:, last_edited: side)
@@ -450,6 +456,17 @@ pub fn get_converter_input(converter: Converter, side: Side) {
     Left -> converter.inputs.0
     Right -> converter.inputs.1
   }
+}
+
+pub fn get_selected_currency_id(converter: Converter, side: Side) -> Int {
+  get_converter_input(converter, side).currency_selector.selected_currency.id
+}
+
+pub fn get_parsed_amount(
+  converter: Converter,
+  side: Side,
+) -> Option(PositiveFloat) {
+  get_converter_input(converter, side).amount_input.parsed
 }
 
 pub fn to_rate_request(converter: Converter) {

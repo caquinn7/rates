@@ -1,6 +1,7 @@
 import gleam/int
 import gleam/json
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import lustre/attribute
@@ -8,6 +9,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import server/domain/rates/rate_error.{type RateError}
 import server/utils/logger
+import shared/client_state.{type ClientState, ClientState, ConverterState}
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
 import shared/rates/rate_request.{type RateRequest, RateRequest}
@@ -17,8 +19,9 @@ import wisp.{type Response}
 pub fn get(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  client_state: Option(ClientState),
 ) -> Response {
-  case get_page_data(currencies, get_rate) {
+  case resolve_page_data(currencies, get_rate, client_state) {
     Error(_) -> wisp.internal_server_error()
 
     Ok(page_data) -> {
@@ -35,25 +38,35 @@ pub fn get(
   }
 }
 
-fn get_page_data(
+pub fn resolve_page_data(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  client_state: Option(ClientState),
 ) -> Result(PageData, Nil) {
-  let find_currency = fn(symbol) {
-    list.find(currencies, fn(c) { c.symbol == symbol })
+  let client_state = case client_state {
+    None -> {
+      let btc_id = 1
+      let usd_id = 2781
+      ClientState([ConverterState(btc_id, usd_id, 1.0)], [])
+    }
+
+    Some(state) -> state
   }
-  use btc <- result.try(find_currency("BTC"))
-  use usd <- result.try(find_currency("USD"))
 
-  let rate_req = RateRequest(btc.id, usd.id)
+  // Get rates for all converters
+  let rates =
+    client_state.converters
+    |> list.filter_map(fn(converter) {
+      let rate_req = RateRequest(converter.from, converter.to)
 
-  use rate_response <- result.try(
-    rate_req
-    |> get_rate
-    |> result.map_error(log_rate_request_error(rate_req, _)),
-  )
+      rate_req
+      |> get_rate
+      |> result.map_error(log_rate_request_error(rate_req, _))
+    })
 
-  Ok(PageData(currencies, [rate_response]))
+  // todo: figure out how to get currencies for client_state.added_currencies
+  // and add them to PageData.currencies
+  Ok(PageData(currencies:, rates:, converters: client_state.converters))
 }
 
 fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {

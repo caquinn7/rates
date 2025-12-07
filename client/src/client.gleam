@@ -1,12 +1,14 @@
 import client/browser/document
 import client/browser/element as browser_element
 import client/browser/event as browser_event
+import client/browser/history
 import client/browser/window
 import client/net/http_client
 import client/net/websocket_client
 import client/positive_float
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
+import client/ui/button_dropdown.{Enter}
 import client/ui/converter.{type Converter, type NewConverterError}
 import client/ui/icons
 import client/websocket.{
@@ -14,7 +16,9 @@ import client/websocket.{
   OnTextMessage,
 }
 import gleam/dict
+import gleam/dynamic
 import gleam/float
+import gleam/function
 import gleam/int
 import gleam/javascript/array
 import gleam/json
@@ -31,6 +35,7 @@ import lustre/element/html
 import lustre/element/keyed
 import lustre/event
 import rsvp
+import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData}
 import shared/rates/rate_response.{RateResponse}
@@ -42,6 +47,7 @@ const converter_id_prefix = "converter"
 pub type Model {
   Model(
     currencies: List(Currency),
+    added_currencies: List(Int),
     converters: List(Converter),
     socket: Option(WebSocket),
     reconnect_attempts: Int,
@@ -51,20 +57,45 @@ pub type Model {
 pub fn model_from_page_data(
   page_data: PageData,
 ) -> Result(Model, NewConverterError) {
-  let assert [RateResponse(from, to, Some(rate), _source, _timestamp)] =
-    page_data.rates
+  let build_converter = fn(rate_response, converter_id, amount) {
+    let assert RateResponse(from, to, Some(rate), _source, _timestamp) =
+      rate_response
 
-  use converter <- result.try(converter.new(
-    converter_id_prefix <> "-1",
-    page_data.currencies,
-    #(from, to),
-    "1",
-    Some(positive_float.from_float_unsafe(rate)),
-  ))
+    converter.new(
+      converter_id,
+      page_data.currencies,
+      #(from, to),
+      float.to_string(amount),
+      Some(positive_float.from_float_unsafe(rate)),
+    )
+  }
+
+  let converters =
+    page_data.converters
+    |> list.index_map(fn(converter_state, idx) {
+      page_data.rates
+      |> list.find(fn(rate_resp) {
+        rate_resp.from == converter_state.from
+        && rate_resp.to == converter_state.to
+      })
+      |> result.try(fn(rate_resp) {
+        rate_resp
+        |> build_converter(
+          converter_id_prefix <> "-" <> int.to_string(idx + 1),
+          converter_state.amount,
+        )
+        |> result.map_error(fn(err) {
+          echo "error building converter: " <> string.inspect(err)
+          Nil
+        })
+      })
+    })
+    |> list.filter_map(function.identity)
 
   Ok(Model(
     currencies: page_data.currencies,
-    converters: [converter],
+    added_currencies: [],
+    converters:,
     socket: None,
     reconnect_attempts: 0,
   ))
@@ -98,6 +129,41 @@ pub fn get_next_converter_id(model: Model) -> String {
   let next_id = max_id + 1
 
   converter_id_prefix <> "-" <> int.to_string(next_id)
+}
+
+pub fn model_to_client_state(model: Model) {
+  let converter_states =
+    model.converters
+    |> list.map(fn(converter) {
+      let amount =
+        converter
+        |> converter.get_parsed_amount(Left)
+        |> option.map(positive_float.unwrap)
+        |> option.unwrap(1.0)
+
+      ConverterState(
+        converter.get_selected_currency_id(converter, Left),
+        converter.get_selected_currency_id(converter, Right),
+        amount,
+      )
+    })
+
+  let added_currencies =
+    model.added_currencies
+    |> list.filter(fn(currency_id) {
+      // only include added currency ids in use by a converter
+      list.any(converter_states, fn(converter_state) {
+        converter_state.from == currency_id || converter_state.to == currency_id
+      })
+    })
+    |> list.filter_map(fn(currency_id) {
+      // map each added currency id to its symbol
+      model.currencies
+      |> list.find(fn(currency) { currency.id == currency_id })
+      |> result.map(fn(currency) { currency.symbol })
+    })
+
+  ClientState(converters: converter_states, added_currencies:)
 }
 
 pub fn main() -> Nil {
@@ -139,6 +205,7 @@ pub type Msg {
   ApiReturnedMatchedCurrencies(Result(List(Currency), rsvp.Error))
   AppScheduledReconnection
   AppScheduledRateChangeIndicatorReset(String, Side)
+  AppScheduledStateSnapshot
 }
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -238,7 +305,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           #(converter, converter_effect) -> {
             let model = model_with_converter(model, converter)
 
-            let effect = case converter_effect {
+            let converter_effect = case converter_effect {
               converter.NoEffect -> effect.none()
 
               converter.FocusOnCurrencyFilter(side) ->
@@ -293,11 +360,30 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               }
             }
 
-            #(model, effect)
+            let snapshot_effect = case converter_msg {
+              converter.UserEnteredAmount(_, _) ->
+                effect.from(fn(dispatch) {
+                  window.set_timeout(
+                    fn() { dispatch(AppScheduledStateSnapshot) },
+                    1000,
+                  )
+                  Nil
+                })
+
+              converter.UserPressedKeyInCurrencySelector(_, Enter)
+              | converter.UserSelectedCurrency(_, _) -> {
+                encode_state_in_url(model)
+                effect.none()
+              }
+
+              _ -> effect.none()
+            }
+
+            #(model, effect.batch([converter_effect, snapshot_effect]))
           }
         }
       })
-      |> result.unwrap(#(model, effect.none()))
+      |> result.unwrap(or: #(model, effect.none()))
     }
 
     UserClickedAddConverter -> {
@@ -330,6 +416,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           )
       }
 
+      let _ = encode_state_in_url(model)
+
       #(model, effect)
     }
 
@@ -354,6 +442,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             subscription_id.from_string_unsafe(converter_id),
           )
       }
+
+      let _ = encode_state_in_url(model)
 
       #(model, effect)
     }
@@ -425,7 +515,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           converter.with_master_currency_list(conv, master_list)
         })
 
-      let model = Model(..model, currencies: master_list, converters:)
+      let model =
+        Model(
+          ..model,
+          currencies: master_list,
+          added_currencies: list.map(matched_currencies, fn(c) { c.id }),
+          converters:,
+        )
 
       let effect = case model.socket {
         None -> {
@@ -462,7 +558,24 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       #(model, effect.none())
     }
+
+    AppScheduledStateSnapshot -> {
+      encode_state_in_url(model)
+      #(model, effect.none())
+    }
   }
+}
+
+fn encode_state_in_url(model: Model) {
+  let encoded_state =
+    model
+    |> model_to_client_state
+    |> client_state.encode
+
+  let updated_url =
+    window.get_url_with_updated_query_param("state", encoded_state)
+
+  history.replace_state(dynamic.nil(), Some(updated_url))
 }
 
 fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
@@ -483,8 +596,7 @@ fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
       <> int.to_string(delay_ms / 1000)
       <> " seconds."
 
-    let _ =
-      window.set_timeout(fn() { dispatch(AppScheduledReconnection) }, delay_ms)
+    window.set_timeout(fn() { dispatch(AppScheduledReconnection) }, delay_ms)
 
     Nil
   })
