@@ -8,7 +8,7 @@ import client/net/websocket_client
 import client/positive_float
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
-import client/ui/button_dropdown
+import client/ui/button_dropdown.{Enter}
 import client/ui/converter.{type Converter, type NewConverterError}
 import client/ui/icons
 import client/websocket.{
@@ -205,6 +205,7 @@ pub type Msg {
   ApiReturnedMatchedCurrencies(Result(List(Currency), rsvp.Error))
   AppScheduledReconnection
   AppScheduledRateChangeIndicatorReset(String, Side)
+  AppScheduledStateSnapshot
 }
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -304,7 +305,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           #(converter, converter_effect) -> {
             let model = model_with_converter(model, converter)
 
-            let effect = case converter_effect {
+            let converter_effect = case converter_effect {
               converter.NoEffect -> effect.none()
 
               converter.FocusOnCurrencyFilter(side) ->
@@ -359,21 +360,30 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               }
             }
 
-            let _ = case converter_msg {
-              converter.UserEnteredAmount(_, _) -> encode_state_in_url(model)
-              converter.UserPressedKeyInCurrencySelector(
-                _,
-                button_dropdown.Enter,
-              ) -> encode_state_in_url(model)
-              converter.UserSelectedCurrency(_, _) -> encode_state_in_url(model)
-              _ -> Nil
+            let snapshot_effect = case converter_msg {
+              converter.UserEnteredAmount(_, _) ->
+                effect.from(fn(dispatch) {
+                  window.set_timeout(
+                    fn() { dispatch(AppScheduledStateSnapshot) },
+                    1000,
+                  )
+                  Nil
+                })
+
+              converter.UserPressedKeyInCurrencySelector(_, Enter)
+              | converter.UserSelectedCurrency(_, _) -> {
+                encode_state_in_url(model)
+                effect.none()
+              }
+
+              _ -> effect.none()
             }
 
-            #(model, effect)
+            #(model, effect.batch([converter_effect, snapshot_effect]))
           }
         }
       })
-      |> result.unwrap(#(model, effect.none()))
+      |> result.unwrap(or: #(model, effect.none()))
     }
 
     UserClickedAddConverter -> {
@@ -548,6 +558,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       #(model, effect.none())
     }
+
+    AppScheduledStateSnapshot -> {
+      encode_state_in_url(model)
+      #(model, effect.none())
+    }
   }
 }
 
@@ -581,8 +596,7 @@ fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
       <> int.to_string(delay_ms / 1000)
       <> " seconds."
 
-    let _ =
-      window.set_timeout(fn() { dispatch(AppScheduledReconnection) }, delay_ms)
+    window.set_timeout(fn() { dispatch(AppScheduledReconnection) }, delay_ms)
 
     Nil
   })
