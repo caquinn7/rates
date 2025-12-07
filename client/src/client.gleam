@@ -8,6 +8,7 @@ import client/net/websocket_client
 import client/positive_float
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
+import client/ui/button_dropdown
 import client/ui/converter.{type Converter, type NewConverterError}
 import client/ui/icons
 import client/websocket.{
@@ -358,6 +359,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               }
             }
 
+            let _ = case converter_msg {
+              converter.UserEnteredAmount(_, _) -> encode_state_in_url(model)
+              converter.UserPressedKeyInCurrencySelector(
+                _,
+                button_dropdown.Enter,
+              ) -> encode_state_in_url(model)
+              converter.UserSelectedCurrency(_, _) -> encode_state_in_url(model)
+              _ -> Nil
+            }
+
             #(model, effect)
           }
         }
@@ -421,6 +432,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             subscription_id.from_string_unsafe(converter_id),
           )
       }
+
+      let _ = encode_state_in_url(model)
 
       #(model, effect)
     }
