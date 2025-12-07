@@ -58,8 +58,8 @@ pub fn model_from_page_data_constructs_model_test() {
   let assert [converter1, converter2] = model.converters
 
   // Check converter IDs
-  assert converter1.id == "converter1"
-  assert converter2.id == "converter2"
+  assert converter1.id == "converter-1"
+  assert converter2.id == "converter-2"
 
   // Check converter currency selections
   assert converter.get_selected_currency_id(converter1, Left) == 1
@@ -126,7 +126,7 @@ pub fn model_from_page_data_filters_out_converters_without_a_matching_rate_respo
   // Only the first converter should be created since it's the only one with a matching rate
   let assert [converter1] = model.converters
 
-  assert converter1.id == "converter1"
+  assert converter1.id == "converter-1"
   assert converter.get_selected_currency_id(converter1, Left) == 1
   assert converter.get_selected_currency_id(converter1, Right) == 2
   assert converter.get_parsed_amount(converter1, Left)
