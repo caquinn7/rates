@@ -1,6 +1,5 @@
 # rates 💹
 
-
 A real-time cryptocurrency and fiat currency converter with live WebSocket updates, built with [Gleam](https://gleam.run/).
 Check it out [here](https://rates.fly.dev/?state=v1%3A1-2781%3B1027-2781%3B2010-2781)!
 
