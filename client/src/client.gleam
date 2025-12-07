@@ -81,7 +81,7 @@ pub fn model_from_page_data(
       |> result.try(fn(rate_resp) {
         rate_resp
         |> build_converter(
-          converter_id_prefix <> int.to_string(idx + 1),
+          converter_id_prefix <> "-" <> int.to_string(idx + 1),
           converter_state.amount,
         )
         |> result.map_error(fn(err) {
