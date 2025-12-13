@@ -29,6 +29,7 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
 
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(id) {
         list.find(currencies, fn(currency) { currency.id == id })
       },
@@ -84,6 +85,7 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
 
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(id) {
         list.find(currencies, fn(currency) { currency.id == id })
       },
@@ -147,6 +149,15 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
+  let currency_interface =
+    CurrencyInterface(
+      insert: fn(_) { panic },
+      get_by_id: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { panic },
+    )
 
   let kraken_interface =
     KrakenInterface(
@@ -154,15 +165,6 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
       subscribe: fn(_) { Nil },
       unsubscribe: fn(_) { Nil },
       check_for_price: fn(_) { Error(Nil) },
-    )
-
-  let currency_interface =
-    CurrencyInterface(
-      get_by_id: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { panic },
     )
 
   let deps =
@@ -213,6 +215,7 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
 
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(id) {
         list.find(currencies, fn(currency) { currency.id == id })
       },
@@ -265,6 +268,7 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
   ]
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(id) {
         list.find(currencies, fn(currency) { currency.id == id })
       },
@@ -320,6 +324,7 @@ pub fn subscribe_schedules_get_latest_rate_test() {
 
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(id) {
         list.find(currencies, fn(currency) { currency.id == id })
       },
@@ -379,6 +384,7 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
 
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(id) {
         list.find(currencies, fn(currency) { currency.id == id })
       },
@@ -447,6 +453,7 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
 
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(id) {
         list.find(currencies, fn(currency) { currency.id == id })
       },
@@ -517,6 +524,7 @@ pub fn stop_unsubscribes_from_kraken_test() {
 
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(id) {
         list.find(currencies, fn(currency) { currency.id == id })
       },

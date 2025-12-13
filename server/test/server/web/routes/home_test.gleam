@@ -17,6 +17,7 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
 
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(_) { panic },
       get_by_symbol: fn(_) { panic },
       get_all: fn() { currencies },
@@ -55,6 +56,7 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
 
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(_) { panic },
       get_by_symbol: fn(_) { panic },
       get_all: fn() { currencies },
@@ -106,6 +108,7 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
 
   let currency_interface =
     CurrencyInterface(
+      insert: fn(_) { panic },
       get_by_id: fn(_) { panic },
       get_by_symbol: fn(_) { panic },
       get_all: fn() { currencies },

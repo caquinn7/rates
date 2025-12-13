@@ -3,6 +3,7 @@ import shared/currency.{type Currency}
 
 pub type CurrencyInterface {
   CurrencyInterface(
+    insert: fn(List(Currency)) -> Nil,
     get_by_id: fn(Int) -> Result(Currency, Nil),
     get_by_symbol: fn(String) -> List(Currency),
     get_all: fn() -> List(Currency),
@@ -21,9 +22,10 @@ pub type CurrencyInterface {
 /// ## Returns
 /// A fully configured CurrencyInterface
 pub fn new(store: CurrencyStore) -> CurrencyInterface {
+  let insert = currency_store.insert(store, _)
   let get_by_id = currency_store.get_by_id(store, _)
   let get_by_symbol = currency_store.get_by_symbol(store, _)
   let get_all = fn() { currency_store.get_all(store) }
 
-  CurrencyInterface(get_by_id:, get_by_symbol:, get_all:)
+  CurrencyInterface(insert:, get_by_id:, get_by_symbol:, get_all:)
 }
