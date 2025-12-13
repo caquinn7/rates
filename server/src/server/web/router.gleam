@@ -6,9 +6,11 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/regexp
 import gleam/result
+import gleam/string
 import mist
 import server/dependencies.{type Dependencies}
 import server/domain/currencies/cmc_currency_handler
+import server/domain/currencies/currencies_fetcher
 import server/domain/rates/factories as rates_factories
 import server/domain/rates/rate_error.{type RateError}
 import server/env_config.{type EnvConfig}
@@ -18,7 +20,7 @@ import server/integrations/coin_market_cap/client.{
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   type CmcCryptoCurrency,
 }
-import server/utils/logger
+import server/utils/logger.{type Logger}
 import server/web/routes/home
 import server/web/routes/websocket
 import shared/client_state
@@ -62,6 +64,7 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
         deps.currencies,
         deps.request_cmc_cryptos,
         rates_factories.create_rate_resolver(deps),
+        deps.logger,
       ),
       env_config.secret_key_base,
     )
@@ -75,6 +78,7 @@ fn route_http_request(
   request_cryptos: fn(Option(String)) ->
     Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  logger: Logger,
 ) -> wisp.Response {
   use req <- middleware(req)
   case wisp.path_segments(req) {
@@ -97,7 +101,25 @@ fn route_http_request(
         }
       }
 
-      home.get(currencies, get_rate, state)
+      let get_cryptos = fn(symbols) {
+        let request_cryptos_by_symbols = fn() {
+          symbols
+          |> string.join(",")
+          |> Some
+          |> request_cryptos
+        }
+
+        request_cryptos_by_symbols
+        |> currencies_fetcher.get_cryptos(5000)
+        |> result.map_error(fn(err) {
+          logger
+          |> logger.with("source", "router")
+          |> logger.with("error", string.inspect(err))
+          |> logger.error("Error getting cryptos from CMC")
+        })
+        |> result.unwrap(or: [])
+      }
+      home.get(currencies, get_rate, get_cryptos, state)
     }
 
     ["api", "currencies"] -> {

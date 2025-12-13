@@ -1,3 +1,4 @@
+import gleam/dict
 import gleam/int
 import gleam/json
 import gleam/list
@@ -19,9 +20,10 @@ import wisp.{type Response}
 pub fn get(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  get_cryptos: fn(List(String)) -> List(Currency),
   client_state: Option(ClientState),
 ) -> Response {
-  case resolve_page_data(currencies, get_rate, client_state) {
+  case resolve_page_data(currencies, get_rate, get_cryptos, client_state) {
     Error(_) -> wisp.internal_server_error()
 
     Ok(page_data) -> {
@@ -41,6 +43,7 @@ pub fn get(
 pub fn resolve_page_data(
   currencies: List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  get_cryptos: fn(List(String)) -> List(Currency),
   client_state: Option(ClientState),
 ) -> Result(PageData, Nil) {
   let client_state = case client_state {
@@ -64,20 +67,28 @@ pub fn resolve_page_data(
       |> result.map_error(log_rate_request_error(rate_req, _))
     })
 
-  // todo: figure out how to get currencies for client_state.added_currencies
-  // and add them to PageData.currencies
-  Ok(PageData(currencies:, rates:, converters: client_state.converters))
+  // Get additional currencies and merge with existing, removing duplicates
+  let unique_currencies =
+    currencies
+    |> list.append(get_cryptos(client_state.added_currencies))
+    |> list.map(fn(currency) { #(currency.id, currency) })
+    |> dict.from_list
+    |> dict.values
+
+  Ok(PageData(
+    currencies: unique_currencies,
+    rates:,
+    converters: client_state.converters,
+  ))
 }
 
 fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {
-  logger.error(
-    logger.new()
-      |> logger.with("source", "home")
-      |> logger.with("rate_request.from", int.to_string(rate_req.from))
-      |> logger.with("rate_request.to", int.to_string(rate_req.to))
-      |> logger.with("error", string.inspect(err)),
-    "Error getting rate",
-  )
+  logger.new()
+  |> logger.with("source", "home")
+  |> logger.with("rate_request.from", int.to_string(rate_req.from))
+  |> logger.with("rate_request.to", int.to_string(rate_req.to))
+  |> logger.with("error", string.inspect(err))
+  |> logger.error("Error getting rate")
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {
