@@ -78,7 +78,7 @@ pub fn main() {
     )
   }
 
-  wait_for_kraken_symbols_loop(time.monotonic_time_ms(), 10_000)
+  wait_for_kraken_symbols(time.monotonic_time_ms(), 10_000)
 
   let assert Ok(price_store) = price_store.get_store()
     as "tried to get reference to price store before it was created"
@@ -151,18 +151,18 @@ fn fetch_and_store_currencies(
   }
 }
 
-fn wait_for_kraken_symbols_loop(start_time: Int, timeout_ms: Int) -> Nil {
+fn wait_for_kraken_symbols(start_time: Int, timeout_ms: Int) -> Nil {
   case pairs.count() > 0 {
     True -> Nil
 
     False -> {
       let elapsed = time.monotonic_time_ms() - start_time
       case elapsed >= timeout_ms {
-        True -> panic as "Timeout waiting for Kraken symbols"
         False -> {
           process.sleep(100)
-          wait_for_kraken_symbols_loop(start_time, timeout_ms)
+          wait_for_kraken_symbols(start_time, timeout_ms)
         }
+        True -> panic as "Timeout waiting for Kraken symbols"
       }
     }
   }
@@ -170,7 +170,8 @@ fn wait_for_kraken_symbols_loop(start_time: Int, timeout_ms: Int) -> Nil {
 
 fn start_server(env_config: EnvConfig, deps: Dependencies) -> Nil {
   let assert Ok(_) =
-    mist.new(router.route_request(_, env_config, deps))
+    router.route_request(_, env_config, deps)
+    |> mist.new
     |> mist.bind("0.0.0.0")
     |> mist.port(8080)
     |> mist.start

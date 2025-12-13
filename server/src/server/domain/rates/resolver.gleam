@@ -26,7 +26,6 @@ import server/domain/rates/internal/rate_source_strategy.{
 }
 import server/domain/rates/rate_error.{type RateError}
 import server/domain/rates/rate_service_config.{type RateServiceConfig}
-import server/integrations/kraken/pairs
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
@@ -82,8 +81,7 @@ fn handle_msg(
         rate_source_strategy.determine_strategy(
           rate_request,
           get_currency,
-          // todo: should be using kraken_interface.symbol_exists?
-          kraken_symbol.new(_, pairs.exists),
+          kraken_interface.get_kraken_symbol,
         )
 
       case strategy {
