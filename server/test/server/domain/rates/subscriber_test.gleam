@@ -1,8 +1,10 @@
 import gleam/dict
 import gleam/erlang/atom.{type Atom}
 import gleam/erlang/process
+import gleam/list
 import gleam/option.{None, Some}
 import server/dependencies.{Dependencies}
+import server/domain/currencies/currency_interface.{CurrencyInterface}
 import server/domain/rates/factories
 import server/domain/rates/internal/kraken_interface.{KrakenInterface}
 import server/domain/rates/internal/kraken_symbol
@@ -25,6 +27,15 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { panic },
+    )
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -35,7 +46,7 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
 
   let deps =
     Dependencies(
-      currencies:,
+      currency_interface:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -71,6 +82,15 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { panic },
+    )
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { False }),
@@ -81,7 +101,7 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
 
   let deps =
     Dependencies(
-      currencies:,
+      currency_interface:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -136,9 +156,18 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
       check_for_price: fn(_) { Error(Nil) },
     )
 
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { panic },
+    )
+
   let deps =
     Dependencies(
-      currencies:,
+      currency_interface:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -180,6 +209,17 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
 }
 
 pub fn subscribe_returns_error_when_currency_id_not_found_test() {
+  let currencies = [Crypto(1, "Bitcoin", "BTC", Some(1))]
+
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { panic },
+    )
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -190,7 +230,7 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
 
   let deps =
     Dependencies(
-      currencies: [Crypto(1, "Bitcoin", "BTC", Some(1))],
+      currency_interface:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -223,6 +263,14 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { panic },
+    )
 
   let kraken_interface =
     KrakenInterface(
@@ -234,7 +282,7 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
 
   let deps =
     Dependencies(
-      currencies:,
+      currency_interface:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -270,6 +318,15 @@ pub fn subscribe_schedules_get_latest_rate_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { panic },
+    )
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -280,7 +337,7 @@ pub fn subscribe_schedules_get_latest_rate_test() {
 
   let deps =
     Dependencies(
-      currencies:,
+      currency_interface:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -320,6 +377,15 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { panic },
+    )
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -336,7 +402,7 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
 
   let deps =
     Dependencies(
-      currencies:,
+      currency_interface:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -379,6 +445,15 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { panic },
+    )
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -394,7 +469,7 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
 
   let deps =
     Dependencies(
-      currencies:,
+      currency_interface:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -434,74 +509,20 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
   assert Some(100_001.0) == rate_response.rate
 }
 
-pub fn add_currencies_enables_subscription_to_previously_unknown_currency_test() {
-  let currencies = [
-    Crypto(1, "Bitcoin", "BTC", Some(1)),
-    Fiat(2781, "United States Dollar", "USD", "$"),
-  ]
-
-  let currency_to_add = Crypto(22_354, "QUAI", "QUAI Network", None)
-
-  let kraken_interface =
-    KrakenInterface(
-      get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
-      subscribe: fn(_) { Nil },
-      unsubscribe: fn(_) { Nil },
-      check_for_price: fn(_) { Error(Nil) },
-    )
-
-  let deps =
-    Dependencies(
-      currencies:,
-      subscription_refresh_interval_ms: 1000,
-      kraken_interface:,
-      request_cmc_cryptos: fn(_) { panic },
-      request_cmc_conversion: fn(_) {
-        CmcConversion(
-          currency_to_add.id,
-          currency_to_add.symbol,
-          currency_to_add.name,
-          1.0,
-          dict.insert(dict.new(), "2781", QuoteItem(Some(0.05))),
-        )
-        |> Some
-        |> CmcResponse(CmcStatus(0, None), _)
-        |> Ok
-      },
-      get_current_time_ms: fn() { 1000 },
-      logger: logger.new(),
-    )
-  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
-
-  let assert Ok(sub_id) = subscription_id.new("1")
-  let subject = process.new_subject()
-  let target = subscriber_factory(sub_id, subject)
-
-  let rate_request = RateRequest(currency_to_add.id, 2781)
-
-  subscriber.subscribe(target, rate_request)
-
-  // assert initial attempt returns CurrencyNotFound
-  let assert Ok(#(_, Error(rate_err))) = process.receive(subject, 1000)
-  assert CurrencyNotFound(rate_request, currency_to_add.id) == rate_err
-
-  // act
-  subscriber.add_currencies(target, [currency_to_add])
-
-  // assert second attempt succeeds now that the currency has now beed added
-  subscriber.subscribe(target, rate_request)
-
-  let assert Ok(#(_, Ok(rate_response))) = process.receive(subject, 1000)
-  assert currency_to_add.id == rate_response.from
-
-  subscriber.stop(target)
-}
-
 pub fn stop_unsubscribes_from_kraken_test() {
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
+
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { panic },
+    )
 
   let unsub_subject = process.new_subject()
 
@@ -515,7 +536,7 @@ pub fn stop_unsubscribes_from_kraken_test() {
 
   let deps =
     Dependencies(
-      currencies:,
+      currency_interface:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },

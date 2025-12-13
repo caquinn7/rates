@@ -7,21 +7,21 @@ import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
+import server/domain/currencies/currency_interface.{type CurrencyInterface}
 import server/domain/rates/rate_error.{type RateError}
 import server/utils/logger
 import shared/client_state.{type ClientState, ClientState, ConverterState}
-import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
 import shared/rates/rate_request.{type RateRequest, RateRequest}
 import shared/rates/rate_response.{type RateResponse}
 import wisp.{type Response}
 
 pub fn get(
-  currencies: List(Currency),
+  currency_interface: CurrencyInterface,
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
   client_state: Option(ClientState),
 ) -> Response {
-  case resolve_page_data(currencies, get_rate, client_state) {
+  case resolve_page_data(currency_interface, get_rate, client_state) {
     Error(_) -> wisp.internal_server_error()
 
     Ok(page_data) -> {
@@ -39,7 +39,7 @@ pub fn get(
 }
 
 pub fn resolve_page_data(
-  currencies: List(Currency),
+  currency_interface: CurrencyInterface,
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
   client_state: Option(ClientState),
 ) -> Result(PageData, Nil) {
@@ -64,9 +64,11 @@ pub fn resolve_page_data(
       |> result.map_error(log_rate_request_error(rate_req, _))
     })
 
-  // todo: figure out how to get currencies for client_state.added_currencies
-  // and add them to PageData.currencies
-  Ok(PageData(currencies:, rates:, converters: client_state.converters))
+  Ok(PageData(
+    currencies: currency_interface.get_all(),
+    rates:,
+    converters: client_state.converters,
+  ))
 }
 
 fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {

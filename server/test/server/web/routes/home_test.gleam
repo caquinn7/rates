@@ -1,4 +1,5 @@
 import gleam/option.{None, Some}
+import server/domain/currencies/currency_interface.{CurrencyInterface}
 import server/domain/rates/rate_error.{CurrencyNotFound}
 import server/web/routes/home
 import shared/client_state.{ClientState, ConverterState}
@@ -14,6 +15,13 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(_) { panic },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { currencies },
+    )
+
   let get_rate = fn(req: RateRequest) {
     Ok(RateResponse(
       from: req.from,
@@ -24,7 +32,8 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
     ))
   }
 
-  let assert Ok(page_data) = home.resolve_page_data(currencies, get_rate, None)
+  let assert Ok(page_data) =
+    home.resolve_page_data(currency_interface, get_rate, None)
 
   assert page_data.currencies == currencies
 
@@ -43,6 +52,13 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
     Crypto(2, "Ethereum", "ETH", Some(2)),
     Fiat(3, "Euro", "EUR", "€"),
   ]
+
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(_) { panic },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { currencies },
+    )
 
   let get_rate = fn(req: RateRequest) {
     Ok(RateResponse(
@@ -64,7 +80,7 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
     )
 
   let assert Ok(page_data) =
-    home.resolve_page_data(currencies, get_rate, Some(client_state))
+    home.resolve_page_data(currency_interface, get_rate, Some(client_state))
 
   assert page_data.currencies == currencies
 
@@ -87,6 +103,13 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
     Crypto(2, "Ethereum", "ETH", Some(2)),
     Fiat(3, "Euro", "EUR", "€"),
   ]
+
+  let currency_interface =
+    CurrencyInterface(
+      get_by_id: fn(_) { panic },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { currencies },
+    )
 
   let get_rate = fn(req: RateRequest) {
     case req.from, req.to {
@@ -125,7 +148,7 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
     )
 
   let assert Ok(page_data) =
-    home.resolve_page_data(currencies, get_rate, Some(client_state))
+    home.resolve_page_data(currency_interface, get_rate, Some(client_state))
 
   // All converter states should be included
   assert page_data.converters

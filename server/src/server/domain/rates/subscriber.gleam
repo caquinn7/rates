@@ -19,10 +19,8 @@
 //// - **Transitions**: Automatically restore optimal intervals when switching back to Kraken
 
 import gleam/bool
-import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Subject}
 import gleam/int
-import gleam/list
 import gleam/option.{Some}
 import gleam/otp/actor.{type Initialised, type Next, type StartError}
 import gleam/result
@@ -65,7 +63,6 @@ pub type SubscriptionResult =
 type Msg {
   Subscribe(RateRequest)
   GetLatestRate(Subscription)
-  AddCurrencies(List(Currency))
   Stop
 }
 
@@ -73,7 +70,6 @@ type State {
   State(
     self: Subject(Msg),
     reply_to: Subject(SubscriptionResult),
-    currency_symbols: Dict(Int, String),
     subscription_manager: SubscriptionManager,
     logger: Logger,
   )
@@ -123,6 +119,7 @@ pub fn new(
       subscription_id,
       state,
       msg,
+      config.base.get_currency,
       config.base.kraken_interface,
       config.base.request_cmc_conversion,
       config.base.get_current_time_ms,
@@ -144,7 +141,6 @@ fn initialiser(
     State(
       self:,
       reply_to:,
-      currency_symbols: currencies_to_dict(config.base.currencies),
       subscription_manager: config.subscription_manager,
       logger: config.logger,
     )
@@ -153,7 +149,8 @@ fn initialiser(
     process.new_selector()
     |> process.select(self)
 
-  actor.initialised(state)
+  state
+  |> actor.initialised
   |> actor.selecting(selector)
   |> actor.returning(self)
   |> Ok
@@ -178,27 +175,6 @@ pub fn subscribe(subscriber: RateSubscriber, rate_request: RateRequest) -> Nil {
   actor.send(subscriber.subject, Subscribe(rate_request))
 }
 
-/// Adds a list of currencies to the rate subscriber's available currency set.
-/// 
-/// This function sends an `AddCurrencies` message to the subscriber actor,
-/// instructing it to add the specified currencies to the list of currencies
-/// that clients can subscribe to for exchange rate updates.
-/// 
-/// ## Parameters
-/// 
-/// - `subscriber`: The `RateSubscriber` instance to add currencies to
-/// - `currencies`: A list of `Currency` values to make available for subscription
-/// 
-/// ## Returns
-/// 
-/// `Nil` - This function performs a side effect by sending a message to an actor
-pub fn add_currencies(
-  subscriber: RateSubscriber,
-  currencies: List(Currency),
-) -> Nil {
-  actor.send(subscriber.subject, AddCurrencies(currencies))
-}
-
 /// Stops a rate subscriber actor by sending a Stop message to it.
 ///
 /// ## Parameters
@@ -214,6 +190,7 @@ fn handle_msg(
   subscription_id: SubscriptionId,
   state: State,
   msg: Msg,
+  get_currency: fn(Int) -> Result(Currency, Nil),
   kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
@@ -224,6 +201,7 @@ fn handle_msg(
         subscription_id,
         state,
         rate_request,
+        get_currency,
         kraken_interface,
         request_cmc_conversion,
         get_current_time_ms,
@@ -240,8 +218,6 @@ fn handle_msg(
         get_current_time_ms,
       )
 
-    AddCurrencies(currencies) -> handle_add_currencies(state, currencies)
-
     Stop -> handle_stop(state, kraken_interface.unsubscribe)
   }
 }
@@ -252,6 +228,7 @@ fn handle_subscribe(
   subscription_id: SubscriptionId,
   state: State,
   rate_request: RateRequest,
+  get_currency: fn(Int) -> Result(Currency, Nil),
   kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
@@ -261,7 +238,7 @@ fn handle_subscribe(
   let strategy =
     rate_source_strategy.determine_strategy(
       rate_request,
-      state.currency_symbols,
+      get_currency,
       kraken_interface.get_kraken_symbol,
     )
 
@@ -368,18 +345,6 @@ fn handle_get_latest_rate(
 
   schedule_next_update(state)
   actor.continue(state)
-}
-
-fn handle_add_currencies(
-  state: State,
-  currencies: List(Currency),
-) -> Next(State, Msg) {
-  let currency_symbols =
-    currencies
-    |> currencies_to_dict
-    |> dict.merge(state.currency_symbols, _)
-
-  actor.continue(State(..state, currency_symbols:))
 }
 
 fn handle_stop(
@@ -505,12 +470,6 @@ fn schedule_next_update(state: State) -> Nil {
   )
 
   Nil
-}
-
-fn currencies_to_dict(currencies: List(Currency)) -> Dict(Int, String) {
-  currencies
-  |> list.map(fn(c) { #(c.id, c.symbol) })
-  |> dict.from_list
 }
 
 // logging

@@ -14,9 +14,7 @@
 ////   - Send a `GetRate` message using `get_rate`.
 ////   - The actor automatically stops after sending its response.
 
-import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Subject}
-import gleam/list
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
 import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
@@ -29,6 +27,7 @@ import server/domain/rates/internal/rate_source_strategy.{
 import server/domain/rates/rate_error.{type RateError}
 import server/domain/rates/rate_service_config.{type RateServiceConfig}
 import server/integrations/kraken/pairs
+import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
 
@@ -44,28 +43,18 @@ type Msg {
   GetRate(Subject(Result(RateResponse, RateError)), RateRequest)
 }
 
-type State {
-  State(currency_symbols: Dict(Int, String))
-}
-
 pub fn new(config: Config) -> Result(RateResolver, StartError) {
-  let currency_symbols =
-    config.base.currencies
-    |> list.map(fn(c) { #(c.id, c.symbol) })
-    |> dict.from_list
-
-  let msg_loop = fn(state, msg) {
+  let msg_loop = fn(_, msg) {
     handle_msg(
-      state,
       msg,
+      config.base.get_currency,
       config.base.kraken_interface,
       config.base.request_cmc_conversion,
       config.base.get_current_time_ms,
     )
   }
 
-  State(currency_symbols:)
-  |> actor.new
+  actor.new(Nil)
   |> actor.on_message(msg_loop)
   |> actor.start
   |> result.map(fn(started) { RateResolver(started.data) })
@@ -81,18 +70,19 @@ pub fn get_rate(
 }
 
 fn handle_msg(
-  state: State,
   msg: Msg,
+  get_currency: fn(Int) -> Result(Currency, Nil),
   kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
   get_current_time_ms: fn() -> Int,
-) -> Next(State, Msg) {
+) -> Next(Nil, Msg) {
   case msg {
     GetRate(reply_to, rate_request) -> {
       let strategy =
         rate_source_strategy.determine_strategy(
           rate_request,
-          state.currency_symbols,
+          get_currency,
+          // todo: should be using kraken_interface.symbol_exists?
           kraken_symbol.new(_, pairs.exists),
         )
 

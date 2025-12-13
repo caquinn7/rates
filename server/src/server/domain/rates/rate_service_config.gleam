@@ -5,7 +5,7 @@ import shared/currency.{type Currency}
 /// Contains the common dependencies needed by both subscriber and resolver
 pub type RateServiceConfig {
   RateServiceConfig(
-    currencies: List(Currency),
+    get_currency: fn(Int) -> Result(Currency, Nil),
     kraken_interface: KrakenInterface,
     request_cmc_conversion: RequestCmcConversion,
     get_current_time_ms: fn() -> Int,
