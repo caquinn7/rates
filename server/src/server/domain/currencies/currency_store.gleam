@@ -1,5 +1,5 @@
 import carpenter/table.{
-  type Set as EtsSet, NoWriteConcurrency, Protected, Set as EtsSet, Table,
+  type Set as EtsSet, NoWriteConcurrency, Public, Set as EtsSet, Table,
 }
 import gleam/erlang/atom.{type Atom}
 import gleam/list
@@ -11,27 +11,31 @@ pub opaque type CurrencyStore {
   CurrencyStore(EtsSet(Int, Currency))
 }
 
-const table_name = "currencies_store"
-
-/// Creates a new `CurrenciesStore` by initializing a protected ETS table.
+/// Creates a new `CurrencyStore` by initializing an ETS table.
 ///
-/// The table is:
-/// - **Protected**: readable by all processes but writable only by the owner.
-/// - **Read-concurrent**: allows multiple processes to read simultaneously.
-/// - **Write-serialized**: disallows concurrent writes to ensure consistency.
+/// The table is configured as:
+/// - **Public**: All processes can read and write to the table.
+/// - **Read-concurrent**: Optimized for concurrent reads from multiple processes.
+/// - **No write concurrency optimization**: Minimizes overhead for workloads with infrequent writes.
 ///
-/// This function is intended to be called once by the owner process during application startup.
-/// Other processes should use `get_store` to access the table.
+/// Individual ETS operations (`insert`, `lookup`, etc.) are atomic, but sequences of operations
+/// (e.g., read-then-write) are not. Multiple processes can write concurrently, but without
+/// transactional guarantees across multiple operations.
+///
+/// Returns `Error(Nil)` if a table with this name already exists.
 pub fn new() -> Result(CurrencyStore, Nil) {
-  table_name
-  |> table.build
-  |> table.privacy(Protected)
+  table.build("currencies_store")
+  |> table.privacy(Public)
   |> table.write_concurrency(NoWriteConcurrency)
   |> table.read_concurrency(True)
   |> table.set
   |> result.map(CurrencyStore)
 }
 
+/// Inserts or updates currencies in the store.
+///
+/// Each currency is keyed by its `id` field. If a currency with the same `id` 
+/// already exists in the store, it will be replaced with the new currency data.
 pub fn insert(store: CurrencyStore, currencies: List(Currency)) -> Nil {
   let CurrencyStore(set) = store
 
@@ -42,13 +46,10 @@ pub fn insert(store: CurrencyStore, currencies: List(Currency)) -> Nil {
 
 pub fn get_all(store: CurrencyStore) -> List(Currency) {
   let CurrencyStore(set) = store
+  let EtsSet(table) = set
+  let Table(name) = table
 
-  set
-  |> fn(set) {
-    let EtsSet(table) = set
-    let Table(name) = table
-    name
-  }
+  name
   |> table_to_list
   |> list.map(pair.second)
 }
@@ -68,7 +69,7 @@ pub fn get_by_symbol(store: CurrencyStore, symbol: String) -> List(Currency) {
   |> list.filter(fn(currency) { currency.symbol == symbol })
 }
 
-/// Deletes the underlying ETS table associated with the given `CurrenciesStore`.
+/// Deletes the underlying ETS table associated with the given `CurrencyStore`.
 pub fn drop(store: CurrencyStore) -> Nil {
   let CurrencyStore(set) = store
   table.drop(set)

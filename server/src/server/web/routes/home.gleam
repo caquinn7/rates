@@ -72,14 +72,12 @@ pub fn resolve_page_data(
 }
 
 fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {
-  logger.error(
-    logger.new()
-      |> logger.with("source", "home")
-      |> logger.with("rate_request.from", int.to_string(rate_req.from))
-      |> logger.with("rate_request.to", int.to_string(rate_req.to))
-      |> logger.with("error", string.inspect(err)),
-    "Error getting rate",
-  )
+  logger.new()
+  |> logger.with("source", "home")
+  |> logger.with("rate_request.from", int.to_string(rate_req.from))
+  |> logger.with("rate_request.to", int.to_string(rate_req.to))
+  |> logger.with("error", string.inspect(err))
+  |> logger.error("Error getting rate")
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {

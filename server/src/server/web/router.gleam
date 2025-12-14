@@ -126,16 +126,28 @@ fn route_http_request(
         )
       })
 
-      let request_cryptos = fn() { request_cryptos(Some(symbol)) }
+      let currencies_response = fn(currencies) {
+        currencies
+        |> json.array(currency.encode)
+        |> json.to_string
+        |> wisp.json_response(200)
+      }
 
-      case cmc_currency_handler.get_cryptos(request_cryptos) {
-        Error(_) -> wisp.internal_server_error()
+      case currency_interface.get_by_symbol(symbol) {
+        [] -> {
+          let request_cryptos = fn() { request_cryptos(Some(symbol)) }
 
-        Ok(currencies) ->
-          currencies
-          |> json.array(currency.encode)
-          |> json.to_string
-          |> wisp.json_response(200)
+          case cmc_currency_handler.get_cryptos(request_cryptos) {
+            Error(_) -> wisp.internal_server_error()
+
+            Ok(currencies) -> {
+              currency_interface.insert(currencies)
+              currencies_response(currencies)
+            }
+          }
+        }
+
+        currencies -> currencies_response(currencies)
       }
     }
 
