@@ -1,5 +1,5 @@
 import carpenter/table.{
-  type Set as EtsSet, NoWriteConcurrency, Public, Set as EtsSet, Table,
+  type Set as EtsSet, AutoWriteConcurrency, Public, Set as EtsSet, Table,
 }
 import gleam/erlang/atom.{type Atom}
 import gleam/list
@@ -15,18 +15,15 @@ pub opaque type CurrencyStore {
 ///
 /// The table is configured as:
 /// - **Public**: All processes can read and write to the table.
-/// - **Read-concurrent**: Optimized for concurrent reads from multiple processes.
-/// - **No write concurrency optimization**: Minimizes overhead for workloads with infrequent writes.
-///
-/// Individual ETS operations (`insert`, `lookup`, etc.) are atomic, but sequences of operations
-/// (e.g., read-then-write) are not. Multiple processes can write concurrently, but without
-/// transactional guarantees across multiple operations.
+/// - **Read-concurrent**: Multiple processes can read simultaneously, even during write operations.
+/// - **Auto write concurrency**: The runtime automatically decides whether to enable write concurrency
+///   optimizations based on actual usage patterns.
 ///
 /// Returns `Error(Nil)` if a table with this name already exists.
 pub fn new() -> Result(CurrencyStore, Nil) {
   table.build("currencies_store")
   |> table.privacy(Public)
-  |> table.write_concurrency(NoWriteConcurrency)
+  |> table.write_concurrency(AutoWriteConcurrency)
   |> table.read_concurrency(True)
   |> table.set
   |> result.map(CurrencyStore)
