@@ -1,3 +1,22 @@
+//// In-memory store for currency data using a public ETS table.
+////
+//// ## Concurrency Design
+////
+//// The store uses a **Public** ETS table, allowing any process to read and write.
+//// This is intentional to support cache-on-miss behavior from HTTP handlers without
+//// requiring a single owner process.
+////
+//// **Concurrency implications:**
+//// - Multiple processes can simultaneously insert currencies, leading to potential
+////   duplicate API calls when the cache is cold (race condition on cache miss).
+//// - Individual ETS operations are atomic, preventing data corruption.
+//// - Last write wins if multiple processes insert the same currency ID.
+////
+//// This design trades occasional duplicate API calls for simpler architecture and
+//// better availability (no single point of failure). For the currency use case,
+//// where writes are infrequent and eventually consistent data is acceptable,
+//// this tradeoff is reasonable.
+
 import carpenter/table.{
   type Set as EtsSet, AutoWriteConcurrency, Public, Set as EtsSet, Table,
 }
