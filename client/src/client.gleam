@@ -613,7 +613,7 @@ fn header(model: Model) -> Element(Msg) {
   let site_name =
     html.h1(
       [
-        attribute.class("w-full mx-auto max-w-screen-xl text-4xl"),
+        attribute.class("w-full max-w-screen-xl text-4xl"),
       ],
       [
         html.text("rates"),
