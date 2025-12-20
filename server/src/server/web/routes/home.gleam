@@ -20,12 +20,17 @@ import wisp.{type Response}
 
 pub fn get(
   currency_interface: CurrencyInterface,
+  get_cryptos_by_symbol: fn(List(String)) -> List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
-  get_cryptos: fn(List(String)) -> List(Currency),
   client_state: Option(ClientState),
 ) -> Response {
   case
-    resolve_page_data(currency_interface, get_rate, get_cryptos, client_state)
+    resolve_page_data(
+      currency_interface,
+      get_cryptos_by_symbol,
+      get_rate,
+      client_state,
+    )
   {
     Error(_) -> wisp.internal_server_error()
 
@@ -45,8 +50,8 @@ pub fn get(
 
 pub fn resolve_page_data(
   currency_interface: CurrencyInterface,
+  get_cryptos_by_symbol: fn(List(String)) -> List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
-  get_cryptos: fn(List(String)) -> List(Currency),
   client_state: Option(ClientState),
 ) -> Result(PageData, Nil) {
   let client_state = case client_state {
@@ -59,6 +64,14 @@ pub fn resolve_page_data(
     Some(state) -> state
   }
 
+  // Get currencies added by user and merge with existing, removing duplicates
+  let currencies =
+    currency_interface.get_all()
+    |> list.append(get_cryptos_by_symbol(client_state.added_currencies))
+    |> list.map(fn(currency) { #(currency.id, currency) })
+    |> dict.from_list
+    |> dict.values
+
   // Get rates for all converters
   let rates =
     client_state.converters
@@ -70,11 +83,7 @@ pub fn resolve_page_data(
       |> result.map_error(log_rate_request_error(rate_req, _))
     })
 
-  Ok(PageData(
-    currencies: currency_interface.get_all(),
-    rates:,
-    converters: client_state.converters,
-  ))
+  Ok(PageData(currencies:, rates:, converters: client_state.converters))
 }
 
 fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {

@@ -32,10 +32,15 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
     ))
   }
 
-  let get_cryptos = fn(_) { [] }
+  let get_cryptos_by_symbol = fn(_) { [] }
 
   let assert Ok(page_data) =
-    home.resolve_page_data(currency_interface, get_rate, get_cryptos, None)
+    home.resolve_page_data(
+      currency_interface,
+      get_cryptos_by_symbol,
+      get_rate,
+      None,
+    )
 
   assert page_data.currencies == currencies
 
@@ -63,6 +68,8 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
       get_all: fn() { currencies },
     )
 
+  let get_cryptos_by_symbol = fn(_) { [] }
+
   let get_rate = fn(req: RateRequest) {
     Ok(RateResponse(
       from: req.from,
@@ -82,13 +89,11 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
       added_currencies: [],
     )
 
-  let get_cryptos = fn(_) { [] }
-
   let assert Ok(page_data) =
     home.resolve_page_data(
       currency_interface,
+      get_cryptos_by_symbol,
       get_rate,
-      get_cryptos,
       Some(client_state),
     )
 
@@ -121,6 +126,8 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
       get_by_symbol: fn(_) { panic },
       get_all: fn() { currencies },
     )
+
+  let get_cryptos_by_symbol = fn(_) { [] }
 
   let get_rate = fn(req: RateRequest) {
     case req.from, req.to {
@@ -158,13 +165,11 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
       added_currencies: [],
     )
 
-  let get_cryptos = fn(_) { [] }
-
   let assert Ok(page_data) =
     home.resolve_page_data(
       currency_interface,
+      get_cryptos_by_symbol,
       get_rate,
-      get_cryptos,
       Some(client_state),
     )
 
@@ -215,7 +220,7 @@ pub fn resolve_page_data_fetches_and_merges_additional_currencies_test() {
     )
 
   // Verify get_cryptos is called with the added_currencies list
-  let get_cryptos = fn(symbols) {
+  let get_cryptos_by_symbol = fn(symbols) {
     assert symbols == ["ETH", "BNB"]
     [
       Crypto(2, "Ethereum", "ETH", Some(2)),
@@ -226,8 +231,8 @@ pub fn resolve_page_data_fetches_and_merges_additional_currencies_test() {
   let assert Ok(page_data) =
     home.resolve_page_data(
       currency_interface,
+      get_cryptos_by_symbol,
       get_rate,
-      get_cryptos,
       Some(client_state),
     )
 
@@ -283,13 +288,14 @@ pub fn resolve_page_data_deduplicates_currencies_by_id_test() {
     )
 
   // Return a duplicate Ethereum with same ID but different data
-  let get_cryptos = fn(_) { [Crypto(2, "Ethereum Updated", "ETH", Some(2))] }
-
+  let get_cryptos_by_symbol = fn(_) {
+    [Crypto(2, "Ethereum Updated", "ETH", Some(2))]
+  }
   let assert Ok(page_data) =
     home.resolve_page_data(
       currency_interface,
+      get_cryptos_by_symbol,
       get_rate,
-      get_cryptos,
       Some(client_state),
     )
 

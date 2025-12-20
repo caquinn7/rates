@@ -1,15 +1,18 @@
 import gleam/erlang/process
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None}
+import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 import glight
 import mist
 import server/app_config.{type AppConfig, AppConfig}
 import server/dependencies.{type Dependencies, Dependencies}
+import server/domain/currencies/cmc_currency_handler
 import server/domain/currencies/currencies_fetcher
 import server/domain/currencies/currency_interface
 import server/domain/currencies/currency_store.{type CurrencyStore}
+import server/domain/currencies/currency_symbol_cache
 import server/domain/rates/internal/kraken_interface
 import server/env_config.{type EnvConfig}
 import server/integrations/coin_market_cap/client.{
@@ -83,9 +86,37 @@ pub fn main() {
   let assert Ok(price_store) = price_store.get_store()
     as "tried to get reference to price store before it was created"
 
+  let currency_interface = currency_interface.new(currency_store)
+
+  let currency_symbol_cache = {
+    let get_cached = currency_interface.get_by_symbol
+
+    let fetch_and_cache = fn(symbol) {
+      let request_cryptos = fn() { request_cmc_cryptos(Some(symbol)) }
+
+      cmc_currency_handler.get_cryptos(request_cryptos)
+      |> result.map(fn(currencies) {
+        currency_interface.insert(currencies)
+        currencies
+      })
+      |> result.map_error(fn(err) {
+        logger
+        |> logger.with("source", "server")
+        |> logger.with("error", string.inspect(err))
+        |> logger.error("Error getting cryptos from CMC")
+      })
+    }
+
+    let assert Ok(currency_symbol_cache) =
+      currency_symbol_cache.new(get_cached, fetch_and_cache)
+
+    currency_symbol_cache
+  }
+
   let dependencies =
     Dependencies(
-      currency_interface: currency_interface.new(currency_store),
+      currency_interface:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 10_000,
       kraken_interface: kraken_interface.new(
         kraken_client,

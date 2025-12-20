@@ -1,5 +1,6 @@
 import gleam/option.{type Option}
 import server/domain/currencies/currency_interface.{type CurrencyInterface}
+import server/domain/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/domain/rates/internal/kraken_interface.{type KrakenInterface}
 import server/integrations/coin_market_cap/client.{
   type CmcConversionParameters, type CmcListResponse, type CmcRequestError,
@@ -14,6 +15,7 @@ import server/utils/logger.{type Logger}
 pub type Dependencies {
   Dependencies(
     currency_interface: CurrencyInterface,
+    currency_symbol_cache: CurrencySymbolCache,
     subscription_refresh_interval_ms: Int,
     kraken_interface: KrakenInterface,
     request_cmc_cryptos: fn(Option(String)) ->

@@ -5,6 +5,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import server/dependencies.{Dependencies}
 import server/domain/currencies/currency_interface.{CurrencyInterface}
+import server/domain/currencies/currency_symbol_cache
 import server/domain/rates/factories
 import server/domain/rates/internal/kraken_interface.{KrakenInterface}
 import server/domain/rates/internal/kraken_symbol
@@ -45,9 +46,13 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
       check_for_price: fn(_) { Ok(PriceEntry(100_000.0, 100)) },
     )
 
+  let assert Ok(currency_symbol_cache) =
+    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+
   let deps =
     Dependencies(
       currency_interface:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -93,6 +98,9 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
       get_all: fn() { panic },
     )
 
+  let assert Ok(currency_symbol_cache) =
+    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { False }),
@@ -104,6 +112,7 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
   let deps =
     Dependencies(
       currency_interface:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -159,6 +168,9 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
       get_all: fn() { panic },
     )
 
+  let assert Ok(currency_symbol_cache) =
+    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -170,6 +182,7 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
   let deps =
     Dependencies(
       currency_interface:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -223,6 +236,9 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
       get_all: fn() { panic },
     )
 
+  let assert Ok(currency_symbol_cache) =
+    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -234,6 +250,7 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
   let deps =
     Dependencies(
       currency_interface:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -276,6 +293,9 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
       get_all: fn() { panic },
     )
 
+  let assert Ok(currency_symbol_cache) =
+    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { False }),
@@ -287,6 +307,7 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
   let deps =
     Dependencies(
       currency_interface:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -332,6 +353,9 @@ pub fn subscribe_schedules_get_latest_rate_test() {
       get_all: fn() { panic },
     )
 
+  let assert Ok(currency_symbol_cache) =
+    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -343,6 +367,7 @@ pub fn subscribe_schedules_get_latest_rate_test() {
   let deps =
     Dependencies(
       currency_interface:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -392,6 +417,9 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
       get_all: fn() { panic },
     )
 
+  let assert Ok(currency_symbol_cache) =
+    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -409,6 +437,7 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   let deps =
     Dependencies(
       currency_interface:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -461,6 +490,9 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
       get_all: fn() { panic },
     )
 
+  let assert Ok(currency_symbol_cache) =
+    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -477,6 +509,7 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
   let deps =
     Dependencies(
       currency_interface:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
@@ -532,8 +565,10 @@ pub fn stop_unsubscribes_from_kraken_test() {
       get_all: fn() { panic },
     )
 
-  let unsub_subject = process.new_subject()
+  let assert Ok(currency_symbol_cache) =
+    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
 
+  let unsub_subject = process.new_subject()
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -545,6 +580,7 @@ pub fn stop_unsubscribes_from_kraken_test() {
   let deps =
     Dependencies(
       currency_interface:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
