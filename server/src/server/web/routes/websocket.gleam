@@ -18,19 +18,17 @@ import server/domain/rates/subscriber.{
   type RateSubscriber, type SubscriptionResult,
 } as rate_subscriber
 import server/utils/logger.{type Logger}
-import shared/currency.{type Currency}
 import shared/rates/rate_response.{RateResponse} as shared_rate_response
 import shared/subscriptions/subscription_id.{type SubscriptionId}
 import shared/subscriptions/subscription_response.{
   type SubscriptionResponse, SubscriptionResponse,
 }
-import shared/websocket_request.{AddCurrencies, Subscribe, Unsubscribe}
+import shared/websocket_request.{Subscribe, Unsubscribe}
 
 pub type State {
   State(
     subject: Subject(SubscriptionResult),
     rate_subscribers: Dict(SubscriptionId, RateSubscriber),
-    added_currencies: Dict(Int, Currency),
     logger: Logger,
   )
 }
@@ -47,7 +45,7 @@ pub fn on_init(
 
   log_socket_init(logger)
 
-  #(State(subject, dict.new(), dict.new(), logger), Some(selector))
+  #(State(subject, dict.new(), logger), Some(selector))
 }
 
 pub fn handler(
@@ -57,7 +55,7 @@ pub fn handler(
   create_rate_subscriber: fn(SubscriptionId, Subject(SubscriptionResult)) ->
     RateSubscriber,
 ) -> mist.Next(State, SubscriptionResult) {
-  let State(subject, rate_subscribers, added_currencies, logger) = state
+  let State(subject, rate_subscribers, logger) = state
 
   log_message_received(logger, message)
 
@@ -85,12 +83,6 @@ pub fn handler(
                   let new_subscriber =
                     create_rate_subscriber(subscription_req.id, subject)
 
-                  // Add all previously added currencies to the new subscriber
-                  rate_subscriber.add_currencies(
-                    new_subscriber,
-                    dict.values(added_currencies),
-                  )
-
                   rate_subscriber.subscribe(
                     new_subscriber,
                     subscription_req.rate_request,
@@ -117,22 +109,6 @@ pub fn handler(
 
             Error(_) -> mist.continue(state)
           }
-        }
-
-        Ok(AddCurrencies([])) -> mist.continue(state)
-
-        Ok(AddCurrencies(currencies)) -> {
-          let added_currencies =
-            currencies
-            |> list.fold(added_currencies, fn(acc, currency) {
-              dict.insert(acc, currency.id, currency)
-            })
-
-          rate_subscribers
-          |> dict.values
-          |> list.each(rate_subscriber.add_currencies(_, currencies))
-
-          mist.continue(State(..state, added_currencies:))
         }
 
         Error(_) -> {

@@ -4,7 +4,7 @@
 //// the most recent price of each currency pair supported by Kraken. It allows efficient
 //// read access from any process, while write access is restricted to the owning process.
 
-import carpenter/table.{type Set as EtsSet, NoWriteConcurrency, Protected}
+import carpenter/table.{type Set as EtsSet, AutoWriteConcurrency, Protected}
 import gleam/list
 import gleam/pair
 import gleam/result
@@ -22,18 +22,21 @@ const table_name = "kraken_price_store"
 
 /// Creates a new `PriceStore` by initializing a protected ETS table.
 ///
-/// The table is:
-/// - **Protected**: readable by all processes but writable only by the owner.
-/// - **Read-concurrent**: allows multiple processes to read simultaneously.
-/// - **Write-serialized**: disallows concurrent writes to ensure consistency.
+/// The table is configured as:
+/// - **Protected**: Only the owner process can write; all processes can read.
+/// - **Read-concurrent**: Multiple processes can read simultaneously, even during write operations.
+/// - **Auto write concurrency**: The runtime automatically decides whether to enable write concurrency
+///   optimizations based on actual usage patterns.
 ///
 /// This function is intended to be called once by the owner process during application startup.
 /// Other processes should use `get_store` to access the table.
+///
+/// Returns `Error(Nil)` if a table with this name already exists.
 pub fn new() -> Result(PriceStore, Nil) {
   table_name
   |> table.build
   |> table.privacy(Protected)
-  |> table.write_concurrency(NoWriteConcurrency)
+  |> table.write_concurrency(AutoWriteConcurrency)
   |> table.read_concurrency(True)
   |> table.set
   |> result.map(PriceStore)
@@ -49,17 +52,17 @@ pub fn new() -> Result(PriceStore, Nil) {
 /// let Ok(store) = price_store.new()
 /// price_store.insert(store, "BTC/USD", 67350.25)
 /// ```
-pub fn insert(price_store: PriceStore, symbol: String, price: Float) -> Nil {
-  insert_with_timestamp(price_store, symbol, price, time.system_time_ms())
+pub fn insert(store: PriceStore, symbol: String, price: Float) -> Nil {
+  insert_with_timestamp(store, symbol, price, time.system_time_ms())
 }
 
 pub fn insert_with_timestamp(
-  price_store: PriceStore,
+  store: PriceStore,
   symbol: String,
   price: Float,
   current_time_ms: Int,
 ) -> Nil {
-  let PriceStore(table) = price_store
+  let PriceStore(table) = store
 
   let price_entry = PriceEntry(price, current_time_ms)
   table.insert(table, [#(symbol, price_entry)])
@@ -74,11 +77,8 @@ pub fn insert_with_timestamp(
 /// let assert Ok(store) = price_store.get_store()
 /// let result = price_store.get_price(store, "BTC/USD")
 /// ```
-pub fn get_price(
-  price_store: PriceStore,
-  symbol: String,
-) -> Result(PriceEntry, Nil) {
-  let PriceStore(table) = price_store
+pub fn get_price(store: PriceStore, symbol: String) -> Result(PriceEntry, Nil) {
+  let PriceStore(table) = store
 
   table
   |> table.lookup(symbol)
@@ -90,8 +90,8 @@ pub fn get_price(
 /// 
 /// If the symbol does not exist in the store, the operation succeeds silently
 /// without any error.
-pub fn delete_price(price_store: PriceStore, symbol: String) -> Nil {
-  let PriceStore(table) = price_store
+pub fn delete_price(store: PriceStore, symbol: String) -> Nil {
+  let PriceStore(table) = store
   table.delete(table, symbol)
 }
 
@@ -108,7 +108,7 @@ pub fn get_store() -> Result(PriceStore, Nil) {
 }
 
 /// Deletes the underlying ETS table associated with the given `PriceStore`.
-pub fn drop(price_store: PriceStore) -> Nil {
-  let PriceStore(table) = price_store
+pub fn drop(store: PriceStore) -> Nil {
+  let PriceStore(table) = store
   table.drop(table)
 }
