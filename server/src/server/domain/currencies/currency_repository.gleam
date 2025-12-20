@@ -1,8 +1,8 @@
 import server/domain/currencies/currency_store.{type CurrencyStore}
 import shared/currency.{type Currency}
 
-pub type CurrencyInterface {
-  CurrencyInterface(
+pub type CurrencyRepository {
+  CurrencyRepository(
     insert: fn(List(Currency)) -> Nil,
     get_by_id: fn(Int) -> Result(Currency, Nil),
     get_by_symbol: fn(String) -> List(Currency),
@@ -10,7 +10,7 @@ pub type CurrencyInterface {
   )
 }
 
-/// Creates a CurrencyInterface from a currency store
+/// Creates a CurrencyRepository from a currency store
 /// 
 /// This factory function encapsulates access to the currency store,
 /// providing a clean interface for currency lookups without exposing
@@ -21,11 +21,11 @@ pub type CurrencyInterface {
 /// 
 /// ## Returns
 /// A fully configured CurrencyInterface
-pub fn new(store: CurrencyStore) -> CurrencyInterface {
+pub fn new(store: CurrencyStore) -> CurrencyRepository {
   let insert = currency_store.insert(store, _)
   let get_by_id = currency_store.get_by_id(store, _)
   let get_by_symbol = currency_store.get_by_symbol(store, _)
   let get_all = fn() { currency_store.get_all(store) }
 
-  CurrencyInterface(insert:, get_by_id:, get_by_symbol:, get_all:)
+  CurrencyRepository(insert:, get_by_id:, get_by_symbol:, get_all:)
 }

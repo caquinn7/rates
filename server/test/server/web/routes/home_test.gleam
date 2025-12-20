@@ -1,6 +1,6 @@
 import gleam/list
 import gleam/option.{None, Some}
-import server/domain/currencies/currency_interface.{CurrencyInterface}
+import server/domain/currencies/currency_repository.{CurrencyRepository}
 import server/domain/rates/rate_error.{CurrencyNotFound}
 import server/web/routes/home
 import shared/client_state.{ClientState, ConverterState}
@@ -14,8 +14,8 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
-  let currency_interface =
-    CurrencyInterface(
+  let currency_repository =
+    CurrencyRepository(
       insert: fn(_) { panic },
       get_by_id: fn(_) { panic },
       get_by_symbol: fn(_) { panic },
@@ -36,7 +36,7 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
 
   let assert Ok(page_data) =
     home.resolve_page_data(
-      currency_interface,
+      currency_repository,
       get_cryptos_by_symbol,
       get_rate,
       None,
@@ -60,8 +60,8 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
     Fiat(3, "Euro", "EUR", "€"),
   ]
 
-  let currency_interface =
-    CurrencyInterface(
+  let currency_repository =
+    CurrencyRepository(
       insert: fn(_) { panic },
       get_by_id: fn(_) { panic },
       get_by_symbol: fn(_) { panic },
@@ -91,7 +91,7 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
 
   let assert Ok(page_data) =
     home.resolve_page_data(
-      currency_interface,
+      currency_repository,
       get_cryptos_by_symbol,
       get_rate,
       Some(client_state),
@@ -119,8 +119,8 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
     Fiat(3, "Euro", "EUR", "€"),
   ]
 
-  let currency_interface =
-    CurrencyInterface(
+  let currency_repository =
+    CurrencyRepository(
       insert: fn(_) { panic },
       get_by_id: fn(_) { panic },
       get_by_symbol: fn(_) { panic },
@@ -167,7 +167,7 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
 
   let assert Ok(page_data) =
     home.resolve_page_data(
-      currency_interface,
+      currency_repository,
       get_cryptos_by_symbol,
       get_rate,
       Some(client_state),
@@ -195,8 +195,8 @@ pub fn resolve_page_data_fetches_and_merges_additional_currencies_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
-  let currency_interface =
-    CurrencyInterface(
+  let currency_repository =
+    CurrencyRepository(
       insert: fn(_) { panic },
       get_by_id: fn(_) { panic },
       get_by_symbol: fn(_) { panic },
@@ -230,7 +230,7 @@ pub fn resolve_page_data_fetches_and_merges_additional_currencies_test() {
 
   let assert Ok(page_data) =
     home.resolve_page_data(
-      currency_interface,
+      currency_repository,
       get_cryptos_by_symbol,
       get_rate,
       Some(client_state),
@@ -263,8 +263,8 @@ pub fn resolve_page_data_deduplicates_currencies_by_id_test() {
     Crypto(2, "Ethereum", "ETH", Some(2)),
   ]
 
-  let currency_interface =
-    CurrencyInterface(
+  let currency_repository =
+    CurrencyRepository(
       insert: fn(_) { panic },
       get_by_id: fn(_) { panic },
       get_by_symbol: fn(_) { panic },
@@ -293,7 +293,7 @@ pub fn resolve_page_data_deduplicates_currencies_by_id_test() {
   }
   let assert Ok(page_data) =
     home.resolve_page_data(
-      currency_interface,
+      currency_repository,
       get_cryptos_by_symbol,
       get_rate,
       Some(client_state),

@@ -8,7 +8,7 @@ import gleam/regexp
 import gleam/result
 import mist
 import server/dependencies.{type Dependencies}
-import server/domain/currencies/currency_interface.{type CurrencyInterface}
+import server/domain/currencies/currency_repository.{type CurrencyRepository}
 import server/domain/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/domain/rates/factories as rates_factories
 import server/domain/rates/rate_error.{type RateError}
@@ -54,7 +54,7 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
     wisp_mist.handler(
       route_http_request(
         _,
-        deps.currency_interface,
+        deps.currency_repository,
         deps.currency_symbol_cache,
         rates_factories.create_rate_resolver(deps),
       ),
@@ -66,7 +66,7 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
 
 fn route_http_request(
   req: wisp.Request,
-  currency_interface: CurrencyInterface,
+  currency_repository: CurrencyRepository,
   currency_symbol_cache: CurrencySymbolCache,
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
 ) -> wisp.Response {
@@ -96,7 +96,7 @@ fn route_http_request(
         |> currency_symbol_cache.get_by_symbols(symbols)
         |> result.unwrap(or: [])
       }
-      home.get(currency_interface, get_cryptos_by_symbol, get_rate, state)
+      home.get(currency_repository, get_cryptos_by_symbol, get_rate, state)
     }
 
     ["api", "currencies"] -> {
