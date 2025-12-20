@@ -8,6 +8,7 @@ import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
+import server/domain/currencies/currency_interface.{type CurrencyInterface}
 import server/domain/rates/rate_error.{type RateError}
 import server/utils/logger
 import shared/client_state.{type ClientState, ClientState, ConverterState}
@@ -18,12 +19,14 @@ import shared/rates/rate_response.{type RateResponse}
 import wisp.{type Response}
 
 pub fn get(
-  currencies: List(Currency),
+  currency_interface: CurrencyInterface,
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
   get_cryptos: fn(List(String)) -> List(Currency),
   client_state: Option(ClientState),
 ) -> Response {
-  case resolve_page_data(currencies, get_rate, get_cryptos, client_state) {
+  case
+    resolve_page_data(currency_interface, get_rate, get_cryptos, client_state)
+  {
     Error(_) -> wisp.internal_server_error()
 
     Ok(page_data) -> {
@@ -41,7 +44,7 @@ pub fn get(
 }
 
 pub fn resolve_page_data(
-  currencies: List(Currency),
+  currency_interface: CurrencyInterface,
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
   get_cryptos: fn(List(String)) -> List(Currency),
   client_state: Option(ClientState),
@@ -67,16 +70,8 @@ pub fn resolve_page_data(
       |> result.map_error(log_rate_request_error(rate_req, _))
     })
 
-  // Get additional currencies and merge with existing, removing duplicates
-  let unique_currencies =
-    currencies
-    |> list.append(get_cryptos(client_state.added_currencies))
-    |> list.map(fn(currency) { #(currency.id, currency) })
-    |> dict.from_list
-    |> dict.values
-
   Ok(PageData(
-    currencies: unique_currencies,
+    currencies: currency_interface.get_all(),
     rates:,
     converters: client_state.converters,
   ))

@@ -5,7 +5,7 @@ pub opaque type KrakenSymbol {
   Reversed(String)
 }
 
-/// Attempts to resolve a Kraken-compatible symbol from the given currency pair symbols.
+/// Attempts to resolve a Kraken-compatible pair symbol from the given currency symbols.
 /// Returns a `KrakenSymbol` indicating whether the direct or reversed form was matched.
 /// Returns an error if neither form exists in the Kraken pair list.
 pub fn new(

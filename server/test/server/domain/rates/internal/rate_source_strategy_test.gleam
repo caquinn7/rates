@@ -2,7 +2,8 @@ import gleam/dict
 import gleam/option.{None, Some}
 import server/domain/rates/internal/kraken_symbol
 import server/domain/rates/internal/rate_source_strategy.{
-  CmcStrategy, KrakenStrategy, StrategyBehavior, StrategyConfig,
+  CmcStrategy, CurrencyNotFound, KrakenStrategy, StrategyBehavior,
+  StrategyConfig,
 }
 import server/domain/rates/rate_error.{CmcError}
 import server/integrations/coin_market_cap/client.{
@@ -12,12 +13,22 @@ import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
 }
 import server/integrations/kraken/price_store.{PriceEntry}
+import shared/currency.{Crypto, Fiat}
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response
 
+const btc = Crypto(1, "Bitcoin", "BTC", Some(1))
+
+const usd = Fiat(2781, "US Dollar", "USD", "$")
+
 pub fn determine_strategy_returns_currency_not_found_when_first_currency_id_not_found_test() {
   let rate_request = RateRequest(from: 1, to: 2)
-  let cmc_currencies = dict.from_list([#(2, "USD")])
+  let get_currency_by_id = fn(id) {
+    case id {
+      2 -> Ok(usd)
+      _ -> Error(Nil)
+    }
+  }
   let create_kraken_symbol = fn(_) {
     panic as "Should not be called - kraken symbol failure not expected"
   }
@@ -25,16 +36,21 @@ pub fn determine_strategy_returns_currency_not_found_when_first_currency_id_not_
   let result =
     rate_source_strategy.determine_strategy(
       rate_request,
-      cmc_currencies,
+      get_currency_by_id,
       create_kraken_symbol,
     )
 
-  assert Error(rate_source_strategy.CurrencyNotFound(1)) == result
+  assert Error(CurrencyNotFound(1)) == result
 }
 
 pub fn determine_strategy_returns_currency_not_found_when_second_currency_id_not_found_test() {
   let rate_request = RateRequest(from: 1, to: 2)
-  let cmc_currencies = dict.from_list([#(1, "BTC")])
+  let get_currency_by_id = fn(id) {
+    case id {
+      1 -> Ok(btc)
+      _ -> Error(Nil)
+    }
+  }
   let create_kraken_symbol = fn(_) {
     panic as "Should not be called - kraken symbol failure not expected"
   }
@@ -42,35 +58,47 @@ pub fn determine_strategy_returns_currency_not_found_when_second_currency_id_not
   let result =
     rate_source_strategy.determine_strategy(
       rate_request,
-      cmc_currencies,
+      get_currency_by_id,
       create_kraken_symbol,
     )
 
-  assert Error(rate_source_strategy.CurrencyNotFound(2)) == result
+  assert Error(CurrencyNotFound(2)) == result
 }
 
 pub fn determine_strategy_returns_kraken_strategy_when_symbol_resolved_test() {
   let rate_request = RateRequest(from: 1, to: 2)
-  let cmc_currencies = dict.from_list([#(1, "BTC"), #(2, "USD")])
+  let get_currency_by_id = fn(id) {
+    case id {
+      1 -> Ok(btc)
+      2 -> Ok(usd)
+      _ -> Error(Nil)
+    }
+  }
   let create_kraken_symbol = kraken_symbol.new(_, fn(_) { True })
 
   let assert Ok(KrakenStrategy(_)) =
     rate_source_strategy.determine_strategy(
       rate_request,
-      cmc_currencies,
+      get_currency_by_id,
       create_kraken_symbol,
     )
 }
 
 pub fn determine_strategy_returns_cmc_strategy_when_symbol_not_resolved_test() {
   let rate_request = RateRequest(from: 1, to: 2)
-  let cmc_currencies = dict.from_list([#(1, "BTC"), #(2, "USD")])
+  let get_currency_by_id = fn(id) {
+    case id {
+      1 -> Ok(btc)
+      2 -> Ok(usd)
+      _ -> Error(Nil)
+    }
+  }
   let create_kraken_symbol = kraken_symbol.new(_, fn(_) { False })
 
   let result =
     rate_source_strategy.determine_strategy(
       rate_request,
-      cmc_currencies,
+      get_currency_by_id,
       create_kraken_symbol,
     )
 
@@ -79,13 +107,19 @@ pub fn determine_strategy_returns_cmc_strategy_when_symbol_not_resolved_test() {
 
 pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test() {
   let rate_request = RateRequest(from: 1, to: 2)
-  let cmc_currencies = dict.from_list([#(1, "BTC"), #(2, "USD")])
+  let get_currency_by_id = fn(id) {
+    case id {
+      1 -> Ok(btc)
+      2 -> Ok(usd)
+      _ -> Error(Nil)
+    }
+  }
 
   let create_kraken_symbol = kraken_symbol.new(_, fn(_) { True })
   let assert Ok(strategy) =
     rate_source_strategy.determine_strategy(
       rate_request,
-      cmc_currencies,
+      get_currency_by_id,
       create_kraken_symbol,
     )
 
@@ -120,13 +154,19 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
 
 pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
   let rate_request = RateRequest(from: 1, to: 2)
-  let cmc_currencies = dict.from_list([#(1, "BTC"), #(2, "USD")])
+  let get_currency_by_id = fn(id) {
+    case id {
+      1 -> Ok(btc)
+      2 -> Ok(usd)
+      _ -> Error(Nil)
+    }
+  }
 
   let create_kraken_symbol = kraken_symbol.new(_, fn(_) { True })
   let assert Ok(strategy) =
     rate_source_strategy.determine_strategy(
       rate_request,
-      cmc_currencies,
+      get_currency_by_id,
       create_kraken_symbol,
     )
 
@@ -213,13 +253,19 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
 
 pub fn execute_strategy_returns_error_when_cmc_fails_test() {
   let rate_request = RateRequest(from: 1, to: 2)
-  let cmc_currencies = dict.from_list([#(1, "BTC"), #(2, "USD")])
+  let get_currency_by_id = fn(id) {
+    case id {
+      1 -> Ok(btc)
+      2 -> Ok(usd)
+      _ -> Error(Nil)
+    }
+  }
 
   let create_kraken_symbol = kraken_symbol.new(_, fn(_) { False })
   let assert Ok(strategy) =
     rate_source_strategy.determine_strategy(
       rate_request,
-      cmc_currencies,
+      get_currency_by_id,
       create_kraken_symbol,
     )
 

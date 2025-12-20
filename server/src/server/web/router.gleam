@@ -11,6 +11,7 @@ import mist
 import server/dependencies.{type Dependencies}
 import server/domain/currencies/cmc_currency_handler
 import server/domain/currencies/currencies_fetcher
+import server/domain/currencies/currency_interface.{type CurrencyInterface}
 import server/domain/rates/factories as rates_factories
 import server/domain/rates/rate_error.{type RateError}
 import server/env_config.{type EnvConfig}
@@ -24,7 +25,7 @@ import server/utils/logger.{type Logger}
 import server/web/routes/home
 import server/web/routes/websocket
 import shared/client_state
-import shared/currency.{type Currency}
+import shared/currency
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
 import wisp
@@ -61,7 +62,7 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
     wisp_mist.handler(
       route_http_request(
         _,
-        deps.currencies,
+        deps.currency_interface,
         deps.request_cmc_cryptos,
         rates_factories.create_rate_resolver(deps),
         deps.logger,
@@ -74,7 +75,7 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
 
 fn route_http_request(
   req: wisp.Request,
-  currencies: List(Currency),
+  currency_interface: CurrencyInterface,
   request_cryptos: fn(Option(String)) ->
     Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
@@ -119,7 +120,7 @@ fn route_http_request(
         })
         |> result.unwrap(or: [])
       }
-      home.get(currencies, get_rate, get_cryptos, state)
+      home.get(currency_interface, get_rate, get_cryptos, state)
     }
 
     ["api", "currencies"] -> {
@@ -147,16 +148,28 @@ fn route_http_request(
         )
       })
 
-      let request_cryptos = fn() { request_cryptos(Some(symbol)) }
+      let currencies_response = fn(currencies) {
+        currencies
+        |> json.array(currency.encode)
+        |> json.to_string
+        |> wisp.json_response(200)
+      }
 
-      case cmc_currency_handler.get_cryptos(request_cryptos) {
-        Error(_) -> wisp.internal_server_error()
+      case currency_interface.get_by_symbol(symbol) {
+        [] -> {
+          let request_cryptos = fn() { request_cryptos(Some(symbol)) }
 
-        Ok(currencies) ->
-          currencies
-          |> json.array(currency.encode)
-          |> json.to_string
-          |> wisp.json_response(200)
+          case cmc_currency_handler.get_cryptos(request_cryptos) {
+            Error(_) -> wisp.internal_server_error()
+
+            Ok(currencies) -> {
+              currency_interface.insert(currencies)
+              currencies_response(currencies)
+            }
+          }
+        }
+
+        currencies -> currencies_response(currencies)
       }
     }
 

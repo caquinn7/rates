@@ -523,17 +523,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           converters:,
         )
 
-      let effect = case model.socket {
-        None -> {
-          echo "could not add currencies. socket not initialized."
-          effect.none()
-        }
-
-        Some(socket) ->
-          websocket_client.add_currencies(socket, matched_currencies)
-      }
-
-      #(model, effect)
+      #(model, effect.none())
     }
 
     AppScheduledReconnection -> #(
@@ -613,7 +603,7 @@ fn header(model: Model) -> Element(Msg) {
   let site_name =
     html.h1(
       [
-        attribute.class("w-full mx-auto max-w-screen-xl text-4xl"),
+        attribute.class("w-full max-w-screen-xl text-4xl"),
       ],
       [
         html.text("rates"),

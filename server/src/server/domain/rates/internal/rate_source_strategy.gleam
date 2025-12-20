@@ -1,10 +1,10 @@
-import gleam/dict.{type Dict}
 import gleam/option.{Some}
 import gleam/result
 import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/domain/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/domain/rates/rate_error.{type RateError, CmcError}
 import server/integrations/kraken/price_store.{type PriceEntry}
+import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse, RateResponse}
 
@@ -35,12 +35,12 @@ pub type StrategyConfig {
 
 pub fn determine_strategy(
   rate_request: RateRequest,
-  currency_symbols: Dict(Int, String),
+  get_currency_by_id: fn(Int) -> Result(Currency, Nil),
   create_kraken_symbol: fn(#(String, String)) -> Result(KrakenSymbol, Nil),
 ) -> Result(RateSourceStrategy, StrategyError) {
   use symbols <- result.try(
     rate_request
-    |> resolve_currency_symbols(currency_symbols)
+    |> resolve_currency_symbols(get_currency_by_id)
     |> result.map_error(CurrencyNotFound),
   )
 
@@ -52,12 +52,13 @@ pub fn determine_strategy(
 
 fn resolve_currency_symbols(
   rate_request: RateRequest,
-  currencies: Dict(Int, String),
+  get_currency_by_id: fn(Int) -> Result(Currency, Nil),
 ) -> Result(#(String, String), Int) {
   let try_get_symbol = fn(id) {
     id
-    |> dict.get(currencies, _)
+    |> get_currency_by_id
     |> result.replace_error(id)
+    |> result.map(fn(currency) { currency.symbol })
   }
 
   use from_symbol <- result.try(try_get_symbol(rate_request.from))
