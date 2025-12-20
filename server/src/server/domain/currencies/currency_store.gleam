@@ -80,9 +80,13 @@ pub fn get_by_id(store: CurrencyStore, id: Int) -> Result(Currency, Nil) {
 }
 
 pub fn get_by_symbol(store: CurrencyStore, symbol: String) -> List(Currency) {
-  store
-  |> get_all
-  |> list.filter(fn(currency) { currency.symbol == symbol })
+  let CurrencyStore(set) = store
+  let EtsSet(table) = set
+  let Table(name) = table
+
+  name
+  |> match_by_symbol(symbol)
+  |> list.map(pair.second)
 }
 
 /// Deletes the underlying ETS table associated with the given `CurrencyStore`.
@@ -93,3 +97,6 @@ pub fn drop(store: CurrencyStore) -> Nil {
 
 @external(erlang, "ets", "tab2list")
 fn table_to_list(table_name: Atom) -> List(#(k, v))
+
+@external(erlang, "currency_store_ffi", "match_by_symbol")
+fn match_by_symbol(table_name: Atom, symbol: String) -> List(#(Int, Currency))
