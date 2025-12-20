@@ -1,11 +1,13 @@
 import gleam/bool
 import gleam/http
 import gleam/http/request
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None}
 import gleam/regexp
 import gleam/result
+import gleam/string
 import mist
 import server/dependencies.{type Dependencies}
 import server/domain/currencies/currency_repository.{type CurrencyRepository}
@@ -13,7 +15,7 @@ import server/domain/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/domain/rates/factories as rates_factories
 import server/domain/rates/rate_error.{type RateError}
 import server/env_config.{type EnvConfig}
-import server/utils/logger
+import server/utils/logger.{type Logger}
 import server/web/routes/home
 import server/web/routes/websocket
 import shared/client_state
@@ -57,6 +59,7 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
         deps.currency_repository,
         deps.currency_symbol_cache,
         rates_factories.create_rate_resolver(deps),
+        deps.logger,
       ),
       env_config.secret_key_base,
     )
@@ -69,6 +72,7 @@ fn route_http_request(
   currency_repository: CurrencyRepository,
   currency_symbol_cache: CurrencySymbolCache,
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  logger: Logger,
 ) -> wisp.Response {
   use req <- middleware(req)
   case wisp.path_segments(req) {
@@ -96,6 +100,20 @@ fn route_http_request(
         |> currency_symbol_cache.get_by_symbols(symbols)
         |> result.unwrap(or: [])
       }
+
+      let get_rate = fn(rate_req) {
+        rate_req
+        |> get_rate
+        |> result.map_error(fn(err) {
+          logger
+          |> logger.with("source", "router")
+          |> logger.with("rate_request.from", int.to_string(rate_req.from))
+          |> logger.with("rate_request.to", int.to_string(rate_req.to))
+          |> logger.with("error", string.inspect(err))
+          |> logger.error("Error getting rate")
+        })
+      }
+
       home.get(currency_repository, get_cryptos_by_symbol, get_rate, state)
     }
 

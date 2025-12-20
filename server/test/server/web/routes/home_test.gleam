@@ -1,7 +1,6 @@
 import gleam/list
 import gleam/option.{None, Some}
 import server/domain/currencies/currency_repository.{CurrencyRepository}
-import server/domain/rates/rate_error.{CurrencyNotFound}
 import server/web/routes/home
 import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{Crypto, Fiat}
@@ -141,7 +140,7 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
           timestamp: 1_700_000_000,
         ))
       // Second converter fails
-      2, 3 -> Error(CurrencyNotFound(req, 2))
+      2, 3 -> Error(Nil)
       // Third converter succeeds
       1, 3 ->
         Ok(RateResponse(
@@ -151,7 +150,7 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
           source: Kraken,
           timestamp: 1_700_000_000,
         ))
-      _, _ -> Error(CurrencyNotFound(req, 999))
+      _, _ -> Error(Nil)
     }
   }
 
