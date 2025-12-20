@@ -27,28 +27,6 @@ pub type RequestType {
   FiatRequest
 }
 
-pub fn get_cryptos(
-  request_cryptos: RequestCmcCryptos,
-  timeout: Int,
-) -> CurrenciesResult {
-  fetch_one_type(CryptoRequest, timeout, fn() {
-    cmc_currency_handler.get_cryptos(request_cryptos)
-  })
-}
-
-pub fn get_fiats(
-  app_config: AppConfig,
-  request_fiats: RequestCmcFiats,
-  timeout: Int,
-) -> CurrenciesResult {
-  fetch_one_type(FiatRequest, timeout, fn() {
-    cmc_currency_handler.get_fiats(
-      app_config.supported_fiat_symbols,
-      request_fiats,
-    )
-  })
-}
-
 pub fn get_currencies(
   app_config: AppConfig,
   request_cryptos: RequestCmcCryptos,
@@ -117,20 +95,6 @@ fn receive_both(
           }
         }
       }
-  }
-}
-
-fn fetch_one_type(
-  req_type: RequestType,
-  timeout: Int,
-  fetch_fn: fn() -> Result(List(Currency), FetchError),
-) -> CurrenciesResult {
-  let subject = process.new_subject()
-  spawn_fetch(subject, req_type, fetch_fn)
-
-  case process.receive(subject, timeout) {
-    Error(_) -> Error(Timeout)
-    Ok(result) -> result
   }
 }
 
