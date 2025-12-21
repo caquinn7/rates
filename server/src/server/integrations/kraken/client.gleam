@@ -354,8 +354,7 @@ fn log_message_send_error(logger: Logger, attempted_msg: String, err: a) -> Nil 
 }
 
 fn log_message_from_kraken(logger: Logger, message: String) -> Nil {
-  Nil
-  // logger
-  // |> logger.with("received", message)
-  // |> logger.debug("Received message from kraken")
+  logger
+  |> logger.with("received", message)
+  |> logger.debug("Received message from kraken")
 }
