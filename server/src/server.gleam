@@ -9,8 +9,8 @@ import server/app_config.{type AppConfig, AppConfig}
 import server/dependencies.{type Dependencies, Dependencies}
 import server/domain/currencies/currency_fetcher
 import server/domain/currencies/currency_repository
-import server/domain/currencies/currency_store.{type CurrencyStore}
 import server/domain/currencies/currency_symbol_cache_factory
+import server/domain/currencies/internal/currency_store.{type CurrencyStore}
 import server/domain/rates/internal/kraken_interface
 import server/env_config.{type EnvConfig}
 import server/integrations/coin_market_cap/client.{
