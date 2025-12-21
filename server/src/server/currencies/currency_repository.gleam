@@ -1,4 +1,4 @@
-import server/domain/currencies/internal/currency_store.{type CurrencyStore}
+import server/currencies/internal/currency_store.{type CurrencyStore}
 import shared/currency.{type Currency}
 
 pub type CurrencyRepository {

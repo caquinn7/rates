@@ -1,8 +1,8 @@
 import gleam/option.{type Option, Some}
 import gleam/result
-import server/domain/currencies/cmc_currency_handler.{type FetchError}
-import server/domain/currencies/currency_repository.{type CurrencyRepository}
-import server/domain/currencies/currency_symbol_cache.{type CurrencySymbolCache}
+import server/currencies/cmc_currency_handler.{type FetchError}
+import server/currencies/currency_repository.{type CurrencyRepository}
+import server/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/integrations/coin_market_cap/client.{
   type CmcListResponse, type CmcRequestError,
 }

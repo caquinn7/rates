@@ -1,6 +1,6 @@
-import server/domain/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/integrations/kraken/client.{type KrakenClient}
 import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
+import server/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/utils/retry
 
 pub type KrakenInterface {

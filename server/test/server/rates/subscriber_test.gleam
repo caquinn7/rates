@@ -3,19 +3,19 @@ import gleam/erlang/atom.{type Atom}
 import gleam/erlang/process
 import gleam/list
 import gleam/option.{None, Some}
+import server/currencies/currency_repository.{CurrencyRepository}
+import server/currencies/currency_symbol_cache
 import server/dependencies.{Dependencies}
-import server/domain/currencies/currency_repository.{CurrencyRepository}
-import server/domain/currencies/currency_symbol_cache
-import server/domain/rates/factories
-import server/domain/rates/internal/kraken_interface.{KrakenInterface}
-import server/domain/rates/internal/kraken_symbol
-import server/domain/rates/rate_error.{CmcError, CurrencyNotFound}
-import server/domain/rates/subscriber
 import server/integrations/coin_market_cap/client.{CmcResponse, CmcStatus}
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
 }
 import server/integrations/kraken/price_store.{PriceEntry}
+import server/rates/factories
+import server/rates/internal/kraken_interface.{KrakenInterface}
+import server/rates/internal/kraken_symbol
+import server/rates/rate_error.{CmcError, CurrencyNotFound}
+import server/rates/subscriber
 import server/utils/logger
 import shared/currency.{Crypto, Fiat}
 import shared/rates/rate_request.{RateRequest}

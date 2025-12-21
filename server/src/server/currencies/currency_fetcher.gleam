@@ -3,7 +3,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import server/app_config.{type AppConfig}
-import server/domain/currencies/cmc_currency_handler.{
+import server/currencies/cmc_currency_handler.{
   type FetchError, type RequestCmcCryptos, type RequestCmcFiats,
 }
 import server/utils/time

@@ -1,12 +1,12 @@
 import gleam/erlang/process.{type Subject}
 import server/dependencies.{type Dependencies}
-import server/domain/rates/internal/subscription_manager
-import server/domain/rates/rate_error.{type RateError}
-import server/domain/rates/rate_service_config.{
+import server/rates/internal/subscription_manager
+import server/rates/rate_error.{type RateError}
+import server/rates/rate_service_config.{
   type RateServiceConfig, RateServiceConfig,
 }
-import server/domain/rates/resolver as rate_resolver
-import server/domain/rates/subscriber.{type RateSubscriber} as rate_subscriber
+import server/rates/resolver as rate_resolver
+import server/rates/subscriber.{type RateSubscriber} as rate_subscriber
 import server/utils/logger
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}

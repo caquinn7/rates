@@ -1,14 +1,14 @@
 import gleam/dict
 import gleam/httpc
 import gleam/option.{None, Some}
-import server/domain/rates/internal/cmc_rate_handler.{
-  CurrencyNotFound, RequestFailed, UnexpectedResponse, ValidationError,
-}
 import server/integrations/coin_market_cap/client.{
   type CmcConversionParameters, CmcResponse, CmcStatus, HttpError,
 }
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
+}
+import server/rates/internal/cmc_rate_handler.{
+  CurrencyNotFound, RequestFailed, UnexpectedResponse, ValidationError,
 }
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response.{CoinMarketCap, RateResponse}

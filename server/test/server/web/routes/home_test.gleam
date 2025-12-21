@@ -1,6 +1,6 @@
 import gleam/list
 import gleam/option.{None, Some}
-import server/domain/currencies/currency_repository.{CurrencyRepository}
+import server/currencies/currency_repository.{CurrencyRepository}
 import server/web/routes/home
 import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{Crypto, Fiat}

@@ -1,5 +1,5 @@
 import gleam/option.{None}
-import server/domain/currencies/currency_symbol_cache
+import server/currencies/currency_symbol_cache
 import shared/currency.{Crypto}
 
 // get_by_symbol

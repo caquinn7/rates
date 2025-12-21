@@ -2,8 +2,8 @@ import gleam/erlang/process
 import gleam/httpc
 import gleam/option.{None, Some}
 import server/app_config.{AppConfig}
-import server/domain/currencies/cmc_currency_handler.{ClientError}
-import server/domain/currencies/currency_fetcher.{
+import server/currencies/cmc_currency_handler.{ClientError}
+import server/currencies/currency_fetcher.{
   CryptoRequest, EmptyListReceived, FiatRequest, HandlerError, RequestError,
   Timeout,
 }

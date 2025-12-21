@@ -9,12 +9,12 @@ import gleam/regexp
 import gleam/result
 import gleam/string
 import mist
+import server/currencies/currency_repository.{type CurrencyRepository}
+import server/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/dependencies.{type Dependencies}
-import server/domain/currencies/currency_repository.{type CurrencyRepository}
-import server/domain/currencies/currency_symbol_cache.{type CurrencySymbolCache}
-import server/domain/rates/factories as rates_factories
-import server/domain/rates/rate_error.{type RateError}
 import server/env_config.{type EnvConfig}
+import server/rates/factories as rates_factories
+import server/rates/rate_error.{type RateError}
 import server/utils/logger.{type Logger}
 import server/web/routes/home
 import server/web/routes/websocket

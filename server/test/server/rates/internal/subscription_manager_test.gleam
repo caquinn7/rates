@@ -1,6 +1,6 @@
 import gleam/option.{None, Some}
-import server/domain/rates/internal/kraken_symbol
-import server/domain/rates/internal/subscription_manager.{Cmc, Kraken}
+import server/rates/internal/kraken_symbol
+import server/rates/internal/subscription_manager.{Cmc, Kraken}
 import shared/rates/rate_request.{RateRequest}
 
 pub fn new_returns_error_when_interval_is_not_positive_test() {

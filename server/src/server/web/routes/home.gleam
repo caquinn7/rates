@@ -5,7 +5,7 @@ import gleam/option.{type Option, None, Some}
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import server/domain/currencies/currency_repository.{type CurrencyRepository}
+import server/currencies/currency_repository.{type CurrencyRepository}
 import shared/client_state.{type ClientState, ClientState, ConverterState}
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}

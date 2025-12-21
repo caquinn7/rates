@@ -1,11 +1,5 @@
 import gleam/dict
 import gleam/option.{None, Some}
-import server/domain/rates/internal/kraken_symbol
-import server/domain/rates/internal/rate_source_strategy.{
-  CmcStrategy, CurrencyNotFound, KrakenStrategy, StrategyBehavior,
-  StrategyConfig,
-}
-import server/domain/rates/rate_error.{CmcError}
 import server/integrations/coin_market_cap/client.{
   type CmcConversionParameters, CmcResponse, CmcStatus,
 }
@@ -13,6 +7,12 @@ import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
 }
 import server/integrations/kraken/price_store.{PriceEntry}
+import server/rates/internal/kraken_symbol
+import server/rates/internal/rate_source_strategy.{
+  CmcStrategy, CurrencyNotFound, KrakenStrategy, StrategyBehavior,
+  StrategyConfig,
+}
+import server/rates/rate_error.{CmcError}
 import shared/currency.{Crypto, Fiat}
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response

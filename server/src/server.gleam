@@ -6,12 +6,11 @@ import gleam/string
 import glight
 import mist
 import server/app_config.{type AppConfig, AppConfig}
+import server/currencies/currency_fetcher
+import server/currencies/currency_repository
+import server/currencies/currency_symbol_cache_factory
+import server/currencies/internal/currency_store.{type CurrencyStore}
 import server/dependencies.{type Dependencies, Dependencies}
-import server/domain/currencies/currency_fetcher
-import server/domain/currencies/currency_repository
-import server/domain/currencies/currency_symbol_cache_factory
-import server/domain/currencies/internal/currency_store.{type CurrencyStore}
-import server/domain/rates/internal/kraken_interface
 import server/env_config.{type EnvConfig}
 import server/integrations/coin_market_cap/client.{
   type CmcListResponse, type CmcRequestError,
@@ -26,6 +25,7 @@ import server/integrations/coin_market_cap/factories as cmc_factories
 import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
+import server/rates/internal/kraken_interface
 import server/utils/logger.{type Logger}
 import server/utils/time
 import server/web/router
