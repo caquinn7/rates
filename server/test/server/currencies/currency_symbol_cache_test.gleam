@@ -4,6 +4,16 @@ import shared/currency.{Crypto}
 
 // get_by_symbol
 
+pub fn get_by_symbol_returns_empty_list_when_symbol_is_empty_string_test() {
+  let get_cached = fn(_) { panic }
+  let fetch_and_cache = fn(_) { panic }
+
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
+
+  assert currency_symbol_cache.get_by_symbol(cache, "") == Ok([])
+  assert currency_symbol_cache.get_by_symbol(cache, " ") == Ok([])
+}
+
 pub fn get_by_symbol_returns_cached_currencies_test() {
   let cached_currencies = [Crypto(1, "Bitcoin", "BTC", None)]
 
@@ -13,15 +23,12 @@ pub fn get_by_symbol_returns_cached_currencies_test() {
       _ -> []
     }
   }
-
   let fetch_and_cache = fn(_) { panic }
 
-  let assert Ok(resolver) =
-    currency_symbol_cache.new(get_cached, fetch_and_cache)
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
 
-  let result = currency_symbol_cache.get_by_symbol(resolver, "BTC")
-
-  assert result == Ok(cached_currencies)
+  assert currency_symbol_cache.get_by_symbol(cache, "BTC")
+    == Ok(cached_currencies)
 }
 
 pub fn get_by_symbol_fetches_when_not_cached_test() {
@@ -30,27 +37,31 @@ pub fn get_by_symbol_fetches_when_not_cached_test() {
   let fetched_currencies = [Crypto(1, "Bitcoin", "BTC", None)]
   let fetch_and_cache = fn(_) { Ok(fetched_currencies) }
 
-  let assert Ok(resolver) =
-    currency_symbol_cache.new(get_cached, fetch_and_cache)
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
 
-  let result = currency_symbol_cache.get_by_symbol(resolver, "BTC")
-
-  assert result == Ok(fetched_currencies)
+  assert currency_symbol_cache.get_by_symbol(cache, "BTC")
+    == Ok(fetched_currencies)
 }
 
 pub fn get_by_symbol_returns_error_when_fetch_fails_test() {
   let get_cached = fn(_) { [] }
   let fetch_and_cache = fn(_) { Error(Nil) }
 
-  let assert Ok(resolver) =
-    currency_symbol_cache.new(get_cached, fetch_and_cache)
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
 
-  let result = currency_symbol_cache.get_by_symbol(resolver, "BTC")
-
-  assert result == Error(Nil)
+  assert currency_symbol_cache.get_by_symbol(cache, "BTC") == Error(Nil)
 }
 
 // get_by_symbols
+
+pub fn get_by_symbols_returns_empty_list_when_symbols_is_empty_test() {
+  let get_cached = fn(_) { panic }
+  let fetch_and_cache = fn(_) { panic }
+
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
+
+  assert currency_symbol_cache.get_by_symbols(cache, []) == Ok([])
+}
 
 pub fn get_by_symbols_returns_all_cached_currencies_test() {
   let btc = Crypto(1, "Bitcoin", "BTC", None)
@@ -63,15 +74,12 @@ pub fn get_by_symbols_returns_all_cached_currencies_test() {
       _ -> []
     }
   }
-
   let fetch_and_cache = fn(_) { panic }
 
-  let assert Ok(resolver) =
-    currency_symbol_cache.new(get_cached, fetch_and_cache)
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
 
-  let result = currency_symbol_cache.get_by_symbols(resolver, ["BTC", "ETH"])
-
-  assert result == Ok([btc, eth])
+  assert currency_symbol_cache.get_by_symbols(cache, ["BTC", "ETH"])
+    == Ok([btc, eth])
 }
 
 pub fn get_by_symbols_fetches_uncached_and_merges_with_cached_test() {
@@ -92,12 +100,10 @@ pub fn get_by_symbols_fetches_uncached_and_merges_with_cached_test() {
     }
   }
 
-  let assert Ok(resolver) =
-    currency_symbol_cache.new(get_cached, fetch_and_cache)
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
 
-  let result = currency_symbol_cache.get_by_symbols(resolver, ["BTC", "ETH"])
-
-  assert result == Ok([btc, eth])
+  assert currency_symbol_cache.get_by_symbols(cache, ["BTC", "ETH"])
+    == Ok([btc, eth])
 }
 
 pub fn get_by_symbols_fetches_all_when_none_cached_test() {
@@ -113,22 +119,18 @@ pub fn get_by_symbols_fetches_all_when_none_cached_test() {
     }
   }
 
-  let assert Ok(resolver) =
-    currency_symbol_cache.new(get_cached, fetch_and_cache)
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
 
-  let result = currency_symbol_cache.get_by_symbols(resolver, ["BTC", "ETH"])
-
-  assert result == Ok([btc, eth])
+  assert currency_symbol_cache.get_by_symbols(cache, ["BTC", "ETH"])
+    == Ok([btc, eth])
 }
 
 pub fn get_by_symbols_returns_error_when_fetch_fails_test() {
   let get_cached = fn(_) { [] }
   let fetch_and_cache = fn(_) { Error(Nil) }
 
-  let assert Ok(resolver) =
-    currency_symbol_cache.new(get_cached, fetch_and_cache)
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
 
-  let result = currency_symbol_cache.get_by_symbols(resolver, ["BTC", "ETH"])
-
-  assert result == Error(Nil)
+  assert currency_symbol_cache.get_by_symbols(cache, ["BTC", "ETH"])
+    == Error(Nil)
 }

@@ -53,7 +53,7 @@ pub fn get_by_symbol(
   symbol: String,
 ) -> Result(List(Currency), Nil) {
   let CurrencySymbolCache(subject) = resolver
-  actor.call(subject, 5000, GetBySymbol(_, symbol))
+  actor.call(subject, 5000, GetBySymbol(_, string.trim(symbol)))
 }
 
 pub fn get_by_symbols(
@@ -68,6 +68,11 @@ fn handle_msg(state: State, msg: Msg) -> Next(State, Msg) {
   let State(get_cached:, fetch_and_cache:) = state
 
   case msg {
+    GetBySymbol(reply_to, "") | GetBySymbols(reply_to, []) -> {
+      process.send(reply_to, Ok([]))
+      actor.continue(state)
+    }
+
     GetBySymbol(reply_to, symbol) -> {
       let result = case get_cached(symbol) {
         [] -> fetch_and_cache(symbol)
