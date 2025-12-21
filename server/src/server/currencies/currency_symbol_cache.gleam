@@ -1,3 +1,16 @@
+//// This module wraps currency symbol lookups in an actor to prevent duplicate
+//// API calls to CoinMarketCap under concurrent requests.
+////
+//// ## The Problem
+//// Without the actor, multiple concurrent requests for the same uncached symbol
+//// could all observe a cache miss simultaneously and each trigger a separate API
+//// call to CoinMarketCap, wasting resources and potentially hitting rate limits.
+////
+//// ## The Solution
+//// By serializing check-and-fetch operations through an actor, only ONE API call
+//// is made per symbol, even when many requests arrive concurrently. The actor
+//// coordinates which symbols need fetching vs. which are already cached.
+
 import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/otp/actor.{type Next, type StartError}
