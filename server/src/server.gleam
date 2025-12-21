@@ -7,7 +7,7 @@ import glight
 import mist
 import server/app_config.{type AppConfig, AppConfig}
 import server/dependencies.{type Dependencies, Dependencies}
-import server/domain/currencies/currencies_fetcher
+import server/domain/currencies/currency_fetcher
 import server/domain/currencies/currency_repository
 import server/domain/currencies/currency_store.{type CurrencyStore}
 import server/domain/currencies/currency_symbol_cache_factory
@@ -147,7 +147,7 @@ fn fetch_and_store_currencies(
   logger: Logger,
 ) {
   let currencies_result =
-    currencies_fetcher.get_currencies(
+    currency_fetcher.get_currencies(
       app_config,
       fn() { request_cmc_cryptos(None) },
       request_cmc_fiats,

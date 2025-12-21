@@ -3,7 +3,7 @@ import gleam/httpc
 import gleam/option.{None, Some}
 import server/app_config.{AppConfig}
 import server/domain/currencies/cmc_currency_handler.{ClientError}
-import server/domain/currencies/currencies_fetcher.{
+import server/domain/currencies/currency_fetcher.{
   CryptoRequest, EmptyListReceived, FiatRequest, HandlerError, RequestError,
   Timeout,
 }
@@ -29,7 +29,7 @@ pub fn get_currencies_crypto_request_returns_handler_error_test() {
   }
 
   let result =
-    currencies_fetcher.get_currencies(
+    currency_fetcher.get_currencies(
       AppConfig("", 100, []),
       request_cryptos,
       request_fiats,
@@ -59,7 +59,7 @@ pub fn get_currencies_crypto_request_returns_error_when_empty_list_received_test
   }
 
   let result =
-    currencies_fetcher.get_currencies(
+    currency_fetcher.get_currencies(
       AppConfig("", 100, []),
       request_cryptos,
       request_fiats,
@@ -81,7 +81,7 @@ pub fn get_currencies_fiat_request_returns_handler_error_test() {
   let request_fiats = fn() { Error(expected_error) }
 
   let result =
-    currencies_fetcher.get_currencies(
+    currency_fetcher.get_currencies(
       AppConfig("", 100, []),
       request_cryptos,
       request_fiats,
@@ -111,7 +111,7 @@ pub fn get_currencies_fiat_request_returns_error_when_empty_list_received_test()
   }
 
   let result =
-    currencies_fetcher.get_currencies(
+    currency_fetcher.get_currencies(
       AppConfig("", 100, []),
       request_cryptos,
       request_fiats,
@@ -140,7 +140,7 @@ pub fn get_currencies_returns_error_when_request_times_out() {
   }
 
   let result =
-    currencies_fetcher.get_currencies(
+    currency_fetcher.get_currencies(
       AppConfig("", 100, []),
       request_cryptos,
       request_fiats,
@@ -166,7 +166,7 @@ pub fn get_currencies_returns_both_crypto_and_fiat_test() {
   }
 
   let result =
-    currencies_fetcher.get_currencies(
+    currency_fetcher.get_currencies(
       AppConfig("", 100, []),
       request_cryptos,
       request_fiats,
