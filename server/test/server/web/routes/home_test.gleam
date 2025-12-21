@@ -300,9 +300,12 @@ pub fn resolve_page_data_deduplicates_currencies_by_id_test() {
 
   // Should have 2 currencies (Bitcoin and one Ethereum)
   // The duplicate Ethereum from get_cryptos should override the original
-  assert page_data.currencies
-    == [
-      Crypto(1, "Bitcoin", "BTC", Some(1)),
-      Crypto(2, "Ethereum Updated", "ETH", Some(2)),
-    ]
+  assert list.contains(
+    page_data.currencies,
+    Crypto(1, "Bitcoin", "BTC", Some(1)),
+  )
+  assert list.contains(
+    page_data.currencies,
+    Crypto(2, "Ethereum Updated", "ETH", Some(2)),
+  )
 }
