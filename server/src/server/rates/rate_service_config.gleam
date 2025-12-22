@@ -1,5 +1,5 @@
-import server/domain/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
-import server/domain/rates/internal/kraken_interface.{type KrakenInterface}
+import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
+import server/rates/internal/kraken_interface.{type KrakenInterface}
 import shared/currency.{type Currency}
 
 /// Contains the common dependencies needed by both subscriber and resolver

@@ -32,14 +32,14 @@ pub fn get_cryptos(
   )
 
   use data <- result.try(case cmc_response.status.error_code == 0 {
-    True -> Ok(cmc_response.data)
-
     False ->
       case cmc_response.status {
         // Return empty list to client for invalid symbols (RESTful design)
         CmcStatus(_, Some("Invalid value for \"symbol\"" <> _)) -> Ok(Some([]))
         _ -> Error(ErrorStatusReceived(cmc_response.status))
       }
+
+    True -> Ok(cmc_response.data)
   })
 
   let assert Some(cryptos) = data

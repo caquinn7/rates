@@ -1,27 +1,32 @@
-import gleam/int
+import gleam/dict
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/result
-import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import server/domain/currencies/currency_interface.{type CurrencyInterface}
-import server/domain/rates/rate_error.{type RateError}
-import server/utils/logger
+import server/currencies/currency_repository.{type CurrencyRepository}
 import shared/client_state.{type ClientState, ClientState, ConverterState}
+import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
 import shared/rates/rate_request.{type RateRequest, RateRequest}
 import shared/rates/rate_response.{type RateResponse}
 import wisp.{type Response}
 
 pub fn get(
-  currency_interface: CurrencyInterface,
-  get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  currency_repository: CurrencyRepository,
+  get_cryptos_by_symbol: fn(List(String)) -> List(Currency),
+  get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
   client_state: Option(ClientState),
 ) -> Response {
-  case resolve_page_data(currency_interface, get_rate, client_state) {
+  case
+    resolve_page_data(
+      currency_repository,
+      get_cryptos_by_symbol,
+      get_rate,
+      client_state,
+    )
+  {
     Error(_) -> wisp.internal_server_error()
 
     Ok(page_data) -> {
@@ -39,8 +44,9 @@ pub fn get(
 }
 
 pub fn resolve_page_data(
-  currency_interface: CurrencyInterface,
-  get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  currency_repository: CurrencyRepository,
+  get_cryptos_by_symbol: fn(List(String)) -> List(Currency),
+  get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
   client_state: Option(ClientState),
 ) -> Result(PageData, Nil) {
   let client_state = case client_state {
@@ -53,31 +59,22 @@ pub fn resolve_page_data(
     Some(state) -> state
   }
 
+  // Get currencies added by user and merge with existing, removing duplicates
+  let currencies =
+    currency_repository.get_all()
+    |> list.append(get_cryptos_by_symbol(client_state.added_currencies))
+    |> list.map(fn(currency) { #(currency.id, currency) })
+    |> dict.from_list
+    |> dict.values
+
   // Get rates for all converters
   let rates =
     client_state.converters
     |> list.filter_map(fn(converter) {
-      let rate_req = RateRequest(converter.from, converter.to)
-
-      rate_req
-      |> get_rate
-      |> result.map_error(log_rate_request_error(rate_req, _))
+      get_rate(RateRequest(converter.from, converter.to))
     })
 
-  Ok(PageData(
-    currencies: currency_interface.get_all(),
-    rates:,
-    converters: client_state.converters,
-  ))
-}
-
-fn log_rate_request_error(rate_req: RateRequest, err: RateError) -> Nil {
-  logger.new()
-  |> logger.with("source", "home")
-  |> logger.with("rate_request.from", int.to_string(rate_req.from))
-  |> logger.with("rate_request.to", int.to_string(rate_req.to))
-  |> logger.with("error", string.inspect(err))
-  |> logger.error("Error getting rate")
+  Ok(PageData(currencies:, rates:, converters: client_state.converters))
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {

@@ -1,6 +1,6 @@
 import gleam/set
-import server/domain/rates/internal/kraken_symbol
 import server/integrations/kraken/pairs
+import server/rates/internal/kraken_symbol
 
 pub fn new_returns_direct_when_only_direct_symbol_exists_test() {
   let mock_exists = fn(symbol) {

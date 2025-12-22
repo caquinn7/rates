@@ -11,12 +11,8 @@ import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
 }
-import server/domain/rates/rate_error.{
-  type RateError, CmcError, CurrencyNotFound,
-}
-import server/domain/rates/subscriber.{
-  type RateSubscriber, type SubscriptionResult,
-} as rate_subscriber
+import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
+import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
 import server/utils/logger.{type Logger}
 import shared/rates/rate_response.{RateResponse} as shared_rate_response
 import shared/subscriptions/subscription_id.{type SubscriptionId}

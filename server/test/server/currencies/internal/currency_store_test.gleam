@@ -1,6 +1,6 @@
 import gleam/list
 import gleam/option.{Some}
-import server/domain/currencies/currency_store.{type CurrencyStore}
+import server/currencies/internal/currency_store.{type CurrencyStore}
 import shared/currency.{Crypto, Fiat}
 
 // new

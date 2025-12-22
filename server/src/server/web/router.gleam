@@ -1,25 +1,21 @@
 import gleam/bool
 import gleam/http
 import gleam/http/request
+import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{None}
 import gleam/regexp
 import gleam/result
+import gleam/string
 import mist
+import server/currencies/currency_repository.{type CurrencyRepository}
+import server/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/dependencies.{type Dependencies}
-import server/domain/currencies/cmc_currency_handler
-import server/domain/currencies/currency_interface.{type CurrencyInterface}
-import server/domain/rates/factories as rates_factories
-import server/domain/rates/rate_error.{type RateError}
 import server/env_config.{type EnvConfig}
-import server/integrations/coin_market_cap/client.{
-  type CmcListResponse, type CmcRequestError,
-}
-import server/integrations/coin_market_cap/cmc_crypto_currency.{
-  type CmcCryptoCurrency,
-}
-import server/utils/logger
+import server/rates/factories as rates_factories
+import server/rates/rate_error.{type RateError}
+import server/utils/logger.{type Logger}
 import server/web/routes/home
 import server/web/routes/websocket
 import shared/client_state
@@ -60,9 +56,10 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
     wisp_mist.handler(
       route_http_request(
         _,
-        deps.currency_interface,
-        deps.request_cmc_cryptos,
+        deps.currency_repository,
+        deps.currency_symbol_cache,
         rates_factories.create_rate_resolver(deps),
+        deps.logger,
       ),
       env_config.secret_key_base,
     )
@@ -72,10 +69,10 @@ fn handle_http_request(req, env_config: EnvConfig, deps: Dependencies) {
 
 fn route_http_request(
   req: wisp.Request,
-  currency_interface: CurrencyInterface,
-  request_cryptos: fn(Option(String)) ->
-    Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
+  currency_repository: CurrencyRepository,
+  currency_symbol_cache: CurrencySymbolCache,
   get_rate: fn(RateRequest) -> Result(RateResponse, RateError),
+  logger: Logger,
 ) -> wisp.Response {
   use req <- middleware(req)
   case wisp.path_segments(req) {
@@ -98,7 +95,26 @@ fn route_http_request(
         }
       }
 
-      home.get(currency_interface, get_rate, state)
+      let get_cryptos_by_symbol = fn(symbols) {
+        currency_symbol_cache
+        |> currency_symbol_cache.get_by_symbols(symbols)
+        |> result.unwrap(or: [])
+      }
+
+      let get_rate = fn(rate_req) {
+        rate_req
+        |> get_rate
+        |> result.map_error(fn(err) {
+          logger
+          |> logger.with("source", "router")
+          |> logger.with("rate_request.from", int.to_string(rate_req.from))
+          |> logger.with("rate_request.to", int.to_string(rate_req.to))
+          |> logger.with("error", string.inspect(err))
+          |> logger.error("Error getting rate")
+        })
+      }
+
+      home.get(currency_repository, get_cryptos_by_symbol, get_rate, state)
     }
 
     ["api", "currencies"] -> {
@@ -126,28 +142,13 @@ fn route_http_request(
         )
       })
 
-      let currencies_response = fn(currencies) {
-        currencies
-        |> json.array(currency.encode)
-        |> json.to_string
-        |> wisp.json_response(200)
-      }
-
-      case currency_interface.get_by_symbol(symbol) {
-        [] -> {
-          let request_cryptos = fn() { request_cryptos(Some(symbol)) }
-
-          case cmc_currency_handler.get_cryptos(request_cryptos) {
-            Error(_) -> wisp.internal_server_error()
-
-            Ok(currencies) -> {
-              currency_interface.insert(currencies)
-              currencies_response(currencies)
-            }
-          }
-        }
-
-        currencies -> currencies_response(currencies)
+      case currency_symbol_cache.get_by_symbol(currency_symbol_cache, symbol) {
+        Error(_) -> wisp.internal_server_error()
+        Ok(currencies) ->
+          currencies
+          |> json.array(currency.encode)
+          |> json.to_string
+          |> wisp.json_response(200)
       }
     }
 

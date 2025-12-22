@@ -6,11 +6,11 @@ import gleam/string
 import glight
 import mist
 import server/app_config.{type AppConfig, AppConfig}
+import server/currencies/currency_fetcher
+import server/currencies/currency_repository
+import server/currencies/currency_symbol_cache_factory
+import server/currencies/internal/currency_store.{type CurrencyStore}
 import server/dependencies.{type Dependencies, Dependencies}
-import server/domain/currencies/currencies_fetcher
-import server/domain/currencies/currency_interface
-import server/domain/currencies/currency_store.{type CurrencyStore}
-import server/domain/rates/internal/kraken_interface
 import server/env_config.{type EnvConfig}
 import server/integrations/coin_market_cap/client.{
   type CmcListResponse, type CmcRequestError,
@@ -25,6 +25,7 @@ import server/integrations/coin_market_cap/factories as cmc_factories
 import server/integrations/kraken/client as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
+import server/rates/internal/kraken_interface
 import server/utils/logger.{type Logger}
 import server/utils/time
 import server/web/router
@@ -80,12 +81,30 @@ pub fn main() {
 
   wait_for_kraken_symbols(time.monotonic_time_ms(), 10_000)
 
-  let assert Ok(price_store) = price_store.get_store()
-    as "tried to get reference to price store before it was created"
+  let dependencies = {
+    let currency_repository = currency_repository.new(currency_store)
 
-  let dependencies =
+    let assert Ok(price_store) = price_store.get_store()
+      as "tried to get reference to price store before it was created"
+
+    let currency_symbol_cache = {
+      let on_fetch_failed = fn(err) {
+        logger
+        |> logger.with("source", "server")
+        |> logger.with("error", string.inspect(err))
+        |> logger.error("Error getting cryptos from CMC")
+      }
+
+      currency_symbol_cache_factory.create(
+        currency_repository,
+        request_cmc_cryptos,
+        on_fetch_failed,
+      )
+    }
+
     Dependencies(
-      currency_interface: currency_interface.new(currency_store),
+      currency_repository:,
+      currency_symbol_cache:,
       subscription_refresh_interval_ms: 10_000,
       kraken_interface: kraken_interface.new(
         kraken_client,
@@ -97,6 +116,7 @@ pub fn main() {
       get_current_time_ms: time.system_time_ms,
       logger:,
     )
+  }
 
   start_server(env_config, dependencies)
 }
@@ -127,7 +147,7 @@ fn fetch_and_store_currencies(
   logger: Logger,
 ) {
   let currencies_result =
-    currencies_fetcher.get_currencies(
+    currency_fetcher.get_currencies(
       app_config,
       fn() { request_cmc_cryptos(None) },
       request_cmc_fiats,

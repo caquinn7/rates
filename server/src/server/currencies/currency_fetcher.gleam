@@ -3,7 +3,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import server/app_config.{type AppConfig}
-import server/domain/currencies/cmc_currency_handler.{
+import server/currencies/cmc_currency_handler.{
   type FetchError, type RequestCmcCryptos, type RequestCmcFiats,
 }
 import server/utils/time
@@ -33,32 +33,6 @@ pub fn get_currencies(
   request_fiats: RequestCmcFiats,
   timeout: Int,
 ) -> CurrenciesResult {
-  let try_fetch = fn(req_type) {
-    let fetch =
-      case req_type {
-        CryptoRequest -> cmc_currency_handler.get_cryptos(request_cryptos)
-
-        FiatRequest ->
-          cmc_currency_handler.get_fiats(
-            app_config.supported_fiat_symbols,
-            request_fiats,
-          )
-      }
-      |> result.map_error(HandlerError)
-      |> result.map_error(RequestError(req_type, _))
-
-    use currencies <- result.try(fetch)
-
-    case currencies {
-      [] ->
-        EmptyListReceived
-        |> RequestError(req_type, _)
-        |> Error
-
-      _ -> Ok(currencies)
-    }
-  }
-
   let start_time = time.monotonic_time_ms()
   let get_remaining_time = fn() {
     let now = time.monotonic_time_ms()
@@ -67,16 +41,18 @@ pub fn get_currencies(
   }
 
   let subject = process.new_subject()
-  let spawn_fetch = fn(req_type) {
-    process.spawn(fn() {
-      req_type
-      |> try_fetch
-      |> process.send(subject, _)
-    })
-  }
 
-  spawn_fetch(CryptoRequest)
-  spawn_fetch(FiatRequest)
+  spawn_fetch(subject, CryptoRequest, fn() {
+    cmc_currency_handler.get_cryptos(request_cryptos)
+  })
+
+  spawn_fetch(subject, FiatRequest, fn() {
+    cmc_currency_handler.get_fiats(
+      app_config.supported_fiat_symbols,
+      request_fiats,
+    )
+  })
+
   receive_both(subject, None, None, get_remaining_time)
 }
 
@@ -120,4 +96,32 @@ fn receive_both(
         }
       }
   }
+}
+
+fn spawn_fetch(
+  subject: Subject(CurrenciesResult),
+  req_type: RequestType,
+  fetch_fn: fn() -> Result(List(Currency), FetchError),
+) -> Nil {
+  process.spawn(fn() {
+    let result = try_fetch(req_type, fetch_fn)
+    process.send(subject, result)
+  })
+
+  Nil
+}
+
+fn try_fetch(
+  req_type: RequestType,
+  fetch_fn: fn() -> Result(List(Currency), FetchError),
+) -> CurrenciesResult {
+  fetch_fn()
+  |> result.map_error(HandlerError)
+  |> result.map_error(RequestError(req_type, _))
+  |> result.try(fn(currencies) {
+    case currencies {
+      [] -> Error(RequestError(req_type, EmptyListReceived))
+      _ -> Ok(currencies)
+    }
+  })
 }
