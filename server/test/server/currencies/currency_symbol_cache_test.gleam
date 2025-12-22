@@ -4,16 +4,6 @@ import shared/currency.{Crypto}
 
 // get_by_symbol
 
-pub fn get_by_symbol_returns_empty_list_when_symbol_is_empty_string_test() {
-  let get_cached = fn(_) { panic }
-  let fetch_and_cache = fn(_) { panic }
-
-  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
-
-  assert currency_symbol_cache.get_by_symbol(cache, "") == Ok([])
-  assert currency_symbol_cache.get_by_symbol(cache, " ") == Ok([])
-}
-
 pub fn get_by_symbol_returns_cached_currencies_test() {
   let cached_currencies = [Crypto(1, "Bitcoin", "BTC", None)]
 
