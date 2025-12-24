@@ -1,12 +1,14 @@
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/pair
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import server/currencies/currency_repository.{type CurrencyRepository}
-import shared/client_state.{type ClientState, ClientState, ConverterState}
+import shared/client_state.{
+  type ClientState, type ConverterState, ClientState, ConverterState,
+}
+import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
 import shared/rates/rate_request.{type RateRequest, RateRequest}
 import shared/rates/rate_response.{type RateResponse}
@@ -39,42 +41,57 @@ pub fn resolve_page_data(
   get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
   client_state: Option(ClientState),
 ) -> Result(PageData, Nil) {
-  let client_state = case client_state {
-    None -> {
-      let btc_id = 1
-      let usd_id = 2781
-      ClientState([ConverterState(btc_id, usd_id, 1.0)])
-    }
+  let default_converter = {
+    let btc_id = 1
+    let usd_id = 2781
+    ConverterState(btc_id, usd_id, 1.0)
+  }
 
+  let client_state = case client_state {
+    None -> ClientState([default_converter])
     Some(state) -> state
   }
 
   let currencies = currency_repository.get_all()
 
-  // filter out converters containing a currency id that is not found in the repo
-  let valid_converters =
-    list.filter(client_state.converters, fn(converter) {
-      let currency_exists = fn(id) {
-        list.any(currencies, fn(currency) { currency.id == id })
-      }
+  let valid_converters = {
+    let validated = filter_valid_converters(client_state.converters, currencies)
 
-      currency_exists(converter.from) && currency_exists(converter.to)
-    })
+    case validated {
+      [] -> [default_converter]
+      _ -> validated
+    }
+  }
 
-  // for each converter, fetch the rate
-  // also filter out any converters for which the get_rate call failed
-  let converter_rate_pairs =
-    list.filter_map(valid_converters, fn(converter) {
-      case get_rate(RateRequest(converter.from, converter.to)) {
-        Ok(rate) -> Ok(#(converter, rate))
-        Error(_) -> Error(Nil)
-      }
-    })
-
-  let converters = list.map(converter_rate_pairs, pair.first)
-  let rates = list.map(converter_rate_pairs, pair.second)
+  let #(converters, rates) = fetch_rates(valid_converters, get_rate)
 
   Ok(PageData(currencies:, rates:, converters:))
+}
+
+fn filter_valid_converters(
+  converters: List(ConverterState),
+  currencies: List(Currency),
+) {
+  let currency_exists = fn(id) {
+    list.any(currencies, fn(currency) { currency.id == id })
+  }
+
+  use converter <- list.filter(converters)
+  currency_exists(converter.from) && currency_exists(converter.to)
+}
+
+fn fetch_rates(
+  converters: List(ConverterState),
+  get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
+) -> #(List(ConverterState), List(RateResponse)) {
+  converters
+  |> list.filter_map(fn(converter) {
+    case get_rate(RateRequest(converter.from, converter.to)) {
+      Ok(rate) -> Ok(#(converter, rate))
+      Error(_) -> Error(Nil)
+    }
+  })
+  |> list.unzip
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {

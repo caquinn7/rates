@@ -162,7 +162,7 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
 pub fn resolve_page_data_does_not_fetch_rates_for_invalid_currency_ids_test() {
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
-    Fiat(2, "Ethereum", "ETH", "€"),
+    Fiat(2, "United States Dollar", "USD", "$"),
   ]
 
   let currency_repository =
@@ -211,4 +211,52 @@ pub fn resolve_page_data_does_not_fetch_rates_for_invalid_currency_ids_test() {
   // Only the valid rate should be fetched and included
   assert page_data.rates
     == [RateResponse(1, 2, Some(100.0), Kraken, 1_700_000_000)]
+}
+
+pub fn resolve_page_data_uses_default_converter_when_all_converters_invalid_test() {
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", Some(1)),
+    Fiat(2781, "United States Dollar", "USD", "$"),
+    Crypto(5, "Ethereum", "ETH", Some(2)),
+  ]
+
+  let currency_repository =
+    CurrencyRepository(
+      insert: fn(_) { panic },
+      get_by_id: fn(_) { panic },
+      get_by_symbol: fn(_) { panic },
+      get_all: fn() { currencies },
+    )
+
+  let get_rate = fn(req: RateRequest) {
+    case req.from, req.to {
+      // Default BTC -> USD should be called
+      1, 2781 ->
+        Ok(RateResponse(
+          from: 1,
+          to: 2781,
+          rate: Some(50_000.0),
+          source: Kraken,
+          timestamp: 1_700_000_000,
+        ))
+      _, _ -> panic as "get_rate called with unexpected currency pair"
+    }
+  }
+
+  // Provide converters with invalid currency IDs only
+  let client_state =
+    ClientState(converters: [
+      ConverterState(from: 999, to: 888, amount: 10.0),
+      ConverterState(from: 777, to: 666, amount: 20.0),
+    ])
+
+  let assert Ok(page_data) =
+    home.resolve_page_data(currency_repository, get_rate, Some(client_state))
+
+  // Should fall back to default BTC -> USD converter
+  assert page_data.converters
+    == [ConverterState(from: 1, to: 2781, amount: 1.0)]
+
+  assert page_data.rates
+    == [RateResponse(1, 2781, Some(50_000.0), Kraken, 1_700_000_000)]
 }
