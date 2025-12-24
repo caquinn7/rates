@@ -173,7 +173,10 @@ pub fn main() -> Nil {
 pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
   let model = case model_from_page_data(flags) {
     Error(err) -> panic as { "error building model: " <> string.inspect(err) }
-    Ok(m) -> m
+    Ok(m) -> {
+      encode_state_in_url(m)
+      m
+    }
   }
 
   #(model, websocket.init("/ws", FromWebSocket))
