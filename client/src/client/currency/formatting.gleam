@@ -1,7 +1,6 @@
 import client/positive_float.{type PositiveFloat}
 import gleam/list
 import gleam/string
-import shared/currency.{type Currency, Crypto, Fiat}
 
 /// Formats a `PositiveFloat` amount as a human-readable string with appropriate
 /// precision and comma grouping, based on the given `Currency`.
@@ -22,11 +21,8 @@ import shared/currency.{type Currency, Crypto, Fiat}
 /// format_currency_amount(Crypto(..), PositiveFloat(0.00000123)) // => "0.00000123"
 /// format_currency_amount(Crypto(..), PositiveFloat(1.2300)) // => "1.23"
 /// ```
-pub fn format_currency_amount(
-  currency: Currency,
-  amount: PositiveFloat,
-) -> String {
-  let precision = determine_max_precision(currency, amount)
+pub fn format_currency_amount(amount: PositiveFloat) -> String {
+  let precision = determine_max_precision(amount)
   let assert Ok(result) = positive_float.to_fixed_string(amount, precision)
 
   case string.split(result, ".") {
@@ -65,18 +61,13 @@ pub fn format_currency_amount(
 ///
 /// # Returns
 /// The maximum number of decimal places to use for formatting the amount.
-pub fn determine_max_precision(currency: Currency, amount: PositiveFloat) -> Int {
-  case currency {
-    Fiat(..) -> 2
-
-    Crypto(..) ->
-      positive_float.with_value(amount, fn(a) {
-        case a {
-          a if a == 0.0 -> 0
-          a if a >=. 1.0 -> 4
-          a if a >=. 0.01 -> 6
-          _ -> 8
-        }
-      })
-  }
+pub fn determine_max_precision(amount: PositiveFloat) -> Int {
+  positive_float.with_value(amount, fn(a) {
+    case a {
+      _ if a == 0.0 -> 0
+      _ if a >=. 1.0 -> 4
+      _ if a >=. 0.01 -> 6
+      _ -> 8
+    }
+  })
 }
