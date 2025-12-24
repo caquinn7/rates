@@ -1,4 +1,3 @@
-import gleam/dict
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -6,7 +5,9 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import server/currencies/currency_repository.{type CurrencyRepository}
-import shared/client_state.{type ClientState, ClientState, ConverterState}
+import shared/client_state.{
+  type ClientState, type ConverterState, ClientState, ConverterState,
+}
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
 import shared/rates/rate_request.{type RateRequest, RateRequest}
@@ -15,18 +16,10 @@ import wisp.{type Response}
 
 pub fn get(
   currency_repository: CurrencyRepository,
-  get_cryptos_by_symbol: fn(List(String)) -> List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
   client_state: Option(ClientState),
 ) -> Response {
-  case
-    resolve_page_data(
-      currency_repository,
-      get_cryptos_by_symbol,
-      get_rate,
-      client_state,
-    )
-  {
+  case resolve_page_data(currency_repository, get_rate, client_state) {
     Error(_) -> wisp.internal_server_error()
 
     Ok(page_data) -> {
@@ -45,36 +38,60 @@ pub fn get(
 
 pub fn resolve_page_data(
   currency_repository: CurrencyRepository,
-  get_cryptos_by_symbol: fn(List(String)) -> List(Currency),
   get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
   client_state: Option(ClientState),
 ) -> Result(PageData, Nil) {
-  let client_state = case client_state {
-    None -> {
-      let btc_id = 1
-      let usd_id = 2781
-      ClientState([ConverterState(btc_id, usd_id, 1.0)], [])
-    }
+  let default_converter = {
+    let btc_id = 1
+    let usd_id = 2781
+    ConverterState(btc_id, usd_id, 1.0)
+  }
 
+  let client_state = case client_state {
+    None -> ClientState([default_converter])
     Some(state) -> state
   }
 
-  // Get currencies added by user and merge with existing, removing duplicates
-  let currencies =
-    currency_repository.get_all()
-    |> list.append(get_cryptos_by_symbol(client_state.added_currencies))
-    |> list.map(fn(currency) { #(currency.id, currency) })
-    |> dict.from_list
-    |> dict.values
+  let currencies = currency_repository.get_all()
 
-  // Get rates for all converters
-  let rates =
-    client_state.converters
-    |> list.filter_map(fn(converter) {
-      get_rate(RateRequest(converter.from, converter.to))
-    })
+  let valid_converters = {
+    let validated = filter_valid_converters(client_state.converters, currencies)
 
-  Ok(PageData(currencies:, rates:, converters: client_state.converters))
+    case validated {
+      [] -> [default_converter]
+      _ -> validated
+    }
+  }
+
+  let #(converters, rates) = fetch_rates(valid_converters, get_rate)
+
+  Ok(PageData(currencies:, rates:, converters:))
+}
+
+fn filter_valid_converters(
+  converters: List(ConverterState),
+  currencies: List(Currency),
+) {
+  let currency_exists = fn(id) {
+    list.any(currencies, fn(currency) { currency.id == id })
+  }
+
+  use converter <- list.filter(converters)
+  currency_exists(converter.from) && currency_exists(converter.to)
+}
+
+fn fetch_rates(
+  converters: List(ConverterState),
+  get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
+) -> #(List(ConverterState), List(RateResponse)) {
+  converters
+  |> list.filter_map(fn(converter) {
+    case get_rate(RateRequest(converter.from, converter.to)) {
+      Ok(rate) -> Ok(#(converter, rate))
+      Error(_) -> Error(Nil)
+    }
+  })
+  |> list.unzip
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {

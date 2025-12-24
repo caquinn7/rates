@@ -27,43 +27,19 @@ pub fn encode_converter_state_outputs_integer_string_when_amount_precision_is_ze
 // encode
 
 pub fn encode_empty_state_test() {
-  assert client_state.encode(ClientState([], [])) == "v1:"
+  assert client_state.encode(ClientState([])) == "v1:"
 }
 
 pub fn encode_state_with_one_converter_test() {
-  assert client_state.encode(ClientState([ConverterState(1, 2781, 0.5)], []))
+  assert client_state.encode(ClientState([ConverterState(1, 2781, 0.5)]))
     == "v1:1-2781-0.5"
-}
-
-pub fn encode_state_with_one_added_currency_test() {
-  assert client_state.encode(ClientState([], ["BONK"])) == "v1:|BONK"
 }
 
 pub fn encode_state_with_multiple_converters_test() {
   assert client_state.encode(
-      ClientState(
-        [ConverterState(1, 2781, 0.5), ConverterState(2, 2781, 1.5)],
-        [],
-      ),
+      ClientState([ConverterState(1, 2781, 0.5), ConverterState(2, 2781, 1.5)]),
     )
     == "v1:1-2781-0.5;2-2781-1.5"
-}
-
-pub fn encode_state_with_multiple_added_currencies_test() {
-  assert client_state.encode(ClientState([], ["ABC", "XYZ"])) == "v1:|ABC,XYZ"
-}
-
-pub fn encode_state_with_multiple_converters_and_multiple_added_currencies_test() {
-  assert client_state.encode(
-      ClientState(
-        [
-          ConverterState(1, 2781, 10_000.01),
-          ConverterState(2, 2781, 1.5),
-        ],
-        ["ABC", "XYZ"],
-      ),
-    )
-    == "v1:1-2781-10000.01;2-2781-1.5|ABC,XYZ"
 }
 
 // decode_converter_state
@@ -115,49 +91,24 @@ pub fn decode_returns_error_when_version_invalid_test() {
 }
 
 pub fn decode_empty_state_test() {
-  assert client_state.decode("v1:") == Ok(ClientState([], []))
+  assert client_state.decode("v1:") == Ok(ClientState([]))
 }
 
 pub fn decode_state_with_one_converter_test() {
   assert client_state.decode("v1:1-2781-0.5")
-    == Ok(ClientState([ConverterState(1, 2781, 0.5)], []))
-}
-
-pub fn decode_state_with_one_added_currency_test() {
-  assert client_state.decode("v1:|BONK") == Ok(ClientState([], ["BONK"]))
+    == Ok(ClientState([ConverterState(1, 2781, 0.5)]))
 }
 
 pub fn decode_state_with_multiple_converters_test() {
   assert client_state.decode("v1:1-2781-0.5;2-2781-1")
     == Ok(
-      ClientState(
-        [ConverterState(1, 2781, 0.5), ConverterState(2, 2781, 1.0)],
-        [],
-      ),
+      ClientState([ConverterState(1, 2781, 0.5), ConverterState(2, 2781, 1.0)]),
     )
-}
-
-pub fn decode_state_with_multiple_added_currencies_test() {
-  assert client_state.decode("v1:|ABC,XYZ")
-    == Ok(ClientState([], ["ABC", "XYZ"]))
 }
 
 pub fn decode_state_with_empty_amount_test() {
   assert client_state.decode("v1:1-2781-;2-2781")
     == Ok(
-      ClientState(
-        [ConverterState(1, 2781, 1.0), ConverterState(2, 2781, 1.0)],
-        [],
-      ),
-    )
-}
-
-pub fn decode_state_with_multiple_converters_and_multiple_added_currencies_test() {
-  assert client_state.decode("v1:1-2781-10000.01;2-2781-1|ABC,XYZ")
-    == Ok(
-      ClientState(
-        [ConverterState(1, 2781, 10_000.01), ConverterState(2, 2781, 1.0)],
-        ["ABC", "XYZ"],
-      ),
+      ClientState([ConverterState(1, 2781, 1.0), ConverterState(2, 2781, 1.0)]),
     )
 }

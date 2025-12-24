@@ -47,7 +47,6 @@ const converter_id_prefix = "converter"
 pub type Model {
   Model(
     currencies: List(Currency),
-    added_currencies: List(Int),
     converters: List(Converter),
     socket: Option(WebSocket),
     reconnect_attempts: Int,
@@ -94,7 +93,6 @@ pub fn model_from_page_data(
 
   Ok(Model(
     currencies: page_data.currencies,
-    added_currencies: [],
     converters:,
     socket: None,
     reconnect_attempts: 0,
@@ -148,22 +146,7 @@ pub fn model_to_client_state(model: Model) {
       )
     })
 
-  let added_currencies =
-    model.added_currencies
-    |> list.filter(fn(currency_id) {
-      // only include added currency ids in use by a converter
-      list.any(converter_states, fn(converter_state) {
-        converter_state.from == currency_id || converter_state.to == currency_id
-      })
-    })
-    |> list.filter_map(fn(currency_id) {
-      // map each added currency id to its symbol
-      model.currencies
-      |> list.find(fn(currency) { currency.id == currency_id })
-      |> result.map(fn(currency) { currency.symbol })
-    })
-
-  ClientState(converters: converter_states, added_currencies:)
+  ClientState(converters: converter_states)
 }
 
 pub fn main() -> Nil {
@@ -190,7 +173,10 @@ pub fn main() -> Nil {
 pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
   let model = case model_from_page_data(flags) {
     Error(err) -> panic as { "error building model: " <> string.inspect(err) }
-    Ok(m) -> m
+    Ok(m) -> {
+      encode_state_in_url(m)
+      m
+    }
   }
 
   #(model, websocket.init("/ws", FromWebSocket))
@@ -494,6 +480,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     ApiReturnedMatchedCurrencies(Ok(matched_currencies)) -> {
+      // currently there is no backend persistence, so these added currencies
+      // will be lost after a restart
       let master_list = {
         let currencies_to_dict = fn(currencies) {
           currencies
@@ -515,13 +503,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           converter.with_master_currency_list(conv, master_list)
         })
 
-      let model =
-        Model(
-          ..model,
-          currencies: master_list,
-          added_currencies: list.map(matched_currencies, fn(c) { c.id }),
-          converters:,
-        )
+      let model = Model(..model, currencies: master_list, converters:)
 
       #(model, effect.none())
     }
