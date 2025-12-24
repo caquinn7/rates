@@ -95,12 +95,6 @@ fn route_http_request(
         }
       }
 
-      let get_cryptos_by_symbol = fn(symbols) {
-        currency_symbol_cache
-        |> currency_symbol_cache.get_by_symbols(symbols)
-        |> result.unwrap(or: [])
-      }
-
       let get_rate = fn(rate_req) {
         rate_req
         |> get_rate
@@ -114,7 +108,7 @@ fn route_http_request(
         })
       }
 
-      home.get(currency_repository, get_cryptos_by_symbol, get_rate, state)
+      home.get(currency_repository, get_rate, state)
     }
 
     ["api", "currencies"] -> {

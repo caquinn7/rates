@@ -1,4 +1,3 @@
-import gleam/list
 import gleam/option.{None, Some}
 import server/currencies/currency_repository.{CurrencyRepository}
 import server/web/routes/home
@@ -31,15 +30,8 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
     ))
   }
 
-  let get_cryptos_by_symbol = fn(_) { [] }
-
   let assert Ok(page_data) =
-    home.resolve_page_data(
-      currency_repository,
-      get_cryptos_by_symbol,
-      get_rate,
-      None,
-    )
+    home.resolve_page_data(currency_repository, get_rate, None)
 
   assert page_data.currencies == currencies
 
@@ -67,8 +59,6 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
       get_all: fn() { currencies },
     )
 
-  let get_cryptos_by_symbol = fn(_) { [] }
-
   let get_rate = fn(req: RateRequest) {
     Ok(RateResponse(
       from: req.from,
@@ -80,21 +70,13 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
   }
 
   let client_state =
-    ClientState(
-      converters: [
-        ConverterState(from: 1, to: 2, amount: 5.0),
-        ConverterState(from: 2, to: 3, amount: 10.0),
-      ],
-      added_currencies: [],
-    )
+    ClientState(converters: [
+      ConverterState(from: 1, to: 2, amount: 5.0),
+      ConverterState(from: 2, to: 3, amount: 10.0),
+    ])
 
   let assert Ok(page_data) =
-    home.resolve_page_data(
-      currency_repository,
-      get_cryptos_by_symbol,
-      get_rate,
-      Some(client_state),
-    )
+    home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
   assert page_data.currencies == currencies
 
@@ -126,8 +108,6 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
       get_all: fn() { currencies },
     )
 
-  let get_cryptos_by_symbol = fn(_) { [] }
-
   let get_rate = fn(req: RateRequest) {
     case req.from, req.to {
       // First converter succeeds
@@ -155,28 +135,19 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
   }
 
   let client_state =
-    ClientState(
-      converters: [
-        ConverterState(from: 1, to: 2, amount: 5.0),
-        ConverterState(from: 2, to: 3, amount: 10.0),
-        ConverterState(from: 1, to: 3, amount: 15.0),
-      ],
-      added_currencies: [],
-    )
+    ClientState(converters: [
+      ConverterState(from: 1, to: 2, amount: 5.0),
+      ConverterState(from: 2, to: 3, amount: 10.0),
+      ConverterState(from: 1, to: 3, amount: 15.0),
+    ])
 
   let assert Ok(page_data) =
-    home.resolve_page_data(
-      currency_repository,
-      get_cryptos_by_symbol,
-      get_rate,
-      Some(client_state),
-    )
+    home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
   // All converter states should be included
   assert page_data.converters
     == [
       ConverterState(from: 1, to: 2, amount: 5.0),
-      ConverterState(from: 2, to: 3, amount: 10.0),
       ConverterState(from: 1, to: 3, amount: 15.0),
     ]
 
@@ -188,10 +159,10 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
     ]
 }
 
-pub fn resolve_page_data_fetches_and_merges_additional_currencies_test() {
+pub fn resolve_page_data_does_not_fetch_rates_for_invalid_currency_ids_test() {
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
-    Fiat(2781, "United States Dollar", "USD", "$"),
+    Fiat(2, "Ethereum", "ETH", "€"),
   ]
 
   let currency_repository =
@@ -202,111 +173,42 @@ pub fn resolve_page_data_fetches_and_merges_additional_currencies_test() {
       get_all: fn() { currencies },
     )
 
+  // This function will panic if called with invalid currency IDs
   let get_rate = fn(req: RateRequest) {
-    Ok(RateResponse(
-      from: req.from,
-      to: req.to,
-      rate: Some(100.0),
-      source: Kraken,
-      timestamp: 1_700_000_000,
-    ))
+    case req.from, req.to {
+      // Valid: both currencies exist
+      1, 2 ->
+        Ok(RateResponse(
+          from: 1,
+          to: 2,
+          rate: Some(100.0),
+          source: Kraken,
+          timestamp: 1_700_000_000,
+        ))
+      // Invalid combinations should never be called
+      _, _ -> panic as "get_rate called with invalid currency IDs"
+    }
   }
 
   let client_state =
-    ClientState(
-      converters: [ConverterState(from: 1, to: 2781, amount: 1.0)],
-      added_currencies: ["ETH", "BNB"],
-    )
-
-  // Verify get_cryptos is called with the added_currencies list
-  let get_cryptos_by_symbol = fn(symbols) {
-    assert symbols == ["ETH", "BNB"]
-    [
-      Crypto(2, "Ethereum", "ETH", Some(2)),
-      Crypto(4, "Binance Coin", "BNB", Some(4)),
-    ]
-  }
+    ClientState(converters: [
+      // Valid: both currencies exist
+      ConverterState(from: 1, to: 2, amount: 5.0),
+      // Invalid: from currency doesn't exist
+      ConverterState(from: 999, to: 2, amount: 10.0),
+      // Invalid: to currency doesn't exist
+      ConverterState(from: 1, to: 888, amount: 15.0),
+      // Invalid: both currencies don't exist
+      ConverterState(from: 777, to: 666, amount: 20.0),
+    ])
 
   let assert Ok(page_data) =
-    home.resolve_page_data(
-      currency_repository,
-      get_cryptos_by_symbol,
-      get_rate,
-      Some(client_state),
-    )
+    home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
-  // All currencies should be included (original + fetched)
-  // Note: order is not guaranteed due to dict.values
-  assert list.length(page_data.currencies) == 4
-  assert list.contains(
-    page_data.currencies,
-    Crypto(1, "Bitcoin", "BTC", Some(1)),
-  )
-  assert list.contains(
-    page_data.currencies,
-    Fiat(2781, "United States Dollar", "USD", "$"),
-  )
-  assert list.contains(
-    page_data.currencies,
-    Crypto(2, "Ethereum", "ETH", Some(2)),
-  )
-  assert list.contains(
-    page_data.currencies,
-    Crypto(4, "Binance Coin", "BNB", Some(4)),
-  )
-}
+  // Only converters with valid currency IDs should be included
+  assert page_data.converters == [ConverterState(from: 1, to: 2, amount: 5.0)]
 
-pub fn resolve_page_data_deduplicates_currencies_by_id_test() {
-  let currencies = [
-    Crypto(1, "Bitcoin", "BTC", Some(1)),
-    Crypto(2, "Ethereum", "ETH", Some(2)),
-  ]
-
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(_) { panic },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { currencies },
-    )
-
-  let get_rate = fn(req: RateRequest) {
-    Ok(RateResponse(
-      from: req.from,
-      to: req.to,
-      rate: Some(100.0),
-      source: Kraken,
-      timestamp: 1_700_000_000,
-    ))
-  }
-
-  let client_state =
-    ClientState(
-      converters: [ConverterState(from: 1, to: 2, amount: 1.0)],
-      added_currencies: ["ETH"],
-    )
-
-  // Return a duplicate Ethereum with same ID but different data
-  let get_cryptos_by_symbol = fn(_) {
-    [Crypto(2, "Ethereum Updated", "ETH", Some(2))]
-  }
-  let assert Ok(page_data) =
-    home.resolve_page_data(
-      currency_repository,
-      get_cryptos_by_symbol,
-      get_rate,
-      Some(client_state),
-    )
-
-  // Should have 2 currencies (Bitcoin and one Ethereum)
-  // The duplicate Ethereum from get_cryptos should override the original
-  assert list.length(page_data.currencies) == 2
-  assert list.contains(
-    page_data.currencies,
-    Crypto(1, "Bitcoin", "BTC", Some(1)),
-  )
-  assert list.contains(
-    page_data.currencies,
-    Crypto(2, "Ethereum Updated", "ETH", Some(2)),
-  )
+  // Only the valid rate should be fetched and included
+  assert page_data.rates
+    == [RateResponse(1, 2, Some(100.0), Kraken, 1_700_000_000)]
 }

@@ -5,11 +5,7 @@ import gleam/result
 import gleam/string
 
 pub type ClientState {
-  ClientState(
-    converters: List(ConverterState),
-    // symbols of currencies added after page load
-    added_currencies: List(String),
-  )
+  ClientState(converters: List(ConverterState))
 }
 
 // least amount of info needed to recreate a Converter
@@ -18,13 +14,7 @@ pub type ConverterState {
 }
 
 pub fn encode(state: ClientState) -> String {
-  let ClientState(converters, added_currencies) = state
-
-  let converters_str = encode_converter_states(converters)
-  case string.join(added_currencies, ",") {
-    "" -> "v1:" <> converters_str
-    s -> "v1:" <> converters_str <> "|" <> s
-  }
+  "v1:" <> encode_converter_states(state.converters)
 }
 
 pub fn encode_converter_states(converter_states: List(ConverterState)) -> String {
@@ -70,19 +60,8 @@ pub type DecodeError {
 
 pub fn decode(encoded: String) -> Result(ClientState, DecodeError) {
   use content <- result.try(decode_version(encoded))
-  use #(converters_str, currencies_str) <- result.try(
-    case string.split(content, "|") {
-      [""] -> Ok(#("", ""))
-      [converters] | [converters, ""] -> Ok(#(converters, ""))
-      ["", currencies] -> Ok(#("", currencies))
-      [converters, currencies] -> Ok(#(converters, currencies))
-      _ -> Error(UnexpectedInput)
-    },
-  )
-
-  use converters <- result.try(decode_converter_states(converters_str))
-  let added_currencies = split_and_remove_empty_strings(currencies_str, ",")
-  Ok(ClientState(converters:, added_currencies:))
+  use converters <- result.try(decode_converter_states(content))
+  Ok(ClientState(converters:))
 }
 
 pub fn decode_version(encoded: String) -> Result(String, DecodeError) {
