@@ -39,6 +39,50 @@ pub fn format_currency_amount_small_with_trailing_zeros_test() {
   assert formatting.format_currency_amount(p) == "0.001"
 }
 
+// Comma grouping tests
+
+// No comma needed - less than 1000
+pub fn format_currency_amount_no_comma_needed_test() {
+  let p = positive_float.from_float_unsafe(999.99)
+  assert formatting.format_currency_amount(p) == "999.99"
+}
+
+// Single comma - thousands
+pub fn format_currency_amount_thousands_test() {
+  let p = positive_float.from_float_unsafe(1234.567)
+  assert formatting.format_currency_amount(p) == "1,234.567"
+}
+
+// Multiple commas - millions
+pub fn format_currency_amount_millions_test() {
+  let p = positive_float.from_float_unsafe(1_234_567.89)
+  assert formatting.format_currency_amount(p) == "1,234,567.89"
+}
+
+// Large number - billions
+pub fn format_currency_amount_billions_test() {
+  let p = positive_float.from_float_unsafe(1_234_567_890.12)
+  assert formatting.format_currency_amount(p) == "1,234,567,890.12"
+}
+
+// Exactly at thousand boundary
+pub fn format_currency_amount_exactly_thousand_test() {
+  let p = positive_float.from_float_unsafe(1000.0)
+  assert formatting.format_currency_amount(p) == "1,000"
+}
+
+// Comma grouping with trailing zero removal
+pub fn format_currency_amount_comma_with_trailing_zeros_test() {
+  let p = positive_float.from_float_unsafe(10_000.0)
+  assert formatting.format_currency_amount(p) == "10,000"
+}
+
+// Comma grouping with small decimal
+pub fn format_currency_amount_comma_with_small_decimal_test() {
+  let p = positive_float.from_float_unsafe(1234.5)
+  assert formatting.format_currency_amount(p) == "1,234.5"
+}
+
 // determine_max_precision tests
 
 // Branch 1: a == 0.0 -> 0
