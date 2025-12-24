@@ -60,8 +60,8 @@ fn add_comma_grouping(int_string: String) -> String {
   |> string.join(",")
 }
 
-/// Determines the maximum number of decimal places (precision) to use when formatting
-/// a given amount for a specific currency type.
+/// Determines the maximum number of decimal places (precision) to use
+/// when formatting a given currency amount.
 ///
 /// The precision varies based on the value of the amount:
 /// - 0 decimal places if the amount is zero
