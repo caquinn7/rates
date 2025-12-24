@@ -16,7 +16,7 @@ import gleam/string
 ///
 /// ## Examples
 /// ```gleam
-/// format_currency_amount(PositiveFloat(1234.567)) // => "1,234.57"
+/// format_currency_amount(PositiveFloat(1234.567)) // => "1,234.567"
 /// format_currency_amount(PositiveFloat(0.00000123)) // => "0.00000123"
 /// format_currency_amount(PositiveFloat(1.2300)) // => "1.23"
 /// ```
