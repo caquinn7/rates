@@ -573,10 +573,8 @@ pub fn with_amount_successful_parse_with_rate_left_to_right_test() {
   let right_input = converter.get_converter_input(result, Right)
   let expected_converted_amount = positive_float.from_float_unsafe(250.0)
   let expected_raw =
-    currency_formatting.format_currency_amount(
-      right_input.currency_selector.selected_currency,
-      expected_converted_amount,
-    )
+    currency_formatting.format_currency_amount(expected_converted_amount)
+
   assert right_input.amount_input.raw == expected_raw
   assert right_input.amount_input.parsed == Some(expected_converted_amount)
 
@@ -609,10 +607,8 @@ pub fn with_amount_successful_parse_with_rate_right_to_left_test() {
   let left_input = converter.get_converter_input(result, Left)
   let expected_converted_amount = positive_float.from_float_unsafe(50.0)
   let expected_raw =
-    currency_formatting.format_currency_amount(
-      left_input.currency_selector.selected_currency,
-      expected_converted_amount,
-    )
+    currency_formatting.format_currency_amount(expected_converted_amount)
+
   assert left_input.amount_input.raw == expected_raw
   assert left_input.amount_input.parsed == Some(expected_converted_amount)
 
@@ -772,10 +768,8 @@ pub fn with_amount_zero_input_converts_correctly_test() {
   let right_input = converter.get_converter_input(result, Right)
   let expected_converted_amount = positive_float.from_float_unsafe(0.0)
   let expected_raw =
-    currency_formatting.format_currency_amount(
-      right_input.currency_selector.selected_currency,
-      expected_converted_amount,
-    )
+    currency_formatting.format_currency_amount(expected_converted_amount)
+
   assert right_input.amount_input.raw == expected_raw
   assert right_input.amount_input.parsed == Some(expected_converted_amount)
 
@@ -784,6 +778,81 @@ pub fn with_amount_zero_input_converts_correctly_test() {
 
   // Rate should remain unchanged
   assert result.rate == Some(positive_float.from_float_unsafe(2.5))
+}
+
+pub fn with_amount_removes_commas_before_parsing_test() {
+  // Set up converter with a valid rate
+  let target =
+    Converter(
+      ..empty_converter(),
+      rate: Some(positive_float.from_float_unsafe(2.0)),
+      last_edited: Right,
+    )
+
+  // User types "1,000" which should be sanitized to "1000" before parsing
+  let result = converter.with_amount(target, Left, "1,000")
+
+  // Left side should parse successfully and format with comma
+  let left_input = converter.get_converter_input(result, Left)
+  assert left_input.amount_input.raw == "1,000"
+  assert left_input.amount_input.parsed
+    == Some(positive_float.from_float_unsafe(1000.0))
+
+  // Right side should be converted: 1000 * 2.0 = 2000
+  let right_input = converter.get_converter_input(result, Right)
+  assert right_input.amount_input.raw == "2,000"
+  assert right_input.amount_input.parsed
+    == Some(positive_float.from_float_unsafe(2000.0))
+}
+
+pub fn with_amount_handles_invalid_comma_placement_test() {
+  // Set up converter with a valid rate
+  let target =
+    Converter(
+      ..empty_converter(),
+      rate: Some(positive_float.from_float_unsafe(2.0)),
+      last_edited: Right,
+    )
+
+  // User types "1,00" (invalid comma placement) which becomes "100" after sanitization
+  let result = converter.with_amount(target, Left, "1,00")
+
+  // Left side should parse successfully as 100
+  let left_input = converter.get_converter_input(result, Left)
+  assert left_input.amount_input.raw == "100"
+  assert left_input.amount_input.parsed
+    == Some(positive_float.from_float_unsafe(100.0))
+
+  // Right side should be converted: 100 * 2.0 = 200
+  let right_input = converter.get_converter_input(result, Right)
+  assert right_input.amount_input.raw == "200"
+  assert right_input.amount_input.parsed
+    == Some(positive_float.from_float_unsafe(200.0))
+}
+
+pub fn with_amount_handles_multiple_commas_test() {
+  // Set up converter with a valid rate
+  let target =
+    Converter(
+      ..empty_converter(),
+      rate: Some(positive_float.from_float_unsafe(1.0)),
+      last_edited: Right,
+    )
+
+  // User types "1,234,567" which should parse correctly
+  let result = converter.with_amount(target, Left, "1,234,567")
+
+  // Left side should parse successfully
+  let left_input = converter.get_converter_input(result, Left)
+  assert left_input.amount_input.raw == "1,234,567"
+  assert left_input.amount_input.parsed
+    == Some(positive_float.from_float_unsafe(1_234_567.0))
+
+  // Right side should be the same with rate 1.0
+  let right_input = converter.get_converter_input(result, Right)
+  assert right_input.amount_input.raw == "1,234,567"
+  assert right_input.amount_input.parsed
+    == Some(positive_float.from_float_unsafe(1_234_567.0))
 }
 
 // with_toggled_dropdown

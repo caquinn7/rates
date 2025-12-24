@@ -14,6 +14,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/pair
 import gleam/result
+import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -207,10 +208,7 @@ fn with_rate_with_custom_glow(
 
             Some(amount) ->
               AmountInput(
-                currency_formatting.format_currency_amount(
-                  converter_input.currency_selector.selected_currency,
-                  amount,
-                ),
+                currency_formatting.format_currency_amount(amount),
                 Some(amount),
                 color_from_rate_change(previous_rate, rate),
               )
@@ -282,10 +280,7 @@ pub fn with_amount(
     converter.inputs
     |> map_converter_inputs(side, fn(input) {
       let raw_display =
-        currency_formatting.format_currency_amount(
-          input.currency_selector.selected_currency,
-          parsed_amount,
-        )
+        currency_formatting.format_currency_amount(parsed_amount)
 
       ConverterInput(
         ..input,
@@ -320,10 +315,7 @@ pub fn with_amount(
 
         Some(converted) -> {
           let raw_display =
-            currency_formatting.format_currency_amount(
-              opposite_input.currency_selector.selected_currency,
-              converted,
-            )
+            currency_formatting.format_currency_amount(converted)
 
           AmountInput(
             ..opposite_input.amount_input,
@@ -337,7 +329,8 @@ pub fn with_amount(
     })
   }
 
-  let inputs = case positive_float.parse(raw_amount) {
+  let sanitized_amount = string.replace(raw_amount, ",", "")
+  let inputs = case positive_float.parse(sanitized_amount) {
     Error(_) -> map_failed_parse()
     Ok(parsed) -> map_successful_parse(parsed)
   }

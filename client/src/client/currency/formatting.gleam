@@ -1,13 +1,11 @@
 import client/positive_float.{type PositiveFloat}
 import gleam/list
 import gleam/string
-import shared/currency.{type Currency, Crypto, Fiat}
 
 /// Formats a `PositiveFloat` amount as a human-readable string with appropriate
-/// precision and comma grouping, based on the given `Currency`.
+/// precision and comma grouping.
 ///
-/// - For fiat currencies, the amount is always formatted with 2 decimal places.
-/// - For cryptocurrencies, the decimal precision varies based on the size of the amount:
+/// - The decimal precision varies based on the size of the amount:
 ///     - 0.0 → 0 decimal places
 ///     - ≥ 1.0 → 4 decimal places
 ///     - ≥ 0.01 → 6 decimal places
@@ -18,19 +16,17 @@ import shared/currency.{type Currency, Crypto, Fiat}
 ///
 /// ## Examples
 /// ```gleam
-/// format_currency_amount(Fiat(..), PositiveFloat(1234.567)) // => "1,234.57"
-/// format_currency_amount(Crypto(..), PositiveFloat(0.00000123)) // => "0.00000123"
-/// format_currency_amount(Crypto(..), PositiveFloat(1.2300)) // => "1.23"
+/// format_currency_amount(PositiveFloat(1234.567)) // => "1,234.567"
+/// format_currency_amount(PositiveFloat(0.00000123)) // => "0.00000123"
+/// format_currency_amount(PositiveFloat(1.2300)) // => "1.23"
 /// ```
-pub fn format_currency_amount(
-  currency: Currency,
-  amount: PositiveFloat,
-) -> String {
-  let precision = determine_max_precision(currency, amount)
+pub fn format_currency_amount(amount: PositiveFloat) -> String {
+  let precision = determine_max_precision(amount)
   let assert Ok(result) = positive_float.to_fixed_string(amount, precision)
 
   case string.split(result, ".") {
     [int_part, frac_part] -> {
+      let int_part = add_comma_grouping(int_part)
       let trimmed_frac =
         frac_part
         |> string.to_graphemes
@@ -48,35 +44,37 @@ pub fn format_currency_amount(
   }
 }
 
-/// Determines the maximum number of decimal places (precision) to use when formatting
-/// a given amount for a specific currency type.
+/// Adds comma grouping to an integer string.
+/// E.g., "1234567" becomes "1,234,567"
+fn add_comma_grouping(int_string: String) -> String {
+  int_string
+  |> string.to_graphemes
+  |> list.reverse
+  |> list.sized_chunk(3)
+  |> list.map(fn(chunk) {
+    chunk
+    |> list.reverse
+    |> string.join("")
+  })
+  |> list.reverse
+  |> string.join(",")
+}
+
+/// Determines the maximum number of decimal places (precision) to use
+/// when formatting a given currency amount.
 ///
-/// For cryptocurrencies, the precision varies based on the value of the amount:
+/// The precision varies based on the value of the amount:
 /// - 0 decimal places if the amount is zero
 /// - 4 decimal places if the amount is at least 1.0
 /// - 6 decimal places if the amount is at least 0.01 but less than 1.0
 /// - 8 decimal places for smaller amounts
-///
-/// For fiat currencies, the precision is always 2 decimal places.
-///
-/// # Arguments
-/// - `currency`: The currency, which can be either `Crypto` or `Fiat`.
-/// - `amount`: The numeric value to determine the precision for.
-///
-/// # Returns
-/// The maximum number of decimal places to use for formatting the amount.
-pub fn determine_max_precision(currency: Currency, amount: PositiveFloat) -> Int {
-  case currency {
-    Fiat(..) -> 2
-
-    Crypto(..) ->
-      positive_float.with_value(amount, fn(a) {
-        case a {
-          a if a == 0.0 -> 0
-          a if a >=. 1.0 -> 4
-          a if a >=. 0.01 -> 6
-          _ -> 8
-        }
-      })
-  }
+pub fn determine_max_precision(amount: PositiveFloat) -> Int {
+  positive_float.with_value(amount, fn(a) {
+    case a {
+      _ if a == 0.0 -> 0
+      _ if a >=. 1.0 -> 4
+      _ if a >=. 0.01 -> 6
+      _ -> 8
+    }
+  })
 }
