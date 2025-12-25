@@ -123,7 +123,7 @@ pub fn unwrap(p: NonNegativeFloat) -> Float {
 
 /// Returns the largest possible `NonNegativeFloat` representable in JavaScript.
 pub fn max() -> NonNegativeFloat {
-  NonNegativeFloat(max_float())
+  NonNegativeFloat(1.7976931348623157e308)
 }
 
 /// Returns `True` if the inner value is exactly `0.0`, otherwise `False`.
@@ -230,9 +230,6 @@ pub fn to_fixed_string(
       }
   }
 }
-
-@external(javascript, "../number_ffi.mjs", "max_number")
-fn max_float() -> Float
 
 @external(javascript, "../number_ffi.mjs", "to_fixed")
 fn to_fixed(f: Float, digits: Int) -> String
