@@ -54,16 +54,19 @@ pub fn resolve_page_data(
 
   let currencies = currency_repository.get_all()
 
-  let valid_converters = {
-    let validated = filter_valid_converters(client_state.converters, currencies)
+  let #(converters, rates) = {
+    let valid_converters = {
+      let validated =
+        filter_valid_converters(client_state.converters, currencies)
 
-    case validated {
-      [] -> [default_converter]
-      _ -> validated
+      case validated {
+        [] -> [default_converter]
+        _ -> validated
+      }
     }
-  }
 
-  let #(converters, rates) = fetch_rates(valid_converters, get_rate)
+    fetch_rates(valid_converters, get_rate)
+  }
 
   Ok(PageData(currencies:, rates:, converters:))
 }

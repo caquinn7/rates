@@ -5,7 +5,7 @@ import client/browser/history
 import client/browser/window
 import client/net/http_client
 import client/net/websocket_client
-import client/positive_float
+import client/non_negative_float
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
 import client/ui/button_dropdown.{Enter}
@@ -65,7 +65,7 @@ pub fn model_from_page_data(
       page_data.currencies,
       #(from, to),
       float.to_string(amount),
-      Some(positive_float.from_float_unsafe(rate)),
+      Some(non_negative_float.from_float_unsafe(rate)),
     )
   }
 
@@ -136,7 +136,7 @@ pub fn model_to_client_state(model: Model) {
       let amount =
         converter
         |> converter.get_parsed_amount(Left)
-        |> option.map(positive_float.unwrap)
+        |> option.map(non_negative_float.unwrap)
         |> option.unwrap(1.0)
 
       ConverterState(
@@ -254,7 +254,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               let model =
                 rate
                 |> option.map(fn(r) {
-                  let assert Ok(r) = positive_float.new(r)
+                  let assert Ok(r) = non_negative_float.new(r)
                   r
                 })
                 |> converter.with_rate(converter, _)

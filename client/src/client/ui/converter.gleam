@@ -1,7 +1,7 @@
 import client/currency/collection.{type CurrencyCollection} as currency_collection
 import client/currency/filtering as currency_filtering
 import client/currency/formatting as currency_formatting
-import client/positive_float.{type PositiveFloat}
+import client/non_negative_float.{type NonNegativeFloat}
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
 import client/ui/button_dropdown.{
@@ -27,7 +27,7 @@ pub type Converter {
     id: String,
     master_currency_list: List(Currency),
     inputs: #(ConverterInput, ConverterInput),
-    rate: Option(PositiveFloat),
+    rate: Option(NonNegativeFloat),
     last_edited: Side,
   )
 }
@@ -39,7 +39,7 @@ pub type ConverterInput {
 pub type AmountInput {
   AmountInput(
     raw: String,
-    parsed: Option(PositiveFloat),
+    parsed: Option(NonNegativeFloat),
     border_color: Option(RateChangeColor),
   )
 }
@@ -79,7 +79,7 @@ pub fn new(
   currencies: List(Currency),
   selected_currency_ids: #(Int, Int),
   left_amount: String,
-  rate: Option(PositiveFloat),
+  rate: Option(NonNegativeFloat),
 ) -> Result(Converter, NewConverterError) {
   let empty_converter = {
     let empty_converter_input = fn(side) {
@@ -152,8 +152,8 @@ pub fn with_rate(converter, rate) -> Converter {
 
 fn with_rate_with_custom_glow(
   converter: Converter,
-  rate: Option(PositiveFloat),
-  color_from_rate_change: fn(Option(PositiveFloat), Option(PositiveFloat)) ->
+  rate: Option(NonNegativeFloat),
+  color_from_rate_change: fn(Option(NonNegativeFloat), Option(NonNegativeFloat)) ->
     Option(RateChangeColor),
 ) -> Converter {
   // When a new exchange rate comes in, we want to:
@@ -188,11 +188,11 @@ fn with_rate_with_custom_glow(
       // Compute the value for the *opposite* field using the new rate
       let converted_amount = case edited_side {
         // converting from left to right
-        Left -> Some(positive_float.multiply(parsed_amount, rate_value))
+        Left -> Some(non_negative_float.multiply(parsed_amount, rate_value))
 
         // converting from right to left
         Right ->
-          case positive_float.try_divide(parsed_amount, rate_value) {
+          case non_negative_float.try_divide(parsed_amount, rate_value) {
             Error(_) -> panic as "rate should not be zero"
             Ok(x) -> Some(x)
           }
@@ -224,13 +224,13 @@ fn with_rate_with_custom_glow(
 }
 
 pub fn border_color_from_rate_change(
-  previous_rate: Option(PositiveFloat),
-  new_rate: Option(PositiveFloat),
+  previous_rate: Option(NonNegativeFloat),
+  new_rate: Option(NonNegativeFloat),
 ) -> Option(RateChangeColor) {
   case previous_rate, new_rate {
     Some(x), Some(y) if x == y -> Some(NoChange)
     Some(x), Some(y) ->
-      case positive_float.is_less_than(x, y) {
+      case non_negative_float.is_less_than(x, y) {
         False -> Some(Decreased)
         True -> Some(Increased)
       }
@@ -275,7 +275,7 @@ pub fn with_amount(
     })
   }
 
-  let map_successful_parse = fn(parsed_amount: PositiveFloat) {
+  let map_successful_parse = fn(parsed_amount: NonNegativeFloat) {
     // Update the side the user edited
     converter.inputs
     |> map_converter_inputs(side, fn(input) {
@@ -298,11 +298,14 @@ pub fn with_amount(
 
       let converted_amount = case side {
         Left ->
-          option.map(converter.rate, positive_float.multiply(parsed_amount, _))
+          option.map(converter.rate, non_negative_float.multiply(
+            parsed_amount,
+            _,
+          ))
 
         Right ->
           option.map(converter.rate, fn(rate_value) {
-            case positive_float.try_divide(parsed_amount, rate_value) {
+            case non_negative_float.try_divide(parsed_amount, rate_value) {
               Ok(x) -> x
               _ -> panic as "rate should not be zero"
             }
@@ -330,7 +333,7 @@ pub fn with_amount(
   }
 
   let sanitized_amount = string.replace(raw_amount, ",", "")
-  let inputs = case positive_float.parse(sanitized_amount) {
+  let inputs = case non_negative_float.parse(sanitized_amount) {
     Error(_) -> map_failed_parse()
     Ok(parsed) -> map_successful_parse(parsed)
   }
@@ -458,7 +461,7 @@ pub fn get_selected_currency_id(converter: Converter, side: Side) -> Int {
 pub fn get_parsed_amount(
   converter: Converter,
   side: Side,
-) -> Option(PositiveFloat) {
+) -> Option(NonNegativeFloat) {
   get_converter_input(converter, side).amount_input.parsed
 }
 

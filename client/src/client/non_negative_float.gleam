@@ -8,33 +8,33 @@ import gleam/string
 
 /// A non-negative floating-point number.
 ///
-/// The `PositiveFloat` type guarantees that the wrapped `Float` is
+/// The `NonNegativeFloat` type guarantees that the wrapped `Float` is
 /// greater than or equal to zero. Use the `new` or `parse` functions
 /// to construct values of this type safely.
-pub opaque type PositiveFloat {
-  PositiveFloat(Float)
+pub opaque type NonNegativeFloat {
+  NonNegativeFloat(Float)
 }
 
-/// Creates a `PositiveFloat` from a `Float`, returning an error if the value is negative.
+/// Creates a `NonNegativeFloat` from a `Float`, returning an error if the value is negative.
 ///
 /// Returns:
-/// - `Ok(PositiveFloat)` if the float is greater than or equal to zero
+/// - `Ok(NonNegativeFloat)` if the float is greater than or equal to zero
 /// - `Error(Nil)` if the float is negative
-pub fn new(f: Float) -> Result(PositiveFloat, Nil) {
+pub fn new(f: Float) -> Result(NonNegativeFloat, Nil) {
   case f >=. 0.0 {
     False -> Error(Nil)
-    True -> Ok(PositiveFloat(f))
+    True -> Ok(NonNegativeFloat(f))
   }
 }
 
-pub fn from_float_unsafe(x: Float) -> PositiveFloat {
+pub fn from_float_unsafe(x: Float) -> NonNegativeFloat {
   case new(x) {
-    Error(_) -> panic as "Expected a positive value"
+    Error(_) -> panic as "Expected a non-negative value"
     Ok(p) -> p
   }
 }
 
-/// Parses a string into a `PositiveFloat`, validating formatting and positivity.
+/// Parses a string into a `NonNegativeFloat`, validating formatting and positivity.
 ///
 /// Accepts:
 /// - Optional commas in the integer portion (e.g., `"1,000.25"`)
@@ -45,7 +45,7 @@ pub fn from_float_unsafe(x: Float) -> PositiveFloat {
 /// - Invalid comma grouping (e.g., `"1,2,3"`)
 /// - Scientific notation (e.g., `"1e10"`)
 /// - Negative values or non-numeric input
-pub fn parse(str: String) -> Result(PositiveFloat, Nil) {
+pub fn parse(str: String) -> Result(NonNegativeFloat, Nil) {
   let drop_trailing_decimal = fn(str) {
     case string.ends_with(str, ".") {
       False -> str
@@ -104,7 +104,7 @@ pub fn parse(str: String) -> Result(PositiveFloat, Nil) {
   |> result.try(new)
 }
 
-/// Applies a function to the inner float value of a `PositiveFloat` and returns the result.
+/// Applies a function to the inner float value of a `NonNegativeFloat` and returns the result.
 ///
 /// This is useful for inspecting or transforming the float without unwrapping directly.
 ///
@@ -112,66 +112,66 @@ pub fn parse(str: String) -> Result(PositiveFloat, Nil) {
 /// ```gleam
 /// let str_value = with_value(p, float.to_string)
 /// ```
-pub fn with_value(p: PositiveFloat, fun: fn(Float) -> a) -> a {
-  let PositiveFloat(value) = p
+pub fn with_value(p: NonNegativeFloat, fun: fn(Float) -> a) -> a {
+  let NonNegativeFloat(value) = p
   fun(value)
 }
 
-pub fn unwrap(p: PositiveFloat) -> Float {
+pub fn unwrap(p: NonNegativeFloat) -> Float {
   with_value(p, function.identity)
 }
 
-/// Returns the largest possible `PositiveFloat` representable in JavaScript.
-pub fn max() -> PositiveFloat {
-  PositiveFloat(max_float())
+/// Returns the largest possible `NonNegativeFloat` representable in JavaScript.
+pub fn max() -> NonNegativeFloat {
+  NonNegativeFloat(max_float())
 }
 
 /// Returns `True` if the inner value is exactly `0.0`, otherwise `False`.
-pub fn is_zero(p: PositiveFloat) -> Bool {
+pub fn is_zero(p: NonNegativeFloat) -> Bool {
   with_value(p, fn(f) { f == 0.0 })
 }
 
-pub fn multiply(a: PositiveFloat, b: PositiveFloat) -> PositiveFloat {
+pub fn multiply(a: NonNegativeFloat, b: NonNegativeFloat) -> NonNegativeFloat {
   use a <- with_value(a)
   use b <- with_value(b)
-  PositiveFloat(a *. b)
+  NonNegativeFloat(a *. b)
 }
 
-/// Attempts to divide two `PositiveFloat` values, returning a `Result`.
+/// Attempts to divide two `NonNegativeFloat` values, returning a `Result`.
 ///
-/// If the division is successful, returns `Ok(PositiveFloat)` with the result.
+/// If the division is successful, returns `Ok(NonNegativeFloat)` with the result.
 /// If the operation fails (e.g., division by zero), returns `Error(Nil)`.
 ///
 /// # Arguments
-/// - `a`: The dividend as a `PositiveFloat`.
-/// - `b`: The divisor as a `PositiveFloat`.
+/// - `a`: The dividend as a `NonNegativeFloat`.
+/// - `b`: The divisor as a `NonNegativeFloat`.
 ///
 /// # Returns
-/// - `Result(PositiveFloat, Nil)`: The result of the division or an error.
+/// - `Result(NonNegativeFloat, Nil)`: The result of the division or an error.
 pub fn try_divide(
-  a: PositiveFloat,
-  b: PositiveFloat,
-) -> Result(PositiveFloat, Nil) {
+  a: NonNegativeFloat,
+  b: NonNegativeFloat,
+) -> Result(NonNegativeFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
-  result.map(float.divide(a, b), PositiveFloat)
+  result.map(float.divide(a, b), NonNegativeFloat)
 }
 
-/// Returns `True` if the first `PositiveFloat` is strictly less than the second, otherwise `False`.
-pub fn is_less_than(a: PositiveFloat, b: PositiveFloat) -> Bool {
+/// Returns `True` if the first `NonNegativeFloat` is strictly less than the second, otherwise `False`.
+pub fn is_less_than(a: NonNegativeFloat, b: NonNegativeFloat) -> Bool {
   use a <- with_value(a)
   use b <- with_value(b)
   a <. b
 }
 
-/// Returns `True` if the first `PositiveFloat` is strictly greater than the second, otherwise `False`.
-pub fn is_greater_than(a: PositiveFloat, b: PositiveFloat) -> Bool {
+/// Returns `True` if the first `NonNegativeFloat` is strictly greater than the second, otherwise `False`.
+pub fn is_greater_than(a: NonNegativeFloat, b: NonNegativeFloat) -> Bool {
   use a <- with_value(a)
   use b <- with_value(b)
   a >. b
 }
 
-/// Converts a `PositiveFloat` to its string representation.
+/// Converts a `NonNegativeFloat` to its string representation.
 ///
 /// This function returns the standard string representation of the underlying
 /// float value, which may include decimal places or scientific notation for
@@ -180,7 +180,7 @@ pub fn is_greater_than(a: PositiveFloat, b: PositiveFloat) -> Bool {
 /// ## Notes
 /// - For precise decimal formatting, consider using `to_fixed_string` instead.
 /// - The output format follows Gleam's `float.to_string` behavior.
-pub fn to_string(p: PositiveFloat) -> String {
+pub fn to_string(p: NonNegativeFloat) -> String {
   with_value(p, float.to_string)
 }
 
@@ -189,7 +189,7 @@ pub type ToFixedStringError {
   UnexpectedFormat
 }
 
-/// Converts a `PositiveFloat` to a string with fixed decimal precision.
+/// Converts a `NonNegativeFloat` to a string with fixed decimal precision.
 ///
 /// - The number is formatted using JavaScript’s native `Number.prototype.toFixed`
 ///   method via FFI, which rounds the number to exactly `precision` digits after
@@ -204,7 +204,7 @@ pub type ToFixedStringError {
 ///
 /// ## Examples
 /// ```gleam
-/// let Ok(p) = positive_float.new(1234.567)
+/// let Ok(p) = non_negative_float.new(1234.567)
 /// to_fixed_string(p, 2) // => Ok("1234.57")
 ///
 /// to_fixed_string(p, 0) // => Ok("1235")
@@ -214,7 +214,7 @@ pub type ToFixedStringError {
 /// - This function depends on JavaScript behavior. For example, `toFixed` performs rounding,
 ///   so `1234.567` with precision 2 becomes `"1234.57"` rather than being truncated.
 pub fn to_fixed_string(
-  p: PositiveFloat,
+  p: NonNegativeFloat,
   precision: Int,
 ) -> Result(String, ToFixedStringError) {
   use <- bool.guard(precision < 0 || precision > 100, Error(InvalidPrecision))

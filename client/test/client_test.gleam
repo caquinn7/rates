@@ -1,5 +1,5 @@
 import client.{Model}
-import client/positive_float
+import client/non_negative_float
 import client/side.{Left, Right}
 import client/ui/converter
 import gleam/option.{None, Some}
@@ -68,13 +68,13 @@ pub fn model_from_page_data_constructs_model_test() {
 
   // Check converter amounts
   assert converter.get_parsed_amount(converter1, Left)
-    == Some(positive_float.from_float_unsafe(100.0))
+    == Some(non_negative_float.from_float_unsafe(100.0))
   assert converter.get_parsed_amount(converter2, Left)
-    == Some(positive_float.from_float_unsafe(2.5))
+    == Some(non_negative_float.from_float_unsafe(2.5))
 
   // Check converter rates
-  assert converter1.rate == Some(positive_float.from_float_unsafe(0.000015))
-  assert converter2.rate == Some(positive_float.from_float_unsafe(15.5))
+  assert converter1.rate == Some(non_negative_float.from_float_unsafe(0.000015))
+  assert converter2.rate == Some(non_negative_float.from_float_unsafe(15.5))
 }
 
 pub fn model_from_page_data_filters_out_converters_without_a_matching_rate_response_test() {
@@ -129,7 +129,7 @@ pub fn model_from_page_data_filters_out_converters_without_a_matching_rate_respo
   assert converter.get_selected_currency_id(converter1, Left) == 1
   assert converter.get_selected_currency_id(converter1, Right) == 2
   assert converter.get_parsed_amount(converter1, Left)
-    == Some(positive_float.from_float_unsafe(100.0))
+    == Some(non_negative_float.from_float_unsafe(100.0))
 }
 
 // model_to_client_state

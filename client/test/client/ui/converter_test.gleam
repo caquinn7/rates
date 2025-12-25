@@ -1,7 +1,7 @@
 import client/currency/collection as currency_collection
 import client/currency/filtering as currency_filtering
 import client/currency/formatting as currency_formatting
-import client/positive_float
+import client/non_negative_float
 import client/side.{Left, Right}
 import client/ui/button_dropdown.{ArrowDown, ArrowUp, Enter, Other}
 import client/ui/converter.{
@@ -49,7 +49,7 @@ pub fn new_returns_ok_with_valid_inputs_test() {
     Crypto(2, "ETH", "Ethereum", None),
   ]
 
-  let rate = Some(positive_float.from_float_unsafe(2.5))
+  let rate = Some(non_negative_float.from_float_unsafe(2.5))
   let result =
     converter.new("my-converter", currencies, #(1, 2), "100.50", rate)
 
@@ -75,7 +75,7 @@ pub fn new_returns_ok_with_valid_inputs_test() {
   assert converter.rate == rate
 
   assert left_converter_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(100.5))
+    == Some(non_negative_float.from_float_unsafe(100.5))
 }
 
 // with_master_currency_list
@@ -86,7 +86,7 @@ pub fn with_master_currency_list_updates_master_list_test() {
       "test-id",
       [],
       #(empty_converter_input(), empty_converter_input()),
-      Some(positive_float.from_float_unsafe(100.0)),
+      Some(non_negative_float.from_float_unsafe(100.0)),
       Right,
     )
 
@@ -163,7 +163,7 @@ pub fn with_rate_calculates_right_side_when_left_edited_test() {
   // Set up converter with valid amount on left side
   let left_input =
     ConverterInput(
-      AmountInput("100", Some(positive_float.from_float_unsafe(100.0)), None),
+      AmountInput("100", Some(non_negative_float.from_float_unsafe(100.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -174,19 +174,19 @@ pub fn with_rate_calculates_right_side_when_left_edited_test() {
       last_edited: Left,
     )
 
-  let rate = Some(positive_float.from_float_unsafe(2.5))
+  let rate = Some(non_negative_float.from_float_unsafe(2.5))
   let result = converter.with_rate(target, rate)
 
   // Left side should remain unchanged (user input preserved)
   assert converter.get_converter_input(result, Left).amount_input.raw == "100"
   assert converter.get_converter_input(result, Left).amount_input.parsed
-    == Some(positive_float.from_float_unsafe(100.0))
+    == Some(non_negative_float.from_float_unsafe(100.0))
 
   // Right side should be calculated: 100 * 2.5 = 250
   let right_input = converter.get_converter_input(result, Right)
   assert right_input.amount_input.raw == "250"
   assert right_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(250.0))
+    == Some(non_negative_float.from_float_unsafe(250.0))
 
   // Rate should be updated
   assert result.rate == rate
@@ -199,7 +199,7 @@ pub fn with_rate_calculates_left_side_when_right_edited_test() {
   // Set up converter with valid amount on right side
   let right_input =
     ConverterInput(
-      AmountInput("500", Some(positive_float.from_float_unsafe(500.0)), None),
+      AmountInput("500", Some(non_negative_float.from_float_unsafe(500.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -210,19 +210,19 @@ pub fn with_rate_calculates_left_side_when_right_edited_test() {
       last_edited: Right,
     )
 
-  let rate = Some(positive_float.from_float_unsafe(4.0))
+  let rate = Some(non_negative_float.from_float_unsafe(4.0))
   let result = converter.with_rate(target, rate)
 
   // Right side should remain unchanged (user input preserved)
   assert converter.get_converter_input(result, Right).amount_input.raw == "500"
   assert converter.get_converter_input(result, Right).amount_input.parsed
-    == Some(positive_float.from_float_unsafe(500.0))
+    == Some(non_negative_float.from_float_unsafe(500.0))
 
   // Left side should be calculated: 500 / 4.0 = 125
   let left_input = converter.get_converter_input(result, Left)
   assert left_input.amount_input.raw == "125"
   assert left_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(125.0))
+    == Some(non_negative_float.from_float_unsafe(125.0))
 
   // Rate should be updated
   assert result.rate == rate
@@ -247,7 +247,7 @@ pub fn with_rate_no_conversion_when_no_parsed_amount_test() {
       last_edited: Left,
     )
 
-  let rate = Some(positive_float.from_float_unsafe(2.5))
+  let rate = Some(non_negative_float.from_float_unsafe(2.5))
   let result = converter.with_rate(target, rate)
 
   // Neither side should be recalculated since there's no valid parsed amount
@@ -270,7 +270,7 @@ pub fn with_rate_handles_none_rate_when_left_side_is_last_edited_test() {
   // Set up converter with valid amount on left side
   let left_input =
     ConverterInput(
-      AmountInput("100", Some(positive_float.from_float_unsafe(100.0)), None),
+      AmountInput("100", Some(non_negative_float.from_float_unsafe(100.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -278,7 +278,7 @@ pub fn with_rate_handles_none_rate_when_left_side_is_last_edited_test() {
     Converter(
       ..empty_converter(),
       inputs: #(left_input, empty_converter_input()),
-      rate: Some(positive_float.from_float_unsafe(1.0)),
+      rate: Some(non_negative_float.from_float_unsafe(1.0)),
       last_edited: Left,
     )
 
@@ -290,7 +290,7 @@ pub fn with_rate_handles_none_rate_when_left_side_is_last_edited_test() {
 
   assert left_amount_input.raw == "100"
   assert left_amount_input.parsed
-    == Some(positive_float.from_float_unsafe(100.0))
+    == Some(non_negative_float.from_float_unsafe(100.0))
 
   // Right side should show "price not tracked" when rate is None
   let right_amount_input =
@@ -310,7 +310,7 @@ pub fn with_rate_handles_none_rate_when_right_side_is_last_edited_test() {
   // Set up converter with valid amount on right side
   let right_input =
     ConverterInput(
-      AmountInput("250", Some(positive_float.from_float_unsafe(250.0)), None),
+      AmountInput("250", Some(non_negative_float.from_float_unsafe(250.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -318,7 +318,7 @@ pub fn with_rate_handles_none_rate_when_right_side_is_last_edited_test() {
     Converter(
       ..empty_converter(),
       inputs: #(empty_converter_input(), right_input),
-      rate: Some(positive_float.from_float_unsafe(1.0)),
+      rate: Some(non_negative_float.from_float_unsafe(1.0)),
       last_edited: Right,
     )
 
@@ -330,7 +330,7 @@ pub fn with_rate_handles_none_rate_when_right_side_is_last_edited_test() {
 
   assert right_amount_input.raw == "250"
   assert right_amount_input.parsed
-    == Some(positive_float.from_float_unsafe(250.0))
+    == Some(non_negative_float.from_float_unsafe(250.0))
 
   // Left side should show "price not tracked" when rate is None
   let left_amount_input =
@@ -350,7 +350,7 @@ pub fn with_rate_transitions_from_none_to_some_test() {
   // Set up converter with None rate and "price not tracked" showing
   let left_input =
     ConverterInput(
-      AmountInput("100", Some(positive_float.from_float_unsafe(100.0)), None),
+      AmountInput("100", Some(non_negative_float.from_float_unsafe(100.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -368,7 +368,7 @@ pub fn with_rate_transitions_from_none_to_some_test() {
     )
 
   // Transition to valid rate
-  let rate = Some(positive_float.from_float_unsafe(3.0))
+  let rate = Some(non_negative_float.from_float_unsafe(3.0))
   let result = converter.with_rate(target, rate)
 
   // Left side should remain unchanged
@@ -377,7 +377,7 @@ pub fn with_rate_transitions_from_none_to_some_test() {
 
   assert left_amount_input.raw == "100"
   assert left_amount_input.parsed
-    == Some(positive_float.from_float_unsafe(100.0))
+    == Some(non_negative_float.from_float_unsafe(100.0))
 
   // Right side should now have converted value: 100 * 3.0 = 300
   let right_amount_input =
@@ -385,7 +385,7 @@ pub fn with_rate_transitions_from_none_to_some_test() {
 
   assert right_amount_input.raw == "300"
   assert right_amount_input.parsed
-    == Some(positive_float.from_float_unsafe(300.0))
+    == Some(non_negative_float.from_float_unsafe(300.0))
 
   // Rate should be updated
   assert result.rate == rate
@@ -406,7 +406,7 @@ pub fn with_rate_sets_border_color_to_none_when_no_parsed_amount_test() {
       last_edited: Left,
     )
 
-  let rate = Some(positive_float.from_float_unsafe(2.5))
+  let rate = Some(non_negative_float.from_float_unsafe(2.5))
   let result = converter.with_rate(target, rate)
 
   // Right side should not glow when there's no conversion
@@ -418,7 +418,7 @@ pub fn with_rate_sets_border_color_to_none_when_rate_is_none_test() {
   // Set up converter with valid amount
   let left_input =
     ConverterInput(
-      AmountInput("100", Some(positive_float.from_float_unsafe(100.0)), None),
+      AmountInput("100", Some(non_negative_float.from_float_unsafe(100.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -439,7 +439,7 @@ pub fn with_rate_sets_border_color_to_none_when_rate_is_none_test() {
 pub fn with_rate_sets_right_border_color_to_some_when_left_side_edited_test() {
   let left_input =
     ConverterInput(
-      AmountInput("50", Some(positive_float.from_float_unsafe(50.0)), None),
+      AmountInput("50", Some(non_negative_float.from_float_unsafe(50.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -450,7 +450,7 @@ pub fn with_rate_sets_right_border_color_to_some_when_left_side_edited_test() {
       last_edited: Left,
     )
 
-  let rate = Some(positive_float.from_float_unsafe(3.0))
+  let rate = Some(non_negative_float.from_float_unsafe(3.0))
   let result = converter.with_rate(target, rate)
 
   // Right side should glow
@@ -464,7 +464,7 @@ pub fn with_rate_sets_right_border_color_to_some_when_left_side_edited_test() {
 pub fn with_rate_sets_left_border_color_to_some_when_right_side_edited_test() {
   let right_input =
     ConverterInput(
-      AmountInput("200", Some(positive_float.from_float_unsafe(200.0)), None),
+      AmountInput("200", Some(non_negative_float.from_float_unsafe(200.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -475,7 +475,7 @@ pub fn with_rate_sets_left_border_color_to_some_when_right_side_edited_test() {
       last_edited: Right,
     )
 
-  let rate = Some(positive_float.from_float_unsafe(5.0))
+  let rate = Some(non_negative_float.from_float_unsafe(5.0))
   let result = converter.with_rate(target, rate)
 
   // // Left side should glow
@@ -489,35 +489,35 @@ pub fn with_rate_sets_left_border_color_to_some_when_right_side_edited_test() {
 // border_color_from_rate_change
 
 pub fn border_color_from_rate_change_returns_no_change_when_rates_equal_test() {
-  let prev = Some(positive_float.from_float_unsafe(2.0))
-  let new = Some(positive_float.from_float_unsafe(2.0))
+  let prev = Some(non_negative_float.from_float_unsafe(2.0))
+  let new = Some(non_negative_float.from_float_unsafe(2.0))
 
   assert converter.border_color_from_rate_change(prev, new) == Some(NoChange)
 }
 
 pub fn border_color_from_rate_change_returns_increased_when_rate_increases_test() {
-  let prev = Some(positive_float.from_float_unsafe(2.0))
-  let new = Some(positive_float.from_float_unsafe(3.0))
+  let prev = Some(non_negative_float.from_float_unsafe(2.0))
+  let new = Some(non_negative_float.from_float_unsafe(3.0))
 
   assert converter.border_color_from_rate_change(prev, new) == Some(Increased)
 }
 
 pub fn border_color_from_rate_change_returns_decreased_when_rate_decreases_test() {
-  let prev = Some(positive_float.from_float_unsafe(3.0))
-  let new = Some(positive_float.from_float_unsafe(2.0))
+  let prev = Some(non_negative_float.from_float_unsafe(3.0))
+  let new = Some(non_negative_float.from_float_unsafe(2.0))
 
   assert converter.border_color_from_rate_change(prev, new) == Some(Decreased)
 }
 
 pub fn border_color_from_rate_change_returns_no_change_when_no_previous_rate_test() {
   let prev = None
-  let new = Some(positive_float.from_float_unsafe(2.0))
+  let new = Some(non_negative_float.from_float_unsafe(2.0))
 
   assert converter.border_color_from_rate_change(prev, new) == Some(NoChange)
 }
 
 pub fn border_color_from_rate_change_returns_none_when_new_rate_is_none_test() {
-  let prev = Some(positive_float.from_float_unsafe(2.0))
+  let prev = Some(non_negative_float.from_float_unsafe(2.0))
   let new = None
 
   assert converter.border_color_from_rate_change(prev, new) == None
@@ -528,7 +528,7 @@ pub fn border_color_from_rate_change_returns_none_when_new_rate_is_none_test() {
 pub fn with_glow_cleared_sets_border_color_to_none_test() {
   let left_input =
     ConverterInput(
-      AmountInput("50", Some(positive_float.from_float_unsafe(50.0)), None),
+      AmountInput("50", Some(non_negative_float.from_float_unsafe(50.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -538,7 +538,7 @@ pub fn with_glow_cleared_sets_border_color_to_none_test() {
       inputs: #(left_input, empty_converter_input()),
       last_edited: Left,
     )
-    |> converter.with_rate(Some(positive_float.from_float_unsafe(3.0)))
+    |> converter.with_rate(Some(non_negative_float.from_float_unsafe(3.0)))
 
   assert converter.get_converter_input(target, Right).amount_input.border_color
     != None
@@ -556,7 +556,7 @@ pub fn with_amount_successful_parse_with_rate_left_to_right_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(positive_float.from_float_unsafe(2.5)),
+      rate: Some(non_negative_float.from_float_unsafe(2.5)),
       // Different from the side we'll edit
       last_edited: Right,
     )
@@ -567,11 +567,11 @@ pub fn with_amount_successful_parse_with_rate_left_to_right_test() {
   let left_input = converter.get_converter_input(result, Left)
   assert left_input.amount_input.raw == "100"
   assert left_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(100.0))
+    == Some(non_negative_float.from_float_unsafe(100.0))
 
   // Right side should be converted: 100 * 2.5 = 250
   let right_input = converter.get_converter_input(result, Right)
-  let expected_converted_amount = positive_float.from_float_unsafe(250.0)
+  let expected_converted_amount = non_negative_float.from_float_unsafe(250.0)
   let expected_raw =
     currency_formatting.format_currency_amount(expected_converted_amount)
 
@@ -582,7 +582,7 @@ pub fn with_amount_successful_parse_with_rate_left_to_right_test() {
   assert result.last_edited == Left
 
   // Rate should remain unchanged
-  assert result.rate == Some(positive_float.from_float_unsafe(2.5))
+  assert result.rate == Some(non_negative_float.from_float_unsafe(2.5))
 }
 
 pub fn with_amount_successful_parse_with_rate_right_to_left_test() {
@@ -590,7 +590,7 @@ pub fn with_amount_successful_parse_with_rate_right_to_left_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(positive_float.from_float_unsafe(4.0)),
+      rate: Some(non_negative_float.from_float_unsafe(4.0)),
       // Different from the side we'll edit
       last_edited: Left,
     )
@@ -601,11 +601,11 @@ pub fn with_amount_successful_parse_with_rate_right_to_left_test() {
   let right_input = converter.get_converter_input(result, Right)
   assert right_input.amount_input.raw == "200"
   assert right_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(200.0))
+    == Some(non_negative_float.from_float_unsafe(200.0))
 
   // Left side should be converted: 200 / 4.0 = 50
   let left_input = converter.get_converter_input(result, Left)
-  let expected_converted_amount = positive_float.from_float_unsafe(50.0)
+  let expected_converted_amount = non_negative_float.from_float_unsafe(50.0)
   let expected_raw =
     currency_formatting.format_currency_amount(expected_converted_amount)
 
@@ -616,7 +616,7 @@ pub fn with_amount_successful_parse_with_rate_right_to_left_test() {
   assert result.last_edited == Right
 
   // Rate should remain unchanged
-  assert result.rate == Some(positive_float.from_float_unsafe(4.0))
+  assert result.rate == Some(non_negative_float.from_float_unsafe(4.0))
 }
 
 pub fn with_amount_successful_parse_without_rate_test() {
@@ -629,7 +629,7 @@ pub fn with_amount_successful_parse_without_rate_test() {
   let left_input = converter.get_converter_input(result, Left)
   assert left_input.amount_input.raw == "100"
   assert left_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(100.0))
+    == Some(non_negative_float.from_float_unsafe(100.0))
 
   // Right side should be empty (no rate means no conversion)
   let right_input = converter.get_converter_input(result, Right)
@@ -647,13 +647,13 @@ pub fn with_amount_failed_parse_clears_opposite_side_test() {
   // Set up converter with existing amounts on both sides
   let left_input =
     ConverterInput(
-      AmountInput("50", Some(positive_float.from_float_unsafe(50.0)), None),
+      AmountInput("50", Some(non_negative_float.from_float_unsafe(50.0)), None),
       empty_converter_input().currency_selector,
     )
 
   let right_input =
     ConverterInput(
-      AmountInput("100", Some(positive_float.from_float_unsafe(100.0)), None),
+      AmountInput("100", Some(non_negative_float.from_float_unsafe(100.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -661,7 +661,7 @@ pub fn with_amount_failed_parse_clears_opposite_side_test() {
     Converter(
       ..empty_converter(),
       inputs: #(left_input, right_input),
-      rate: Some(positive_float.from_float_unsafe(2.0)),
+      rate: Some(non_negative_float.from_float_unsafe(2.0)),
       last_edited: Right,
     )
 
@@ -682,7 +682,7 @@ pub fn with_amount_failed_parse_clears_opposite_side_test() {
   assert result.last_edited == Left
 
   // Rate should remain unchanged
-  assert result.rate == Some(positive_float.from_float_unsafe(2.0))
+  assert result.rate == Some(non_negative_float.from_float_unsafe(2.0))
 }
 
 pub fn with_amount_failed_parse_preserves_raw_input_test() {
@@ -709,13 +709,13 @@ pub fn with_amount_empty_string_clears_both_sides_test() {
   // Set up converter with existing amounts on both sides
   let left_input =
     ConverterInput(
-      AmountInput("100", Some(positive_float.from_float_unsafe(100.0)), None),
+      AmountInput("100", Some(non_negative_float.from_float_unsafe(100.0)), None),
       empty_converter_input().currency_selector,
     )
 
   let right_input =
     ConverterInput(
-      AmountInput("250", Some(positive_float.from_float_unsafe(250.0)), None),
+      AmountInput("250", Some(non_negative_float.from_float_unsafe(250.0)), None),
       empty_converter_input().currency_selector,
     )
 
@@ -723,7 +723,7 @@ pub fn with_amount_empty_string_clears_both_sides_test() {
     Converter(
       ..empty_converter(),
       inputs: #(left_input, right_input),
-      rate: Some(positive_float.from_float_unsafe(2.5)),
+      rate: Some(non_negative_float.from_float_unsafe(2.5)),
       last_edited: Right,
     )
 
@@ -744,7 +744,7 @@ pub fn with_amount_empty_string_clears_both_sides_test() {
   assert result.last_edited == Left
 
   // Rate should remain unchanged
-  assert result.rate == Some(positive_float.from_float_unsafe(2.5))
+  assert result.rate == Some(non_negative_float.from_float_unsafe(2.5))
 }
 
 pub fn with_amount_zero_input_converts_correctly_test() {
@@ -752,7 +752,7 @@ pub fn with_amount_zero_input_converts_correctly_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(positive_float.from_float_unsafe(2.5)),
+      rate: Some(non_negative_float.from_float_unsafe(2.5)),
       last_edited: Right,
     )
 
@@ -762,11 +762,11 @@ pub fn with_amount_zero_input_converts_correctly_test() {
   let left_input = converter.get_converter_input(result, Left)
   assert left_input.amount_input.raw == "0"
   assert left_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(0.0))
+    == Some(non_negative_float.from_float_unsafe(0.0))
 
   // Right side should be converted: 0 * 2.5 = 0
   let right_input = converter.get_converter_input(result, Right)
-  let expected_converted_amount = positive_float.from_float_unsafe(0.0)
+  let expected_converted_amount = non_negative_float.from_float_unsafe(0.0)
   let expected_raw =
     currency_formatting.format_currency_amount(expected_converted_amount)
 
@@ -777,7 +777,7 @@ pub fn with_amount_zero_input_converts_correctly_test() {
   assert result.last_edited == Left
 
   // Rate should remain unchanged
-  assert result.rate == Some(positive_float.from_float_unsafe(2.5))
+  assert result.rate == Some(non_negative_float.from_float_unsafe(2.5))
 }
 
 pub fn with_amount_removes_commas_before_parsing_test() {
@@ -785,7 +785,7 @@ pub fn with_amount_removes_commas_before_parsing_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(positive_float.from_float_unsafe(2.0)),
+      rate: Some(non_negative_float.from_float_unsafe(2.0)),
       last_edited: Right,
     )
 
@@ -796,13 +796,13 @@ pub fn with_amount_removes_commas_before_parsing_test() {
   let left_input = converter.get_converter_input(result, Left)
   assert left_input.amount_input.raw == "1,000"
   assert left_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(1000.0))
+    == Some(non_negative_float.from_float_unsafe(1000.0))
 
   // Right side should be converted: 1000 * 2.0 = 2000
   let right_input = converter.get_converter_input(result, Right)
   assert right_input.amount_input.raw == "2,000"
   assert right_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(2000.0))
+    == Some(non_negative_float.from_float_unsafe(2000.0))
 }
 
 pub fn with_amount_handles_invalid_comma_placement_test() {
@@ -810,7 +810,7 @@ pub fn with_amount_handles_invalid_comma_placement_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(positive_float.from_float_unsafe(2.0)),
+      rate: Some(non_negative_float.from_float_unsafe(2.0)),
       last_edited: Right,
     )
 
@@ -821,13 +821,13 @@ pub fn with_amount_handles_invalid_comma_placement_test() {
   let left_input = converter.get_converter_input(result, Left)
   assert left_input.amount_input.raw == "100"
   assert left_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(100.0))
+    == Some(non_negative_float.from_float_unsafe(100.0))
 
   // Right side should be converted: 100 * 2.0 = 200
   let right_input = converter.get_converter_input(result, Right)
   assert right_input.amount_input.raw == "200"
   assert right_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(200.0))
+    == Some(non_negative_float.from_float_unsafe(200.0))
 }
 
 pub fn with_amount_handles_multiple_commas_test() {
@@ -835,7 +835,7 @@ pub fn with_amount_handles_multiple_commas_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(positive_float.from_float_unsafe(1.0)),
+      rate: Some(non_negative_float.from_float_unsafe(1.0)),
       last_edited: Right,
     )
 
@@ -846,13 +846,13 @@ pub fn with_amount_handles_multiple_commas_test() {
   let left_input = converter.get_converter_input(result, Left)
   assert left_input.amount_input.raw == "1,234,567"
   assert left_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(1_234_567.0))
+    == Some(non_negative_float.from_float_unsafe(1_234_567.0))
 
   // Right side should be the same with rate 1.0
   let right_input = converter.get_converter_input(result, Right)
   assert right_input.amount_input.raw == "1,234,567"
   assert right_input.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(1_234_567.0))
+    == Some(non_negative_float.from_float_unsafe(1_234_567.0))
 }
 
 // with_toggled_dropdown
@@ -1145,7 +1145,7 @@ pub fn to_rate_request_extracts_currency_ids_test() {
 pub fn map_converter_inputs_only_updates_targeted_side_test() {
   let left_input =
     ConverterInput(
-      AmountInput("100", Some(positive_float.from_float_unsafe(100.0)), None),
+      AmountInput("100", Some(non_negative_float.from_float_unsafe(100.0)), None),
       CurrencySelector(
         "left-selector",
         True,
@@ -1158,7 +1158,7 @@ pub fn map_converter_inputs_only_updates_targeted_side_test() {
 
   let right_input =
     ConverterInput(
-      AmountInput("200", Some(positive_float.from_float_unsafe(200.0)), None),
+      AmountInput("200", Some(non_negative_float.from_float_unsafe(200.0)), None),
       CurrencySelector(
         "right-selector",
         False,
@@ -1178,7 +1178,7 @@ pub fn map_converter_inputs_only_updates_targeted_side_test() {
         ..input,
         amount_input: AmountInput(
           "150",
-          Some(positive_float.from_float_unsafe(150.0)),
+          Some(non_negative_float.from_float_unsafe(150.0)),
           None,
         ),
       )
@@ -1187,7 +1187,7 @@ pub fn map_converter_inputs_only_updates_targeted_side_test() {
   // Left side should be updated
   assert { updated_inputs.0 }.amount_input.raw == "150"
   assert { updated_inputs.0 }.amount_input.parsed
-    == Some(positive_float.from_float_unsafe(150.0))
+    == Some(non_negative_float.from_float_unsafe(150.0))
 
   // Right side should remain completely unchanged
   assert updated_inputs.1 == right_input
