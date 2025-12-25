@@ -46,10 +46,13 @@ pub fn unwrap(p: PositiveFloat) -> Float {
   with_value(p, function.identity)
 }
 
-pub fn multiply(a: PositiveFloat, b: PositiveFloat) -> PositiveFloat {
+pub fn multiply(
+  a: PositiveFloat,
+  b: PositiveFloat,
+) -> Result(PositiveFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
-  PositiveFloat(a *. b)
+  result.map(safe_multiply(a, b), PositiveFloat)
 }
 
 /// Attempts to divide two `PositiveFloat` values, returning a `Result`.
@@ -63,10 +66,7 @@ pub fn multiply(a: PositiveFloat, b: PositiveFloat) -> PositiveFloat {
 ///
 /// # Returns
 /// - `Result(PositiveFloat, Nil)`: The result of the division or an error.
-pub fn try_divide(
-  a: PositiveFloat,
-  b: PositiveFloat,
-) -> Result(PositiveFloat, Nil) {
+pub fn divide(a: PositiveFloat, b: PositiveFloat) -> Result(PositiveFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
   result.map(float.divide(a, b), PositiveFloat)
@@ -85,3 +85,7 @@ pub fn is_greater_than(a: PositiveFloat, b: PositiveFloat) -> Bool {
   use b <- with_value(b)
   a >. b
 }
+
+@external(erlang, "number_ffi", "safe_multiply")
+@external(javascript, "../number_ffi.mjs", "safe_multiply")
+fn safe_multiply(a: Float, b: Float) -> Result(Float, Nil)

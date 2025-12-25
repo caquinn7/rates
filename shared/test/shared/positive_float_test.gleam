@@ -23,7 +23,7 @@ pub fn new_returns_ok_if_greater_than_zero_test() {
 
 pub fn with_value_applies_function_to_inner_value_test() {
   let p = positive_float.from_float_unsafe(1.0)
-  assert 2.0 == positive_float.with_value(p, fn(f) { f *. 2.0 })
+  assert positive_float.with_value(p, fn(f) { f *. 2.0 }) == 2.0
 }
 
 // multiply
@@ -33,7 +33,7 @@ pub fn multiply_by_one_returns_self_test() {
     max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
     fn(p) {
       let one = positive_float.from_float_unsafe(1.0)
-      assert p == positive_float.multiply(p, one)
+      assert positive_float.multiply(p, one) == Ok(p)
     },
   )
 }
@@ -41,41 +41,40 @@ pub fn multiply_by_one_returns_self_test() {
 pub fn multiply_test() {
   use a <- qcheck.given(multiplication_safe_generator())
   use b <- qcheck.given(multiplication_safe_generator())
-  let result = positive_float.multiply(a, b)
+  let assert Ok(result) = positive_float.multiply(a, b)
 
   let a_val = positive_float.unwrap(a)
   let b_val = positive_float.unwrap(b)
   let result_val = positive_float.unwrap(result)
 
-  assert a_val *. b_val == result_val
+  assert result_val == a_val *. b_val
 }
 
-// try_divide
+// divide
 
-pub fn try_divide_by_one_returns_self_test() {
+pub fn divide_by_one_returns_self_test() {
   qcheck.given(
     max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
     fn(n) {
       let one = positive_float.from_float_unsafe(1.0)
-      let assert Ok(result) = positive_float.try_divide(n, one)
-      assert n == result
+      assert positive_float.divide(n, one) == Ok(n)
     },
   )
 }
 
-pub fn try_divide_test() {
+pub fn divide_test() {
   use a <- qcheck.given(
     max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
   )
   use b <- qcheck.given(
     max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
   )
-  let assert Ok(result) = positive_float.try_divide(a, b)
+  let assert Ok(result) = positive_float.divide(a, b)
 
   let a_val = positive_float.unwrap(a)
   let b_val = positive_float.unwrap(b)
 
-  assert a_val /. b_val == positive_float.unwrap(result)
+  assert positive_float.unwrap(result) == a_val /. b_val
 }
 
 // is_less_than

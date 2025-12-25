@@ -1,9 +1,4 @@
-
 import { Ok, Error } from "./gleam.mjs";
-
-export function to_fixed(n, digits) {
-  return n.toFixed(digits);
-}
 
 export function safe_multiply(a, b) {
   const x = a * b;

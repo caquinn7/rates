@@ -124,10 +124,13 @@ pub fn is_zero(n: NonNegativeFloat) -> Bool {
   with_value(n, fn(f) { f == 0.0 })
 }
 
-pub fn multiply(a: NonNegativeFloat, b: NonNegativeFloat) -> NonNegativeFloat {
+pub fn multiply(
+  a: NonNegativeFloat,
+  b: NonNegativeFloat,
+) -> Result(NonNegativeFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
-  NonNegativeFloat(a *. b)
+  result.map(safe_multiply(a, b), NonNegativeFloat)
 }
 
 /// Attempts to divide two `NonNegativeFloat` values, returning a `Result`.
@@ -141,7 +144,7 @@ pub fn multiply(a: NonNegativeFloat, b: NonNegativeFloat) -> NonNegativeFloat {
 ///
 /// # Returns
 /// - `Result(NonNegativeFloat, Nil)`: The result of the division or an error.
-pub fn try_divide(
+pub fn divide(
   a: NonNegativeFloat,
   b: NonNegativeFloat,
 ) -> Result(NonNegativeFloat, Nil) {
@@ -223,6 +226,9 @@ pub fn to_fixed_string(
       }
   }
 }
+
+@external(javascript, "../number_ffi.mjs", "safe_multiply")
+fn safe_multiply(a: Float, b: Float) -> Result(Float, Nil)
 
 @external(javascript, "../number_ffi.mjs", "to_fixed")
 fn to_fixed(f: Float, digits: Int) -> String

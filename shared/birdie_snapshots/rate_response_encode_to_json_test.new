@@ -1,0 +1,5 @@
+---
+version: 1.4.1
+title: rate_response_encode_to_json_test
+---
+{"from":1,"to":2781,"rate":100000,"source":"Kraken","timestamp":1756654456}

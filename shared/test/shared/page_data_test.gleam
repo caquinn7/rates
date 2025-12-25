@@ -1,4 +1,3 @@
-import birdie
 import gleam/json
 import gleam/option.{Some}
 import shared/client_state.{ConverterState}
@@ -7,17 +6,23 @@ import shared/page_data.{PageData}
 import shared/rates/rate_response.{Kraken, RateResponse}
 
 pub fn encode_page_data_to_json_test() {
-  PageData(
-    [
-      Crypto(1, "Bitcoin", "BTC", Some(1)),
-      Fiat(2781, "United States Dollar", "USD", "$"),
-    ],
-    [RateResponse(1, 2781, Some(100_000.0), Kraken, 1_756_654_456)],
-    [ConverterState(1, 2781, 1.5)],
-  )
-  |> page_data.encode
-  |> json.to_string
-  |> birdie.snap("encode_page_data_to_json_test")
+  let page_data =
+    PageData(
+      [
+        Crypto(1, "Bitcoin", "BTC", Some(1)),
+        Fiat(2781, "United States Dollar", "USD", "$"),
+      ],
+      [RateResponse(1, 2781, Some(100_000.0), Kraken, 1_756_654_456)],
+      [ConverterState(1, 2781, 1.5)],
+    )
+
+  let result =
+    page_data
+    |> page_data.encode
+    |> json.to_string
+    |> json.parse(page_data.decoder())
+
+  assert result == Ok(page_data)
 }
 
 pub fn decode_page_data_json_test() {
@@ -34,5 +39,5 @@ pub fn decode_page_data_json_test() {
       [ConverterState(1, 2781, 1.5)],
     )
 
-  assert Ok(expected) == json.parse(json, page_data.decoder())
+  assert json.parse(json, page_data.decoder()) == Ok(expected)
 }

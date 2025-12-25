@@ -4,7 +4,7 @@ import qcheck.{type Generator}
 // new
 
 pub fn new_returns_error_if_less_than_zero_test() {
-  assert Error(Nil) == non_negative_float.new(-1.0)
+  assert non_negative_float.new(-1.0) == Error(Nil)
 }
 
 pub fn new_returns_ok_if_equal_to_negative_zero_test() {
@@ -22,32 +22,32 @@ pub fn new_returns_ok_if_greater_than_or_equal_to_zero_test() {
 
 pub fn parse_accepts_basic_numbers_test() {
   let assert Ok(n1) = non_negative_float.parse("123")
-  assert 123.0 == non_negative_float.unwrap(n1)
+  assert non_negative_float.unwrap(n1) == 123.0
 
   let assert Ok(n2) = non_negative_float.parse("123.45")
-  assert 123.45 == non_negative_float.unwrap(n2)
+  assert non_negative_float.unwrap(n2) == 123.45
 
   let assert Ok(n3) = non_negative_float.parse("0")
-  assert 0.0 == non_negative_float.unwrap(n3)
+  assert non_negative_float.unwrap(n3) == 0.0
 }
 
 pub fn parse_accepts_edge_case_formats_test() {
   let assert Ok(n1) = non_negative_float.parse(".5")
-  assert 0.5 == non_negative_float.unwrap(n1)
+  assert non_negative_float.unwrap(n1) == 0.5
 
   let assert Ok(n2) = non_negative_float.parse("123.")
-  assert 123.0 == non_negative_float.unwrap(n2)
+  assert non_negative_float.unwrap(n2) == 123.0
 
   let assert Ok(n3) = non_negative_float.parse("0.0")
-  assert 0.0 == non_negative_float.unwrap(n3)
+  assert non_negative_float.unwrap(n3) == 0.0
 }
 
 pub fn parse_accepts_comma_separated_input_test() {
   let assert Ok(n1) = non_negative_float.parse("1,000")
-  assert 1000.0 == non_negative_float.unwrap(n1)
+  assert non_negative_float.unwrap(n1) == 1000.0
 
   let assert Ok(n2) = non_negative_float.parse("1,234.56")
-  assert 1234.56 == non_negative_float.unwrap(n2)
+  assert non_negative_float.unwrap(n2) == 1234.56
 }
 
 pub fn parse_rejects_invalid_input_test() {
@@ -73,7 +73,7 @@ pub fn parse_rejects_negative_numbers_test() {
 
 pub fn with_value_applies_function_to_inner_value_test() {
   let n = non_negative_float.from_float_unsafe(1.0)
-  assert 2.0 == non_negative_float.with_value(n, fn(f) { f *. 2.0 })
+  assert non_negative_float.with_value(n, fn(f) { f *. 2.0 }) == 2.0
 }
 
 // is_zero
@@ -115,7 +115,7 @@ pub fn multiply_by_one_returns_self_test() {
     ),
     fn(n) {
       let one = non_negative_float.from_float_unsafe(1.0)
-      assert n == non_negative_float.multiply(n, one)
+      assert non_negative_float.multiply(n, one) == Ok(n)
     },
   )
 }
@@ -127,7 +127,7 @@ pub fn multiply_by_zero_returns_zero_test() {
     ),
     fn(n) {
       let zero = non_negative_float.from_float_unsafe(0.0)
-      assert zero == non_negative_float.multiply(n, zero)
+      assert non_negative_float.multiply(n, zero) == Ok(zero)
     },
   )
 }
@@ -135,50 +135,49 @@ pub fn multiply_by_zero_returns_zero_test() {
 pub fn multiply_test() {
   use a <- qcheck.given(multiplication_safe_generator())
   use b <- qcheck.given(multiplication_safe_generator())
-  let result = non_negative_float.multiply(a, b)
+  let assert Ok(result) = non_negative_float.multiply(a, b)
 
   let a_val = non_negative_float.unwrap(a)
   let b_val = non_negative_float.unwrap(b)
   let result_val = non_negative_float.unwrap(result)
 
-  assert a_val *. b_val == result_val
+  assert result_val == a_val *. b_val
 }
 
-// try_divide
+// divide
 
-pub fn try_divide_by_zero_returns_error_test() {
+pub fn divide_by_zero_returns_error_test() {
   let n1 = non_negative_float.from_float_unsafe(1.0)
   let n2 = non_negative_float.from_float_unsafe(0.0)
-  assert Error(Nil) == non_negative_float.try_divide(n1, n2)
+  assert non_negative_float.divide(n1, n2) == Error(Nil)
 }
 
-pub fn try_divide_zero_by_any_is_zero_test() {
+pub fn divide_zero_by_any_is_zero_test() {
   qcheck.given(
     max_bounded_non_negative_float_generator(
       non_negative_float.from_float_unsafe(0.1),
     ),
     fn(n) {
       let zero = non_negative_float.from_float_unsafe(0.0)
-      let assert Ok(result) = non_negative_float.try_divide(zero, n)
-      assert 0.0 == non_negative_float.unwrap(result)
+      let assert Ok(result) = non_negative_float.divide(zero, n)
+      assert non_negative_float.is_zero(result)
     },
   )
 }
 
-pub fn try_divide_by_one_returns_self_test() {
+pub fn divide_by_one_returns_self_test() {
   qcheck.given(
     max_bounded_non_negative_float_generator(
       non_negative_float.from_float_unsafe(0.0),
     ),
     fn(n) {
       let one = non_negative_float.from_float_unsafe(1.0)
-      let assert Ok(result) = non_negative_float.try_divide(n, one)
-      assert n == result
+      assert non_negative_float.divide(n, one) == Ok(n)
     },
   )
 }
 
-pub fn try_divide_test() {
+pub fn divide_test() {
   use a <- qcheck.given(
     max_bounded_non_negative_float_generator(
       non_negative_float.from_float_unsafe(0.0),
@@ -189,12 +188,12 @@ pub fn try_divide_test() {
       non_negative_float.from_float_unsafe(0.1),
     ),
   )
-  let assert Ok(result) = non_negative_float.try_divide(a, b)
+  let assert Ok(result) = non_negative_float.divide(a, b)
 
   let a_val = non_negative_float.unwrap(a)
   let b_val = non_negative_float.unwrap(b)
 
-  assert a_val /. b_val == non_negative_float.unwrap(result)
+  assert non_negative_float.unwrap(result) == a_val /. b_val
 }
 
 // is_less_than
@@ -258,11 +257,11 @@ pub fn to_fixed_string_precision_zero_test() {
 }
 
 pub fn to_fixed_string_invalid_precision_test() {
-  let p = non_negative_float.from_float_unsafe(123.45)
+  let n = non_negative_float.from_float_unsafe(123.45)
 
-  let assert Error(InvalidPrecision) = non_negative_float.to_fixed_string(p, -1)
+  let assert Error(InvalidPrecision) = non_negative_float.to_fixed_string(n, -1)
   let assert Error(InvalidPrecision) =
-    non_negative_float.to_fixed_string(p, 101)
+    non_negative_float.to_fixed_string(n, 101)
 }
 
 // generators

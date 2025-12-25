@@ -188,11 +188,16 @@ fn with_rate_with_custom_glow(
       // Compute the value for the *opposite* field using the new rate
       let converted_amount = case edited_side {
         // converting from left to right
-        Left -> Some(non_negative_float.multiply(parsed_amount, rate_value))
+        Left -> {
+          let assert Ok(x) =
+            non_negative_float.multiply(parsed_amount, rate_value)
+
+          Some(x)
+        }
 
         // converting from right to left
         Right ->
-          case non_negative_float.try_divide(parsed_amount, rate_value) {
+          case non_negative_float.divide(parsed_amount, rate_value) {
             Error(_) -> panic as "rate should not be zero"
             Ok(x) -> Some(x)
           }
@@ -296,20 +301,24 @@ pub fn with_amount(
       let opposite_input =
         get_converter_input(converter, side.opposite_side(side))
 
-      let converted_amount = case side {
-        Left ->
-          option.map(converter.rate, non_negative_float.multiply(
-            parsed_amount,
-            _,
-          ))
+      let converted_amount = {
+        case side {
+          Left ->
+            option.map(converter.rate, fn(rate) {
+              let assert Ok(x) =
+                non_negative_float.multiply(parsed_amount, rate)
 
-        Right ->
-          option.map(converter.rate, fn(rate_value) {
-            case non_negative_float.try_divide(parsed_amount, rate_value) {
-              Ok(x) -> x
-              _ -> panic as "rate should not be zero"
-            }
-          })
+              x
+            })
+
+          Right ->
+            option.map(converter.rate, fn(rate) {
+              case non_negative_float.divide(parsed_amount, rate) {
+                Ok(x) -> x
+                _ -> panic as "rate should not be zero"
+              }
+            })
+        }
       }
 
       let amount_input = case converted_amount {
