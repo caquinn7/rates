@@ -4,15 +4,16 @@ import gleam/result
 
 pub const max = PositiveFloat(1.7976931348623157e308)
 
+/// A positive floating-point number.
+///
+/// The `PositiveFloat` type guarantees that the wrapped `Float` is
+/// greater than 0.0.
 pub opaque type PositiveFloat {
   PositiveFloat(Float)
 }
 
-/// Creates a `PositiveFloat` from a `Float`, returning an error if the value is negative.
-///
-/// Returns:
-/// - `Ok(PositiveFloat)` if the float is greater than zero
-/// - `Error(Nil)` if the float is negative
+/// Creates a `PositiveFloat` from a `Float`,
+/// returning an error if the value is less than or equal to 0.0.
 pub fn new(f: Float) -> Result(PositiveFloat, Nil) {
   case f >. 0.0 {
     False -> Error(Nil)
@@ -20,6 +21,7 @@ pub fn new(f: Float) -> Result(PositiveFloat, Nil) {
   }
 }
 
+/// Panics on invalid input!
 pub fn from_float_unsafe(x: Float) -> PositiveFloat {
   case new(x) {
     Error(_) -> panic as "Expected a positive value"

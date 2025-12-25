@@ -11,17 +11,12 @@ pub const max = NonNegativeFloat(1.7976931348623157e308)
 /// A non-negative floating-point number.
 ///
 /// The `NonNegativeFloat` type guarantees that the wrapped `Float` is
-/// greater than or equal to zero. Use the `new` or `parse` functions
-/// to construct values of this type safely.
+/// greater than or equal to 0.0.
 pub opaque type NonNegativeFloat {
   NonNegativeFloat(Float)
 }
 
 /// Creates a `NonNegativeFloat` from a `Float`, returning an error if the value is negative.
-///
-/// Returns:
-/// - `Ok(NonNegativeFloat)` if the float is greater than or equal to zero
-/// - `Error(Nil)` if the float is negative
 pub fn new(f: Float) -> Result(NonNegativeFloat, Nil) {
   case f >=. 0.0 {
     False -> Error(Nil)
@@ -29,10 +24,11 @@ pub fn new(f: Float) -> Result(NonNegativeFloat, Nil) {
   }
 }
 
-pub fn from_float_unsafe(x: Float) -> NonNegativeFloat {
-  case new(x) {
+/// Panics on invalid input!
+pub fn from_float_unsafe(f: Float) -> NonNegativeFloat {
+  case new(f) {
     Error(_) -> panic as "Expected a non-negative value"
-    Ok(p) -> p
+    Ok(n) -> n
   }
 }
 
@@ -114,18 +110,18 @@ pub fn parse(str: String) -> Result(NonNegativeFloat, Nil) {
 /// ```gleam
 /// let str_value = with_value(p, float.to_string)
 /// ```
-pub fn with_value(p: NonNegativeFloat, fun: fn(Float) -> a) -> a {
-  let NonNegativeFloat(value) = p
+pub fn with_value(n: NonNegativeFloat, fun: fn(Float) -> a) -> a {
+  let NonNegativeFloat(value) = n
   fun(value)
 }
 
-pub fn unwrap(p: NonNegativeFloat) -> Float {
-  with_value(p, function.identity)
+pub fn unwrap(n: NonNegativeFloat) -> Float {
+  with_value(n, function.identity)
 }
 
 /// Returns `True` if the inner value is exactly `0.0`, otherwise `False`.
-pub fn is_zero(p: NonNegativeFloat) -> Bool {
-  with_value(p, fn(f) { f == 0.0 })
+pub fn is_zero(n: NonNegativeFloat) -> Bool {
+  with_value(n, fn(f) { f == 0.0 })
 }
 
 pub fn multiply(a: NonNegativeFloat, b: NonNegativeFloat) -> NonNegativeFloat {
@@ -177,8 +173,8 @@ pub fn is_greater_than(a: NonNegativeFloat, b: NonNegativeFloat) -> Bool {
 /// ## Notes
 /// - For precise decimal formatting, consider using `to_fixed_string` instead.
 /// - The output format follows Gleam's `float.to_string` behavior.
-pub fn to_string(p: NonNegativeFloat) -> String {
-  with_value(p, float.to_string)
+pub fn to_string(n: NonNegativeFloat) -> String {
+  with_value(n, float.to_string)
 }
 
 pub type ToFixedStringError {
@@ -201,22 +197,22 @@ pub type ToFixedStringError {
 ///
 /// ## Examples
 /// ```gleam
-/// let Ok(p) = non_negative_float.new(1234.567)
-/// to_fixed_string(p, 2) // => Ok("1234.57")
+/// let Ok(n) = non_negative_float.new(1234.567)
+/// to_fixed_string(n, 2) // => Ok("1234.57")
 ///
-/// to_fixed_string(p, 0) // => Ok("1235")
+/// to_fixed_string(n, 0) // => Ok("1235")
 /// ```
 ///
 /// ## Notes
 /// - This function depends on JavaScript behavior. For example, `toFixed` performs rounding,
 ///   so `1234.567` with precision 2 becomes `"1234.57"` rather than being truncated.
 pub fn to_fixed_string(
-  p: NonNegativeFloat,
+  n: NonNegativeFloat,
   precision: Int,
 ) -> Result(String, ToFixedStringError) {
   use <- bool.guard(precision < 0 || precision > 100, Error(InvalidPrecision))
 
-  let raw_str = with_value(p, to_fixed(_, precision))
+  let raw_str = with_value(n, to_fixed(_, precision))
 
   case precision {
     0 -> Ok(raw_str)
