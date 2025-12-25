@@ -6,6 +6,8 @@ import gleam/list
 import gleam/result
 import gleam/string
 
+pub const max = NonNegativeFloat(1.7976931348623157e308)
+
 /// A non-negative floating-point number.
 ///
 /// The `NonNegativeFloat` type guarantees that the wrapped `Float` is
@@ -119,11 +121,6 @@ pub fn with_value(p: NonNegativeFloat, fun: fn(Float) -> a) -> a {
 
 pub fn unwrap(p: NonNegativeFloat) -> Float {
   with_value(p, function.identity)
-}
-
-/// Returns the largest possible `NonNegativeFloat` representable in JavaScript.
-pub fn max() -> NonNegativeFloat {
-  NonNegativeFloat(1.7976931348623157e308)
 }
 
 /// Returns `True` if the inner value is exactly `0.0`, otherwise `False`.

@@ -270,7 +270,7 @@ pub fn to_fixed_string_invalid_precision_test() {
 fn max_bounded_non_negative_float_generator(
   min: NonNegativeFloat,
 ) -> Generator(NonNegativeFloat) {
-  let max_float = non_negative_float.unwrap(non_negative_float.max())
+  let max_float = non_negative_float.unwrap(non_negative_float.max)
   let min_float = non_negative_float.unwrap(min)
 
   min_float
