@@ -58,7 +58,6 @@ packages = [
 ]
 
 [requirements]
-birdie = { version = ">= 1.2.7 and < 2.0.0" }
 gleam_javascript = { version = ">= 1.0.0 and < 2.0.0" }
 gleam_json = { version = ">= 3.0.0 and < 4.0.0" }
 gleam_stdlib = { version = ">= 0.44.0 and < 2.0.0" }

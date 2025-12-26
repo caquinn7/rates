@@ -1,11 +1,12 @@
 import gleam/bool
 import gleam/dynamic/decode.{type Decoder}
 import gleam/list
+import shared/positive_float.{type PositiveFloat}
 
 pub type KrakenResponse {
   InstrumentsResponse(List(InstrumentPair))
   TickerSubscribeConfirmation(String)
-  TickerResponse(String, Float)
+  TickerResponse(String, PositiveFloat)
 }
 
 pub type InstrumentPair {
@@ -94,7 +95,10 @@ fn ticker_subscribe_confirmation_decoder() {
   //     "time_out": "2025-04-27T15:37:48.652337Z"
   // }
   let failure_decoder =
-    decode.failure(TickerSubscribeConfirmation(""), "KrakenResponse")
+    decode.failure(
+      TickerSubscribeConfirmation(""),
+      "TickerSubscribeConfirmation",
+    )
 
   use method <- decode.field("method", decode.string)
   use <- bool.guard(method != "subscribe", failure_decoder)
@@ -122,13 +126,17 @@ fn ticker_data_decoder() {
   // }
   let ticker_decoder = fn() {
     use symbol <- decode.field("symbol", decode.string)
-    use last <- decode.field("last", decode.float)
+    use last <- decode.field("last", positive_float.decoder())
     decode.success(TickerResponse(symbol, last))
   }
 
   use data <- decode.field("data", decode.list(ticker_decoder()))
   case list.first(data) {
-    Error(_) -> decode.failure(TickerResponse("", -1.0), "KrakenResponse")
+    Error(_) ->
+      decode.failure(
+        TickerResponse("", positive_float.from_float_unsafe(1.0)),
+        "TickerResponse",
+      )
     Ok(ticker) -> decode.success(ticker)
   }
 }

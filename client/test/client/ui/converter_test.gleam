@@ -14,6 +14,7 @@ import client/ui/converter.{
 import gleam/list
 import gleam/option.{None, Some}
 import shared/currency.{Crypto}
+import shared/positive_float
 import shared/rates/rate_request.{RateRequest}
 
 // new
@@ -49,7 +50,7 @@ pub fn new_returns_ok_with_valid_inputs_test() {
     Crypto(2, "ETH", "Ethereum", None),
   ]
 
-  let rate = Some(non_negative_float.from_float_unsafe(2.5))
+  let rate = Some(positive_float.from_float_unsafe(2.5))
   let result =
     converter.new("my-converter", currencies, #(1, 2), "100.50", rate)
 
@@ -86,7 +87,7 @@ pub fn with_master_currency_list_updates_master_list_test() {
       "test-id",
       [],
       #(empty_converter_input(), empty_converter_input()),
-      Some(non_negative_float.from_float_unsafe(100.0)),
+      Some(positive_float.from_float_unsafe(100.0)),
       Right,
     )
 
@@ -178,7 +179,7 @@ pub fn with_rate_calculates_right_side_when_left_edited_test() {
       last_edited: Left,
     )
 
-  let rate = Some(non_negative_float.from_float_unsafe(2.5))
+  let rate = Some(positive_float.from_float_unsafe(2.5))
   let result = converter.with_rate(target, rate)
 
   // Left side should remain unchanged (user input preserved)
@@ -218,7 +219,7 @@ pub fn with_rate_calculates_left_side_when_right_edited_test() {
       last_edited: Right,
     )
 
-  let rate = Some(non_negative_float.from_float_unsafe(4.0))
+  let rate = Some(positive_float.from_float_unsafe(4.0))
   let result = converter.with_rate(target, rate)
 
   // Right side should remain unchanged (user input preserved)
@@ -255,7 +256,7 @@ pub fn with_rate_no_conversion_when_no_parsed_amount_test() {
       last_edited: Left,
     )
 
-  let rate = Some(non_negative_float.from_float_unsafe(2.5))
+  let rate = Some(positive_float.from_float_unsafe(2.5))
   let result = converter.with_rate(target, rate)
 
   // Neither side should be recalculated since there's no valid parsed amount
@@ -290,7 +291,7 @@ pub fn with_rate_handles_none_rate_when_left_side_is_last_edited_test() {
     Converter(
       ..empty_converter(),
       inputs: #(left_input, empty_converter_input()),
-      rate: Some(non_negative_float.from_float_unsafe(1.0)),
+      rate: Some(positive_float.from_float_unsafe(1.0)),
       last_edited: Left,
     )
 
@@ -334,7 +335,7 @@ pub fn with_rate_handles_none_rate_when_right_side_is_last_edited_test() {
     Converter(
       ..empty_converter(),
       inputs: #(empty_converter_input(), right_input),
-      rate: Some(non_negative_float.from_float_unsafe(1.0)),
+      rate: Some(positive_float.from_float_unsafe(1.0)),
       last_edited: Right,
     )
 
@@ -388,7 +389,7 @@ pub fn with_rate_transitions_from_none_to_some_test() {
     )
 
   // Transition to valid rate
-  let rate = Some(non_negative_float.from_float_unsafe(3.0))
+  let rate = Some(positive_float.from_float_unsafe(3.0))
   let result = converter.with_rate(target, rate)
 
   // Left side should remain unchanged
@@ -426,7 +427,7 @@ pub fn with_rate_sets_border_color_to_none_when_no_parsed_amount_test() {
       last_edited: Left,
     )
 
-  let rate = Some(non_negative_float.from_float_unsafe(2.5))
+  let rate = Some(positive_float.from_float_unsafe(2.5))
   let result = converter.with_rate(target, rate)
 
   // Right side should not glow when there's no conversion
@@ -474,7 +475,7 @@ pub fn with_rate_sets_right_border_color_to_some_when_left_side_edited_test() {
       last_edited: Left,
     )
 
-  let rate = Some(non_negative_float.from_float_unsafe(3.0))
+  let rate = Some(positive_float.from_float_unsafe(3.0))
   let result = converter.with_rate(target, rate)
 
   // Right side should glow
@@ -503,7 +504,7 @@ pub fn with_rate_sets_left_border_color_to_some_when_right_side_edited_test() {
       last_edited: Right,
     )
 
-  let rate = Some(non_negative_float.from_float_unsafe(5.0))
+  let rate = Some(positive_float.from_float_unsafe(5.0))
   let result = converter.with_rate(target, rate)
 
   // // Left side should glow
@@ -517,35 +518,35 @@ pub fn with_rate_sets_left_border_color_to_some_when_right_side_edited_test() {
 // border_color_from_rate_change
 
 pub fn border_color_from_rate_change_returns_no_change_when_rates_equal_test() {
-  let prev = Some(non_negative_float.from_float_unsafe(2.0))
-  let new = Some(non_negative_float.from_float_unsafe(2.0))
+  let prev = Some(positive_float.from_float_unsafe(2.0))
+  let new = Some(positive_float.from_float_unsafe(2.0))
 
   assert converter.border_color_from_rate_change(prev, new) == Some(NoChange)
 }
 
 pub fn border_color_from_rate_change_returns_increased_when_rate_increases_test() {
-  let prev = Some(non_negative_float.from_float_unsafe(2.0))
-  let new = Some(non_negative_float.from_float_unsafe(3.0))
+  let prev = Some(positive_float.from_float_unsafe(2.0))
+  let new = Some(positive_float.from_float_unsafe(3.0))
 
   assert converter.border_color_from_rate_change(prev, new) == Some(Increased)
 }
 
 pub fn border_color_from_rate_change_returns_decreased_when_rate_decreases_test() {
-  let prev = Some(non_negative_float.from_float_unsafe(3.0))
-  let new = Some(non_negative_float.from_float_unsafe(2.0))
+  let prev = Some(positive_float.from_float_unsafe(3.0))
+  let new = Some(positive_float.from_float_unsafe(2.0))
 
   assert converter.border_color_from_rate_change(prev, new) == Some(Decreased)
 }
 
 pub fn border_color_from_rate_change_returns_no_change_when_no_previous_rate_test() {
   let prev = None
-  let new = Some(non_negative_float.from_float_unsafe(2.0))
+  let new = Some(positive_float.from_float_unsafe(2.0))
 
   assert converter.border_color_from_rate_change(prev, new) == Some(NoChange)
 }
 
 pub fn border_color_from_rate_change_returns_none_when_new_rate_is_none_test() {
-  let prev = Some(non_negative_float.from_float_unsafe(2.0))
+  let prev = Some(positive_float.from_float_unsafe(2.0))
   let new = None
 
   assert converter.border_color_from_rate_change(prev, new) == None
@@ -566,7 +567,7 @@ pub fn with_glow_cleared_sets_border_color_to_none_test() {
       inputs: #(left_input, empty_converter_input()),
       last_edited: Left,
     )
-    |> converter.with_rate(Some(non_negative_float.from_float_unsafe(3.0)))
+    |> converter.with_rate(Some(positive_float.from_float_unsafe(3.0)))
 
   assert converter.get_converter_input(target, Right).amount_input.border_color
     != None
@@ -584,7 +585,7 @@ pub fn with_amount_successful_parse_with_rate_left_to_right_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(non_negative_float.from_float_unsafe(2.5)),
+      rate: Some(positive_float.from_float_unsafe(2.5)),
       // Different from the side we'll edit
       last_edited: Right,
     )
@@ -610,7 +611,7 @@ pub fn with_amount_successful_parse_with_rate_left_to_right_test() {
   assert result.last_edited == Left
 
   // Rate should remain unchanged
-  assert result.rate == Some(non_negative_float.from_float_unsafe(2.5))
+  assert result.rate == Some(positive_float.from_float_unsafe(2.5))
 }
 
 pub fn with_amount_successful_parse_with_rate_right_to_left_test() {
@@ -618,7 +619,7 @@ pub fn with_amount_successful_parse_with_rate_right_to_left_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(non_negative_float.from_float_unsafe(4.0)),
+      rate: Some(positive_float.from_float_unsafe(4.0)),
       // Different from the side we'll edit
       last_edited: Left,
     )
@@ -644,7 +645,7 @@ pub fn with_amount_successful_parse_with_rate_right_to_left_test() {
   assert result.last_edited == Right
 
   // Rate should remain unchanged
-  assert result.rate == Some(non_negative_float.from_float_unsafe(4.0))
+  assert result.rate == Some(positive_float.from_float_unsafe(4.0))
 }
 
 pub fn with_amount_successful_parse_without_rate_test() {
@@ -693,7 +694,7 @@ pub fn with_amount_failed_parse_clears_opposite_side_test() {
     Converter(
       ..empty_converter(),
       inputs: #(left_input, right_input),
-      rate: Some(non_negative_float.from_float_unsafe(2.0)),
+      rate: Some(positive_float.from_float_unsafe(2.0)),
       last_edited: Right,
     )
 
@@ -714,7 +715,7 @@ pub fn with_amount_failed_parse_clears_opposite_side_test() {
   assert result.last_edited == Left
 
   // Rate should remain unchanged
-  assert result.rate == Some(non_negative_float.from_float_unsafe(2.0))
+  assert result.rate == Some(positive_float.from_float_unsafe(2.0))
 }
 
 pub fn with_amount_failed_parse_preserves_raw_input_test() {
@@ -763,7 +764,7 @@ pub fn with_amount_empty_string_clears_both_sides_test() {
     Converter(
       ..empty_converter(),
       inputs: #(left_input, right_input),
-      rate: Some(non_negative_float.from_float_unsafe(2.5)),
+      rate: Some(positive_float.from_float_unsafe(2.5)),
       last_edited: Right,
     )
 
@@ -784,7 +785,7 @@ pub fn with_amount_empty_string_clears_both_sides_test() {
   assert result.last_edited == Left
 
   // Rate should remain unchanged
-  assert result.rate == Some(non_negative_float.from_float_unsafe(2.5))
+  assert result.rate == Some(positive_float.from_float_unsafe(2.5))
 }
 
 pub fn with_amount_zero_input_converts_correctly_test() {
@@ -792,7 +793,7 @@ pub fn with_amount_zero_input_converts_correctly_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(non_negative_float.from_float_unsafe(2.5)),
+      rate: Some(positive_float.from_float_unsafe(2.5)),
       last_edited: Right,
     )
 
@@ -817,7 +818,7 @@ pub fn with_amount_zero_input_converts_correctly_test() {
   assert result.last_edited == Left
 
   // Rate should remain unchanged
-  assert result.rate == Some(non_negative_float.from_float_unsafe(2.5))
+  assert result.rate == Some(positive_float.from_float_unsafe(2.5))
 }
 
 pub fn with_amount_removes_commas_before_parsing_test() {
@@ -825,7 +826,7 @@ pub fn with_amount_removes_commas_before_parsing_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(non_negative_float.from_float_unsafe(2.0)),
+      rate: Some(positive_float.from_float_unsafe(2.0)),
       last_edited: Right,
     )
 
@@ -850,7 +851,7 @@ pub fn with_amount_handles_invalid_comma_placement_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(non_negative_float.from_float_unsafe(2.0)),
+      rate: Some(positive_float.from_float_unsafe(2.0)),
       last_edited: Right,
     )
 
@@ -875,7 +876,7 @@ pub fn with_amount_handles_multiple_commas_test() {
   let target =
     Converter(
       ..empty_converter(),
-      rate: Some(non_negative_float.from_float_unsafe(1.0)),
+      rate: Some(positive_float.from_float_unsafe(1.0)),
       last_edited: Right,
     )
 

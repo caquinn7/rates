@@ -5,6 +5,7 @@ import gleam/int
 import gleam/list
 import gleam/result
 import gleam/string
+import shared/positive_float.{type PositiveFloat}
 
 pub const max = NonNegativeFloat(1.7976931348623157e308)
 
@@ -124,6 +125,8 @@ pub fn is_zero(n: NonNegativeFloat) -> Bool {
   with_value(n, fn(f) { f == 0.0 })
 }
 
+/// Attempts to multiply two `NonNegativeFloat` values,
+/// returning `Error(Nil)` if the result overflows.
 pub fn multiply(
   a: NonNegativeFloat,
   b: NonNegativeFloat,
@@ -133,23 +136,36 @@ pub fn multiply(
   result.map(safe_multiply(a, b), NonNegativeFloat)
 }
 
-/// Attempts to divide two `NonNegativeFloat` values, returning a `Result`.
-///
-/// If the division is successful, returns `Ok(NonNegativeFloat)` with the result.
-/// If the operation fails (e.g., division by zero), returns `Error(Nil)`.
-///
-/// # Arguments
-/// - `a`: The dividend as a `NonNegativeFloat`.
-/// - `b`: The divisor as a `NonNegativeFloat`.
-///
-/// # Returns
-/// - `Result(NonNegativeFloat, Nil)`: The result of the division or an error.
+/// Attempts to multiply a `NonNegativeFloat` by a `PositiveFloat`,
+/// returning `Error(Nil)` if the result overflows.
+pub fn multiply_by_positive(
+  a: NonNegativeFloat,
+  b: PositiveFloat,
+) -> Result(NonNegativeFloat, Nil) {
+  use a <- with_value(a)
+  use b <- positive_float.with_value(b)
+  result.map(safe_multiply(a, b), NonNegativeFloat)
+}
+
+/// Attempts to divide two `NonNegativeFloat` values,
+/// returning `Error(Nil)` if the operation fails (e.g., division by zero).
 pub fn divide(
   a: NonNegativeFloat,
   b: NonNegativeFloat,
 ) -> Result(NonNegativeFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
+  result.map(float.divide(a, b), NonNegativeFloat)
+}
+
+/// Attempts to divide two `NonNegativeFloat` values,
+/// returning `Error(Nil)` if the operation fails.
+pub fn divide_by_positive(
+  a: NonNegativeFloat,
+  b: PositiveFloat,
+) -> Result(NonNegativeFloat, Nil) {
+  use a <- with_value(a)
+  use b <- positive_float.with_value(b)
   result.map(float.divide(a, b), NonNegativeFloat)
 }
 
@@ -167,15 +183,10 @@ pub fn is_greater_than(a: NonNegativeFloat, b: NonNegativeFloat) -> Bool {
   a >. b
 }
 
-/// Converts a `NonNegativeFloat` to its string representation.
+/// Converts a `NonNegativeFloat` to its string representation
+/// by calling float.to_string on the wrapped `Float` value.
 ///
-/// This function returns the standard string representation of the underlying
-/// float value, which may include decimal places or scientific notation for
-/// very large or very small numbers.
-///
-/// ## Notes
-/// - For precise decimal formatting, consider using `to_fixed_string` instead.
-/// - The output format follows Gleam's `float.to_string` behavior.
+/// For precise decimal formatting, consider using `non_negative_float.to_fixed_string` instead.
 pub fn to_string(n: NonNegativeFloat) -> String {
   with_value(n, float.to_string)
 }

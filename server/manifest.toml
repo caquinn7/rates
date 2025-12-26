@@ -58,7 +58,6 @@ packages = [
 ]
 
 [requirements]
-birdie = { version = ">= 1.2.7 and < 2.0.0" }
 carpenter = { git = "https://github.com/ghivert/carpenter.git", ref = "main" }
 choire = { version = ">= 1.0.7 and < 2.0.0" }
 dot_env = { version = ">= 1.2.0 and < 2.0.0" }

@@ -14,6 +14,7 @@ import server/rates/internal/rate_source_strategy.{
 }
 import server/rates/rate_error.{CmcError}
 import shared/currency.{Crypto, Fiat}
+import shared/positive_float
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response
 
@@ -125,10 +126,11 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
 
   let assert KrakenStrategy(_) = strategy
 
+  let expected_price = positive_float.from_float_unsafe(50_000.0)
   let config =
     StrategyConfig(
       check_for_kraken_price: fn(_) {
-        Ok(PriceEntry(price: 50_000.0, timestamp: 1000))
+        Ok(PriceEntry(price: expected_price, timestamp: 1000))
       },
       request_cmc_conversion: fn(_) {
         panic as "Should not call CMC on Kraken success"
@@ -144,12 +146,12 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
     rate_source_strategy.execute_strategy(strategy, rate_request, config)
 
   let assert Ok(response) = result
-  assert 1 == response.from
-  assert 2 == response.to
-  assert Some(50_000.0) == response.rate
-  assert rate_response.Kraken == response.source
-  assert 1000 == response.timestamp
-  assert False == should_downgrade
+  assert response.from == 1
+  assert response.to == 2
+  assert response.rate == Some(expected_price)
+  assert response.source == rate_response.Kraken
+  assert response.timestamp == 1000
+  assert !should_downgrade
 }
 
 pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
@@ -172,6 +174,7 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
 
   let assert KrakenStrategy(_) = strategy
 
+  let expected_price = positive_float.from_float_unsafe(100_000.0)
   let request_cmc_conversion = fn(conversion_params: CmcConversionParameters) {
     Ok(CmcResponse(
       CmcStatus(0, None),
@@ -179,8 +182,8 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
         conversion_params.id,
         "BTC",
         "Bitcoin",
-        1.0,
-        dict.from_list([#("2", QuoteItem(Some(100_000.0)))]),
+        positive_float.from_float_unsafe(1.0),
+        dict.from_list([#("2", QuoteItem(Some(expected_price)))]),
       )),
     ))
   }
@@ -200,17 +203,18 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
     rate_source_strategy.execute_strategy(strategy, rate_request, config)
 
   let assert Ok(response) = result
-  assert 1 == response.from
-  assert 2 == response.to
-  assert Some(100_000.0) == response.rate
-  assert rate_response.CoinMarketCap == response.source
-  assert 1000 == response.timestamp
-  assert True == should_downgrade
+  assert response.from == 1
+  assert response.to == 2
+  assert response.rate == Some(expected_price)
+  assert response.source == rate_response.CoinMarketCap
+  assert response.timestamp == 1000
+  assert should_downgrade
 }
 
 pub fn execute_strategy_returns_cmc_response_when_successful_test() {
   let rate_request = RateRequest(1, 2)
 
+  let expected_price = positive_float.from_float_unsafe(100_000.0)
   let cmc_get_rate = fn(conversion_params: CmcConversionParameters) {
     Ok(CmcResponse(
       CmcStatus(0, None),
@@ -218,8 +222,8 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
         conversion_params.id,
         "BTC",
         "Bitcoin",
-        1.0,
-        dict.from_list([#("2", QuoteItem(Some(100_000.0)))]),
+        positive_float.from_float_unsafe(1.0),
+        dict.from_list([#("2", QuoteItem(Some(expected_price)))]),
       )),
     ))
   }
@@ -243,12 +247,12 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
     rate_source_strategy.execute_strategy(CmcStrategy, rate_request, config)
 
   let assert Ok(response) = result
-  assert 1 == response.from
-  assert 2 == response.to
-  assert Some(100_000.0) == response.rate
-  assert rate_response.CoinMarketCap == response.source
-  assert 1000 == response.timestamp
-  assert False == should_downgrade
+  assert response.from == 1
+  assert response.to == 2
+  assert response.rate == Some(expected_price)
+  assert response.source == rate_response.CoinMarketCap
+  assert response.timestamp == 1000
+  assert !should_downgrade
 }
 
 pub fn execute_strategy_returns_error_when_cmc_fails_test() {
@@ -269,7 +273,7 @@ pub fn execute_strategy_returns_error_when_cmc_fails_test() {
       create_kraken_symbol,
     )
 
-  assert CmcStrategy == strategy
+  assert strategy == CmcStrategy
 
   let request_cmc_conversion = fn(_) {
     Ok(CmcResponse(CmcStatus(400, Some("")), None))

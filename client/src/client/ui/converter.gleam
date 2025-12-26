@@ -20,6 +20,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import shared/currency.{type Currency, Crypto}
+import shared/positive_float.{type PositiveFloat}
 import shared/rates/rate_request.{RateRequest}
 
 pub type Converter {
@@ -27,7 +28,7 @@ pub type Converter {
     id: String,
     master_currency_list: List(Currency),
     inputs: #(ConverterInput, ConverterInput),
-    rate: Option(NonNegativeFloat),
+    rate: Option(PositiveFloat),
     last_edited: Side,
   )
 }
@@ -79,7 +80,7 @@ pub fn new(
   currencies: List(Currency),
   selected_currency_ids: #(Int, Int),
   left_amount: String,
-  rate: Option(NonNegativeFloat),
+  rate: Option(PositiveFloat),
 ) -> Result(Converter, NewConverterError) {
   let empty_converter = {
     let empty_converter_input = fn(side) {
@@ -146,14 +147,14 @@ pub fn with_master_currency_list(
   |> filter_currencies(Right)
 }
 
-pub fn with_rate(converter, rate) -> Converter {
+pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter {
   with_rate_with_custom_glow(converter, rate, border_color_from_rate_change)
 }
 
 fn with_rate_with_custom_glow(
   converter: Converter,
-  rate: Option(NonNegativeFloat),
-  color_from_rate_change: fn(Option(NonNegativeFloat), Option(NonNegativeFloat)) ->
+  rate: Option(PositiveFloat),
+  color_from_rate_change: fn(Option(PositiveFloat), Option(PositiveFloat)) ->
     Option(RateChangeColor),
 ) -> Converter {
   // When a new exchange rate comes in, we want to:
@@ -188,17 +189,19 @@ fn with_rate_with_custom_glow(
       // Compute the value for the *opposite* field using the new rate
       let converted_amount = case edited_side {
         // converting from left to right
-        Left -> {
-          let assert Ok(x) =
-            non_negative_float.multiply(parsed_amount, rate_value)
-
-          Some(x)
-        }
-
+        Left ->
+          case
+            non_negative_float.multiply_by_positive(parsed_amount, rate_value)
+          {
+            Error(_) -> panic
+            Ok(x) -> Some(x)
+          }
         // converting from right to left
         Right ->
-          case non_negative_float.divide(parsed_amount, rate_value) {
-            Error(_) -> panic as "rate should not be zero"
+          case
+            non_negative_float.divide_by_positive(parsed_amount, rate_value)
+          {
+            Error(_) -> panic
             Ok(x) -> Some(x)
           }
       }
@@ -229,13 +232,13 @@ fn with_rate_with_custom_glow(
 }
 
 pub fn border_color_from_rate_change(
-  previous_rate: Option(NonNegativeFloat),
-  new_rate: Option(NonNegativeFloat),
+  previous_rate: Option(PositiveFloat),
+  new_rate: Option(PositiveFloat),
 ) -> Option(RateChangeColor) {
   case previous_rate, new_rate {
     Some(x), Some(y) if x == y -> Some(NoChange)
     Some(x), Some(y) ->
-      case non_negative_float.is_less_than(x, y) {
+      case positive_float.is_less_than(x, y) {
         False -> Some(Decreased)
         True -> Some(Increased)
       }
@@ -305,17 +308,19 @@ pub fn with_amount(
         case side {
           Left ->
             option.map(converter.rate, fn(rate) {
-              let assert Ok(x) =
-                non_negative_float.multiply(parsed_amount, rate)
-
-              x
+              case
+                non_negative_float.multiply_by_positive(parsed_amount, rate)
+              {
+                Error(_) -> panic
+                Ok(x) -> x
+              }
             })
 
           Right ->
             option.map(converter.rate, fn(rate) {
-              case non_negative_float.divide(parsed_amount, rate) {
+              case non_negative_float.divide_by_positive(parsed_amount, rate) {
+                Error(Nil) -> panic
                 Ok(x) -> x
-                _ -> panic as "rate should not be zero"
               }
             })
         }

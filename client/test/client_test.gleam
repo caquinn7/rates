@@ -7,6 +7,7 @@ import gleeunit
 import shared/client_state.{ConverterState}
 import shared/currency.{Crypto, Fiat}
 import shared/page_data.{PageData}
+import shared/positive_float
 import shared/rates/rate_response.{Kraken, RateResponse}
 
 pub fn main() {
@@ -27,18 +28,21 @@ pub fn model_from_page_data_constructs_model_test() {
     ConverterState(from: 2, to: 3, amount: 2.5),
   ]
 
+  let expected_rate_1 = positive_float.from_float_unsafe(0.000015)
+  let expected_rate_2 = positive_float.from_float_unsafe(15.5)
+
   let rates = [
     RateResponse(
       from: 1,
       to: 2,
-      rate: Some(0.000015),
+      rate: Some(expected_rate_1),
       source: Kraken,
       timestamp: 1_700_000_000,
     ),
     RateResponse(
       from: 2,
       to: 3,
-      rate: Some(15.5),
+      rate: Some(expected_rate_2),
       source: Kraken,
       timestamp: 1_700_000_000,
     ),
@@ -73,8 +77,8 @@ pub fn model_from_page_data_constructs_model_test() {
     == Some(non_negative_float.from_float_unsafe(2.5))
 
   // Check converter rates
-  assert converter1.rate == Some(non_negative_float.from_float_unsafe(0.000015))
-  assert converter2.rate == Some(non_negative_float.from_float_unsafe(15.5))
+  assert converter1.rate == Some(expected_rate_1)
+  assert converter2.rate == Some(expected_rate_2)
 }
 
 pub fn model_from_page_data_filters_out_converters_without_a_matching_rate_response_test() {
@@ -96,7 +100,7 @@ pub fn model_from_page_data_filters_out_converters_without_a_matching_rate_respo
     RateResponse(
       from: 1,
       to: 2,
-      rate: Some(0.000015),
+      rate: Some(positive_float.from_float_unsafe(0.000015)),
       source: Kraken,
       timestamp: 1_700_000_000,
     ),
@@ -104,7 +108,7 @@ pub fn model_from_page_data_filters_out_converters_without_a_matching_rate_respo
     RateResponse(
       from: 2,
       to: 4,
-      rate: Some(10.0),
+      rate: Some(positive_float.from_float_unsafe(10.0)),
       source: Kraken,
       timestamp: 1_700_000_000,
     ),
@@ -112,7 +116,7 @@ pub fn model_from_page_data_filters_out_converters_without_a_matching_rate_respo
     RateResponse(
       from: 4,
       to: 1,
-      rate: Some(25.0),
+      rate: Some(positive_float.from_float_unsafe(25.0)),
       source: Kraken,
       timestamp: 1_700_000_000,
     ),

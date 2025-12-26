@@ -5,6 +5,7 @@ import server/integrations/kraken/internal/response.{
   InstrumentPair, InstrumentsResponse, TickerResponse,
   TickerSubscribeConfirmation,
 }
+import shared/positive_float
 
 pub fn decode_ticker_subscribe_confirmation_test() {
   let json_str =
@@ -41,7 +42,10 @@ pub fn decode_ticker_response_test() {
   json_str
   |> json.parse(response.decoder())
   |> should.be_ok
-  |> should.equal(TickerResponse("BTC/USD", 84_393.1))
+  |> should.equal(TickerResponse(
+    "BTC/USD",
+    positive_float.from_float_unsafe(84_393.1),
+  ))
 }
 
 pub fn decode_instrument_response_test() {

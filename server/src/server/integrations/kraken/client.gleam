@@ -18,7 +18,6 @@
 
 import gleam/bool
 import gleam/erlang/process.{type Subject}
-import gleam/float
 import gleam/http/request as http_request
 import gleam/int
 import gleam/json
@@ -40,6 +39,7 @@ import server/integrations/kraken/internal/subscription_counter.{
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store.{type PriceStore}
 import server/utils/logger.{type Logger}
+import shared/positive_float.{type PositiveFloat}
 import stratus
 
 pub opaque type KrakenClient {
@@ -51,7 +51,7 @@ type Msg {
   Subscribe(String)
   ConfirmSubscribe(String)
   Unsubscribe(String)
-  UpdatePrice(String, Float)
+  UpdatePrice(String, PositiveFloat)
 }
 
 type State {
@@ -339,10 +339,10 @@ fn log_confirmation_error(logger: Logger, symbol: String) -> Nil {
   |> logger.warning("Subscription confirmation failed")
 }
 
-fn log_price_update(logger: Logger, symbol: String, price: Float) -> Nil {
+fn log_price_update(logger: Logger, symbol: String, price: PositiveFloat) -> Nil {
   logger
   |> logger.with("symbol", symbol)
-  |> logger.with("price", float.to_string(price))
+  |> logger.with("price", positive_float.to_string(price))
   |> logger.debug("Received price update")
 }
 

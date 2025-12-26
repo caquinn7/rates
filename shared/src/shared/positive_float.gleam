@@ -1,5 +1,8 @@
+import gleam/dynamic/decode.{type Decoder}
 import gleam/float
 import gleam/function
+import gleam/int
+import gleam/json.{type Json}
 import gleam/result
 
 pub const max = PositiveFloat(1.7976931348623157e308)
@@ -46,6 +49,8 @@ pub fn unwrap(p: PositiveFloat) -> Float {
   with_value(p, function.identity)
 }
 
+/// Attempts to multiply two `PositiveFloat` values,
+/// returning `Error(Nil)` if the result overflows.
 pub fn multiply(
   a: PositiveFloat,
   b: PositiveFloat,
@@ -55,17 +60,8 @@ pub fn multiply(
   result.map(safe_multiply(a, b), PositiveFloat)
 }
 
-/// Attempts to divide two `PositiveFloat` values, returning a `Result`.
-///
-/// If the division is successful, returns `Ok(PositiveFloat)` with the result.
-/// If the operation fails (e.g., division by zero), returns `Error(Nil)`.
-///
-/// # Arguments
-/// - `a`: The dividend as a `PositiveFloat`.
-/// - `b`: The divisor as a `PositiveFloat`.
-///
-/// # Returns
-/// - `Result(PositiveFloat, Nil)`: The result of the division or an error.
+/// Attempts to divide two `PositiveFloat` values,
+/// returning `Error(Nil)` if the operation fails (e.g., division by zero).
 pub fn divide(a: PositiveFloat, b: PositiveFloat) -> Result(PositiveFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
@@ -84,6 +80,26 @@ pub fn is_greater_than(a: PositiveFloat, b: PositiveFloat) -> Bool {
   use a <- with_value(a)
   use b <- with_value(b)
   a >. b
+}
+
+/// Converts a `PositiveFloat` to its string representation
+/// by calling float.to_string on the wrapped `Float` value.
+pub fn to_string(n: PositiveFloat) -> String {
+  with_value(n, float.to_string)
+}
+
+pub fn encode(p: PositiveFloat) -> Json {
+  json.float(unwrap(p))
+}
+
+pub fn decoder() -> Decoder(PositiveFloat) {
+  use raw <- decode.then(
+    decode.one_of(decode.float, or: [decode.map(decode.int, int.to_float)]),
+  )
+  case new(raw) {
+    Error(_) -> decode.failure(PositiveFloat(0.0), "PositiveFloat")
+    Ok(p) -> decode.success(p)
+  }
 }
 
 @external(erlang, "number_ffi", "safe_multiply")

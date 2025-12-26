@@ -1,5 +1,6 @@
 import gleam/json
 import gleam/option.{None, Some}
+import shared/positive_float
 import shared/rates/rate_response.{Kraken, RateResponse}
 
 pub fn decode_rate_response_json_test() {
@@ -7,7 +8,13 @@ pub fn decode_rate_response_json_test() {
     "{\"from\":1,\"to\":2781,\"rate\":100000.0,\"source\":\"Kraken\",\"timestamp\":1756654456}"
     |> json.parse(rate_response.decoder())
 
-  assert Ok(RateResponse(1, 2781, Some(100_000.0), Kraken, 1_756_654_456))
+  assert Ok(RateResponse(
+      1,
+      2781,
+      Some(positive_float.from_float_unsafe(100_000.0)),
+      Kraken,
+      1_756_654_456,
+    ))
     == result
 }
 
@@ -21,7 +28,13 @@ pub fn decode_rate_response_with_null_rate_test() {
 
 pub fn encode_rate_response_to_json_test() {
   let rate_response =
-    RateResponse(1, 2781, Some(100_000.0), Kraken, 1_756_654_456)
+    RateResponse(
+      1,
+      2781,
+      Some(positive_float.from_float_unsafe(100_000.0)),
+      Kraken,
+      1_756_654_456,
+    )
 
   let result =
     rate_response

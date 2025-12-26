@@ -57,15 +57,14 @@ pub fn model_from_page_data(
   page_data: PageData,
 ) -> Result(Model, NewConverterError) {
   let build_converter = fn(rate_response, converter_id, amount) {
-    let assert RateResponse(from, to, Some(rate), _source, _timestamp) =
-      rate_response
+    let RateResponse(from, to, rate, _source, _timestamp) = rate_response
 
     converter.new(
       converter_id,
       page_data.currencies,
       #(from, to),
       float.to_string(amount),
-      Some(non_negative_float.from_float_unsafe(rate)),
+      rate,
     )
   }
 
@@ -252,12 +251,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
             Ok(converter) -> {
               let model =
-                rate
-                |> option.map(fn(r) {
-                  let assert Ok(r) = non_negative_float.new(r)
-                  r
-                })
-                |> converter.with_rate(converter, _)
+                converter
+                |> converter.with_rate(rate)
                 |> model_with_converter(model, _)
 
               let effect =

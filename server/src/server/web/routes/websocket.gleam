@@ -1,6 +1,5 @@
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Selector, type Subject}
-import gleam/float
 import gleam/function
 import gleam/int
 import gleam/json
@@ -14,6 +13,7 @@ import mist.{
 import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
 import server/utils/logger.{type Logger}
+import shared/positive_float
 import shared/rates/rate_response.{RateResponse} as shared_rate_response
 import shared/subscriptions/subscription_id.{type SubscriptionId}
 import shared/subscriptions/subscription_response.{
@@ -193,7 +193,7 @@ fn log_subscription_response_success(
   |> logger.with(
     "rate_response.rate",
     rate
-      |> option.map(float.to_string)
+      |> option.map(positive_float.to_string)
       |> option.unwrap(""),
   )
   |> logger.with(
