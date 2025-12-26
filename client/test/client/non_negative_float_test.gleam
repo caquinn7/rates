@@ -50,6 +50,11 @@ pub fn parse_accepts_comma_separated_input_test() {
   assert non_negative_float.unwrap(n2) == 1234.56
 }
 
+pub fn parse_accepts_scientific_notation_test() {
+  let assert Ok(n) = non_negative_float.parse("1.0e10")
+  assert non_negative_float.unwrap(n) == 10_000_000_000.0
+}
+
 pub fn parse_rejects_invalid_input_test() {
   let assert Error(_) = non_negative_float.parse("abc")
   let assert Error(_) = non_negative_float.parse("")

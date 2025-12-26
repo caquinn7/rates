@@ -38,10 +38,10 @@ pub fn from_float_unsafe(f: Float) -> NonNegativeFloat {
 /// - Optional commas in the integer portion (e.g., `"1,000.25"`)
 /// - Leading decimal points (e.g., `".5"` becomes `"0.5"`)
 /// - Trailing decimal points (e.g., `"1."` becomes `"1.0"`)
+/// - Scientific notation (e.g., `"1.0e10"`)
 ///
 /// Rejects:
 /// - Invalid comma grouping (e.g., `"1,2,3"`)
-/// - Scientific notation (e.g., `"1e10"`)
 /// - Negative values or non-numeric input
 pub fn parse(str: String) -> Result(NonNegativeFloat, Nil) {
   let drop_trailing_decimal = fn(str) {
