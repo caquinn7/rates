@@ -1,5 +1,6 @@
 import client/non_negative_float.{type NonNegativeFloat, InvalidPrecision}
 import qcheck.{type Generator}
+import shared/positive_float.{type PositiveFloat}
 
 // new
 
@@ -142,11 +143,10 @@ pub fn multiply_test() {
   use b <- qcheck.given(multiplication_safe_generator())
   let assert Ok(result) = non_negative_float.multiply(a, b)
 
-  let a_val = non_negative_float.unwrap(a)
-  let b_val = non_negative_float.unwrap(b)
-  let result_val = non_negative_float.unwrap(result)
+  let a = non_negative_float.unwrap(a)
+  let b = non_negative_float.unwrap(b)
 
-  assert result_val == a_val *. b_val
+  assert non_negative_float.unwrap(result) == a *. b
 }
 
 // divide
@@ -195,10 +195,30 @@ pub fn divide_test() {
   )
   let assert Ok(result) = non_negative_float.divide(a, b)
 
-  let a_val = non_negative_float.unwrap(a)
-  let b_val = non_negative_float.unwrap(b)
+  let a = non_negative_float.unwrap(a)
+  let b = non_negative_float.unwrap(b)
 
-  assert non_negative_float.unwrap(result) == a_val /. b_val
+  assert non_negative_float.unwrap(result) == a /. b
+}
+
+// divide_by_positive
+
+pub fn divide_by_positive_test() {
+  use a <- qcheck.given(
+    max_bounded_non_negative_float_generator(
+      non_negative_float.from_float_unsafe(0.1),
+    ),
+  )
+  use b <- qcheck.given(
+    max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
+  )
+
+  let result = non_negative_float.divide_by_positive(a, b)
+
+  let a = non_negative_float.unwrap(a)
+  let b = positive_float.unwrap(b)
+
+  assert non_negative_float.unwrap(result) == a /. b
 }
 
 // is_less_than
@@ -270,6 +290,17 @@ pub fn to_fixed_string_invalid_precision_test() {
 }
 
 // generators
+
+pub fn max_bounded_positive_float_generator(
+  min: PositiveFloat,
+) -> Generator(PositiveFloat) {
+  let max_float = positive_float.unwrap(positive_float.max)
+  let min_float = positive_float.unwrap(min)
+
+  min_float
+  |> qcheck.bounded_float(max_float)
+  |> qcheck.map(positive_float.from_float_unsafe)
+}
 
 fn max_bounded_non_negative_float_generator(
   min: NonNegativeFloat,

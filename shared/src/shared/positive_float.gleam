@@ -60,12 +60,13 @@ pub fn multiply(
   result.map(safe_multiply(a, b), PositiveFloat)
 }
 
-/// Attempts to divide two `PositiveFloat` values,
-/// returning `Error(Nil)` if the operation fails (e.g., division by zero).
-pub fn divide(a: PositiveFloat, b: PositiveFloat) -> Result(PositiveFloat, Nil) {
+pub fn divide(a: PositiveFloat, by b: PositiveFloat) -> PositiveFloat {
   use a <- with_value(a)
   use b <- with_value(b)
-  result.map(float.divide(a, b), PositiveFloat)
+
+  // float.divide only returns Error if b is 0
+  let assert Ok(c) = float.divide(a, by: b)
+  PositiveFloat(c)
 }
 
 /// Returns `True` if the first `PositiveFloat` is strictly less than the second, otherwise `False`.

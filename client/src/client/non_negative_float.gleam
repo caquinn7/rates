@@ -158,15 +158,16 @@ pub fn divide(
   result.map(float.divide(a, b), NonNegativeFloat)
 }
 
-/// Attempts to divide two `NonNegativeFloat` values,
-/// returning `Error(Nil)` if the operation fails.
 pub fn divide_by_positive(
   a: NonNegativeFloat,
-  b: PositiveFloat,
-) -> Result(NonNegativeFloat, Nil) {
+  by b: PositiveFloat,
+) -> NonNegativeFloat {
   use a <- with_value(a)
   use b <- positive_float.with_value(b)
-  result.map(float.divide(a, b), NonNegativeFloat)
+
+  // float.divide only returns Error if b is 0
+  let assert Ok(c) = float.divide(a, by: b)
+  NonNegativeFloat(c)
 }
 
 /// Returns `True` if the first `NonNegativeFloat` is strictly less than the second, otherwise `False`.

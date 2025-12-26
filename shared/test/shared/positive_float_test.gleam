@@ -43,11 +43,11 @@ pub fn multiply_test() {
   use b <- qcheck.given(multiplication_safe_generator())
   let assert Ok(result) = positive_float.multiply(a, b)
 
-  let a_val = positive_float.unwrap(a)
-  let b_val = positive_float.unwrap(b)
+  let a = positive_float.unwrap(a)
+  let b = positive_float.unwrap(b)
   let result_val = positive_float.unwrap(result)
 
-  assert result_val == a_val *. b_val
+  assert result_val == a *. b
 }
 
 // divide
@@ -57,7 +57,7 @@ pub fn divide_by_one_returns_self_test() {
     max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
     fn(n) {
       let one = positive_float.from_float_unsafe(1.0)
-      assert positive_float.divide(n, one) == Ok(n)
+      assert positive_float.divide(n, one) == n
     },
   )
 }
@@ -69,12 +69,13 @@ pub fn divide_test() {
   use b <- qcheck.given(
     max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
   )
-  let assert Ok(result) = positive_float.divide(a, b)
 
-  let a_val = positive_float.unwrap(a)
-  let b_val = positive_float.unwrap(b)
+  let result = positive_float.divide(a, b)
 
-  assert positive_float.unwrap(result) == a_val /. b_val
+  let a = positive_float.unwrap(a)
+  let b = positive_float.unwrap(b)
+
+  assert positive_float.unwrap(result) == a /. b
 }
 
 // is_less_than

@@ -198,12 +198,9 @@ fn with_rate_with_custom_glow(
           }
         // converting from right to left
         Right ->
-          case
-            non_negative_float.divide_by_positive(parsed_amount, rate_value)
-          {
-            Error(_) -> panic
-            Ok(x) -> Some(x)
-          }
+          parsed_amount
+          |> non_negative_float.divide_by_positive(rate_value)
+          |> Some
       }
 
       // Update only the opposite side’s amount_input field with the converted value
@@ -318,10 +315,7 @@ pub fn with_amount(
 
           Right ->
             option.map(converter.rate, fn(rate) {
-              case non_negative_float.divide_by_positive(parsed_amount, rate) {
-                Error(Nil) -> panic
-                Ok(x) -> x
-              }
+              non_negative_float.divide_by_positive(parsed_amount, rate)
             })
         }
       }
