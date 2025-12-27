@@ -23,10 +23,12 @@ import shared/non_negative_float.{type NonNegativeFloat}
 pub fn format_currency_amount(amount: NonNegativeFloat) -> String {
   let precision = determine_max_precision(amount)
 
-  // todo: do not assert
-  let assert Ok(result) = non_negative_float.to_fixed_string(amount, precision)
+  let fixed_str = case non_negative_float.to_fixed_string(amount, precision) {
+    Ok(s) -> s
+    _ -> non_negative_float.to_string(amount)
+  }
 
-  case string.split(result, ".") {
+  case string.split(fixed_str, ".") {
     [int_part, frac_part] -> {
       let int_part = add_comma_grouping(int_part)
       let trimmed_frac =
@@ -42,7 +44,7 @@ pub fn format_currency_amount(amount: NonNegativeFloat) -> String {
         _ -> int_part <> "." <> trimmed_frac
       }
     }
-    _ -> result
+    _ -> fixed_str
   }
 }
 

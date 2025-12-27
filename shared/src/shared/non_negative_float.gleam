@@ -214,7 +214,6 @@ pub type ToFixedStringError {
 /// ```gleam
 /// let Ok(n) = non_negative_float.new(1234.567)
 /// to_fixed_string(n, 2) // => Ok("1234.57")
-///
 /// to_fixed_string(n, 0) // => Ok("1235")
 /// ```
 ///
