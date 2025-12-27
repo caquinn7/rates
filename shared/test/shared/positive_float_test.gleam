@@ -15,6 +15,15 @@ pub fn new_returns_error_if_equal_to_zero_test() {
   assert positive_float.new(0.0) == Error(Nil)
 }
 
+@target(javascript)
+pub fn new_returns_error_if_not_a_finite_number_test() {
+  let infinity = positive_float.unwrap(positive_float.max) *. 2.0
+  let nan = infinity /. infinity
+
+  assert positive_float.new(infinity) == Error(Nil)
+  assert positive_float.new(nan) == Error(Nil)
+}
+
 pub fn new_returns_ok_if_greater_than_zero_test() {
   let assert Ok(_) = positive_float.new(0.01)
 }
@@ -41,13 +50,19 @@ pub fn multiply_by_one_returns_self_test() {
 pub fn multiply_test() {
   use a <- qcheck.given(multiplication_safe_generator())
   use b <- qcheck.given(multiplication_safe_generator())
+
   let assert Ok(result) = positive_float.multiply(a, b)
 
   let a = positive_float.unwrap(a)
   let b = positive_float.unwrap(b)
-  let result_val = positive_float.unwrap(result)
 
-  assert result_val == a *. b
+  assert positive_float.unwrap(result) == a *. b
+}
+
+pub fn multiply_returns_error_on_overflow_test() {
+  let a = positive_float.max
+  let b = positive_float.from_float_unsafe(2.0)
+  assert positive_float.multiply(a, b) == Error(Nil)
 }
 
 // divide
@@ -57,25 +72,33 @@ pub fn divide_by_one_returns_self_test() {
     max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
     fn(n) {
       let one = positive_float.from_float_unsafe(1.0)
-      assert positive_float.divide(n, one) == n
+      assert positive_float.divide(n, one) == Ok(n)
     },
   )
 }
 
 pub fn divide_test() {
-  use a <- qcheck.given(
-    max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
-  )
-  use b <- qcheck.given(
-    max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
-  )
+  use a <- qcheck.given(division_safe_generator())
+  use b <- qcheck.given(division_safe_generator())
 
-  let result = positive_float.divide(a, b)
+  let assert Ok(result) = positive_float.divide(a, b)
 
   let a = positive_float.unwrap(a)
   let b = positive_float.unwrap(b)
 
   assert positive_float.unwrap(result) == a /. b
+}
+
+pub fn divide_returns_error_on_overflow_test() {
+  // Tests that division correctly returns Error(Nil) when the result would overflow.
+  // Dividing 1.0e308 (near max float) by 1.0e-308 would yield ~1.0e616,
+  // which exceeds the maximum representable float value (~1.79e308).
+  // Both FFI implementations should detect this overflow condition and return Error(Nil)
+  // instead of allowing an invalid result.
+  let very_large = positive_float.from_float_unsafe(1.0e308)
+  let very_small = positive_float.from_float_unsafe(1.0e-308)
+
+  assert positive_float.divide(very_large, very_small) == Error(Nil)
 }
 
 // is_less_than
@@ -137,5 +160,12 @@ fn multiplication_safe_generator() -> Generator(PositiveFloat) {
   // bound by sqrt of max float, safe for multiplication
   0.1
   |> qcheck.bounded_float(1.0e154)
+  |> qcheck.map(positive_float.from_float_unsafe)
+}
+
+fn division_safe_generator() -> Generator(PositiveFloat) {
+  // Keep values moderate - even 1e100 / 0.1 = 1e101 is well within bounds
+  0.1
+  |> qcheck.bounded_float(1.0e100)
   |> qcheck.map(positive_float.from_float_unsafe)
 }

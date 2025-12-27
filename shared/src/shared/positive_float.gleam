@@ -10,15 +10,17 @@ pub const max = PositiveFloat(1.7976931348623157e308)
 /// A positive floating-point number.
 ///
 /// The `PositiveFloat` type guarantees that the wrapped `Float` is
-/// greater than 0.0.
+/// greater than `0.0`.
 pub opaque type PositiveFloat {
   PositiveFloat(Float)
 }
 
 /// Creates a `PositiveFloat` from a `Float`,
-/// returning an error if the value is less than or equal to 0.0.
+/// returning an error if the value is less than or equal to `0.0`.
+/// 
+/// On the JavaScript runtime, also checks that the value is not `Infinity` or `NaN`.
 pub fn new(f: Float) -> Result(PositiveFloat, Nil) {
-  case f >. 0.0 {
+  case is_finite(f) && f >. 0.0 {
     False -> Error(Nil)
     True -> Ok(PositiveFloat(f))
   }
@@ -60,13 +62,15 @@ pub fn multiply(
   result.map(safe_multiply(a, b), PositiveFloat)
 }
 
-pub fn divide(a: PositiveFloat, by b: PositiveFloat) -> PositiveFloat {
+/// Attempts to divide two `PositiveFloat` values,
+/// returning `Error(Nil)` if the result overflows.
+pub fn divide(
+  a: PositiveFloat,
+  by b: PositiveFloat,
+) -> Result(PositiveFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
-
-  // float.divide only returns Error if b is 0
-  let assert Ok(c) = float.divide(a, by: b)
-  PositiveFloat(c)
+  result.map(safe_divide(a, b), PositiveFloat)
 }
 
 /// Returns `True` if the first `PositiveFloat` is strictly less than the second, otherwise `False`.
@@ -103,6 +107,30 @@ pub fn decoder() -> Decoder(PositiveFloat) {
   }
 }
 
+/// Checks if the given float is a finite number.
+///
+/// On the JavaScript runtime, uses `Number.isFinite` to detect `Infinity` and `NaN`.
+/// On the Erlang runtime, always returns `True` since Erlang arithmetic errors are caught
+/// via exceptions rather than special float values.
+@external(javascript, "../number_ffi.mjs", "isFinite")
+fn is_finite(_: Float) -> Bool {
+  True
+}
+
 @external(erlang, "number_ffi", "safe_multiply")
-@external(javascript, "../number_ffi.mjs", "safe_multiply")
-fn safe_multiply(a: Float, b: Float) -> Result(Float, Nil)
+fn safe_multiply(a: Float, b: Float) -> Result(Float, Nil) {
+  let c = a *. b
+  case is_finite(c) {
+    False -> Error(Nil)
+    True -> Ok(c)
+  }
+}
+
+@external(erlang, "number_ffi", "safe_divide")
+fn safe_divide(a: Float, b: Float) -> Result(Float, Nil) {
+  let c = a /. b
+  case is_finite(c) {
+    False -> Error(Nil)
+    True -> Ok(c)
+  }
+}
