@@ -133,3 +133,15 @@ pub fn determine_max_precision_very_small_amount_test() {
   let p = non_negative_float.from_float_unsafe(0.00000001)
   assert formatting.determine_max_precision(p) == 8
 }
+
+// epsilon
+
+pub fn determine_max_precision_epsilon_near_point_zero_one_test() {
+  let p = non_negative_float.from_float_unsafe(0.01 -. 5.0e-13)
+  assert formatting.determine_max_precision(p) == 6
+}
+
+pub fn determine_max_precision_epsilon_near_one_test() {
+  let p = non_negative_float.from_float_unsafe(1.0 -. 5.0e-13)
+  assert formatting.determine_max_precision(p) == 4
+}

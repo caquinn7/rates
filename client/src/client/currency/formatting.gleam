@@ -65,20 +65,26 @@ fn add_comma_grouping(int_string: String) -> String {
 }
 
 /// Determines the maximum number of decimal places (precision) to use
-/// when formatting a given currency amount.
+/// when formatting a given currency amount for display.
 ///
-/// The precision varies based on the value of the amount:
-/// - 0 decimal places if the amount is zero
+/// The precision varies based on the *conceptual value* of the amount:
+/// - 0 decimal places if the amount is effectively zero
 /// - 4 decimal places if the amount is at least 1.0
 /// - 6 decimal places if the amount is at least 0.01 but less than 1.0
 /// - 8 decimal places for smaller amounts
+///
+/// To avoid display flicker caused by floating-point representation error,
+/// the function applies a small tolerance when comparing against thresholds,
+/// so values extremely close to a boundary are treated as belonging to the
+/// expected tier.
 pub fn determine_max_precision(amount: NonNegativeFloat) -> Int {
-  // todo: use an epsilon?
   non_negative_float.with_value(amount, fn(a) {
+    let eps = 1.0e-12
+
     case a {
-      _ if a == 0.0 -> 0
-      _ if a >=. 1.0 -> 4
-      _ if a >=. 0.01 -> 6
+      _ if a <=. eps -> 0
+      _ if a +. eps >=. 1.0 -> 4
+      _ if a +. eps >=. 0.01 -> 6
       _ -> 8
     }
   })
