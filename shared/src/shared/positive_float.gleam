@@ -29,7 +29,7 @@ pub fn new(f: Float) -> Result(PositiveFloat, Nil) {
 /// Panics on invalid input!
 pub fn from_float_unsafe(x: Float) -> PositiveFloat {
   case new(x) {
-    Error(_) -> panic as "Expected a positive value"
+    Error(_) -> panic as "Expected a positive, finite value"
     Ok(p) -> p
   }
 }
@@ -88,7 +88,7 @@ pub fn is_greater_than(a: PositiveFloat, b: PositiveFloat) -> Bool {
 }
 
 /// Converts a `PositiveFloat` to its string representation
-/// by calling float.to_string on the wrapped `Float` value.
+/// by calling `float.to_string` on the wrapped `Float` value.
 pub fn to_string(n: PositiveFloat) -> String {
   with_value(n, float.to_string)
 }

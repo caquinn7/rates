@@ -12,14 +12,17 @@ pub const max = NonNegativeFloat(1.7976931348623157e308)
 /// A non-negative floating-point number.
 ///
 /// The `NonNegativeFloat` type guarantees that the wrapped `Float` is
-/// greater than or equal to 0.0.
+/// greater than or equal to `0.0`.
 pub opaque type NonNegativeFloat {
   NonNegativeFloat(Float)
 }
 
-/// Creates a `NonNegativeFloat` from a `Float`, returning an error if the value is negative.
+/// Creates a `NonNegativeFloat` from a `Float`,
+/// returning an error if the value is less than `0.0`.
+/// 
+/// On the JavaScript runtime, also checks that the value is not `Infinity` or `NaN`.
 pub fn new(f: Float) -> Result(NonNegativeFloat, Nil) {
-  case f >=. 0.0 {
+  case is_finite(f) && f >=. 0.0 {
     False -> Error(Nil)
     True -> Ok(NonNegativeFloat(f))
   }
@@ -28,7 +31,7 @@ pub fn new(f: Float) -> Result(NonNegativeFloat, Nil) {
 /// Panics on invalid input!
 pub fn from_float_unsafe(f: Float) -> NonNegativeFloat {
   case new(f) {
-    Error(_) -> panic as "Expected a non-negative value"
+    Error(_) -> panic as "Expected a non-negative, finite value"
     Ok(n) -> n
   }
 }
@@ -148,7 +151,7 @@ pub fn multiply_by_positive(
 }
 
 /// Attempts to divide two `NonNegativeFloat` values,
-/// returning `Error(Nil)` if the operation fails (e.g., division by zero).
+/// returning `Error(Nil)` if the operation fails (e.g., division by zero, overflow).
 pub fn divide(
   a: NonNegativeFloat,
   b: NonNegativeFloat,
@@ -158,16 +161,15 @@ pub fn divide(
   result.map(float.divide(a, b), NonNegativeFloat)
 }
 
+/// Attempts to divide a `NonNegativeFloat` by a `PositiveFloat`,
+/// returning `Error(Nil)` if the result overflows.
 pub fn divide_by_positive(
   a: NonNegativeFloat,
   by b: PositiveFloat,
-) -> NonNegativeFloat {
+) -> Result(NonNegativeFloat, Nil) {
   use a <- with_value(a)
   use b <- positive_float.with_value(b)
-
-  // float.divide only returns Error if b is 0
-  let assert Ok(c) = float.divide(a, by: b)
-  NonNegativeFloat(c)
+  result.map(safe_divide(a, b), NonNegativeFloat)
 }
 
 /// Returns `True` if the first `NonNegativeFloat` is strictly less than the second, otherwise `False`.
@@ -185,8 +187,8 @@ pub fn is_greater_than(a: NonNegativeFloat, b: NonNegativeFloat) -> Bool {
 }
 
 /// Converts a `NonNegativeFloat` to its string representation
-/// by calling float.to_string on the wrapped `Float` value.
-///
+/// by calling `float.to_string` on the wrapped `Float` value.
+/// 
 /// For precise decimal formatting, consider using `non_negative_float.to_fixed_string` instead.
 pub fn to_string(n: NonNegativeFloat) -> String {
   with_value(n, float.to_string)
@@ -194,23 +196,21 @@ pub fn to_string(n: NonNegativeFloat) -> String {
 
 pub type ToFixedStringError {
   InvalidPrecision
-  UnexpectedFormat
 }
 
 /// Converts a `NonNegativeFloat` to a string with fixed decimal precision.
 ///
-/// - The number is formatted using JavaScript’s native `Number.prototype.toFixed`
-///   method via FFI, which rounds the number to exactly `precision` digits after
-///   the decimal point.
-/// - When `precision` is `0`, the decimal point is omitted entirely.
+/// The number is rounded and formatted with exactly `precision`
+/// digits after the decimal point. When `precision` is `0`, the decimal point is
+/// omitted entirely.
 ///
-/// ## Errors
-/// - Returns `Error(InvalidPrecision)` if `precision` is less than 0 or greater than 100.
-/// - Returns `Error(UnexpectedFormat)` if the underlying `toFixed` output does not
-///   include a decimal when `precision > 0`. This should never occur, but the error
-///   is returned defensively.
+/// This function is intended for **display formatting of approximate values**
+/// (such as exchange rates or converted amounts), not for representing stored
+/// monetary balances.
 ///
-/// ## Examples
+/// Returns `Error(InvalidPrecision)` if `precision` is less than 0 or greater than 100.
+///
+/// ### Examples
 /// ```gleam
 /// let Ok(n) = non_negative_float.new(1234.567)
 /// to_fixed_string(n, 2) // => Ok("1234.57")
@@ -218,29 +218,42 @@ pub type ToFixedStringError {
 /// to_fixed_string(n, 0) // => Ok("1235")
 /// ```
 ///
-/// ## Notes
-/// - This function depends on JavaScript behavior. For example, `toFixed` performs rounding,
-///   so `1234.567` with precision 2 becomes `"1234.57"` rather than being truncated.
+/// ### Notes
+/// - The underlying formatters perform rounding rather than truncation.
+/// - Because this function operates on binary floating-point values, results may
+///   reflect floating-point representation effects (for example, `1.005` may
+///   format as `"1.00"` when using precision 2).
 pub fn to_fixed_string(
   n: NonNegativeFloat,
   precision: Int,
 ) -> Result(String, ToFixedStringError) {
   use <- bool.guard(precision < 0 || precision > 100, Error(InvalidPrecision))
+  Ok(with_value(n, to_fixed(_, precision)))
+}
 
-  let raw_str = with_value(n, to_fixed(_, precision))
+@external(erlang, "number_ffi", "to_fixed")
+@external(javascript, "../number_ffi.mjs", "toFixed")
+fn to_fixed(f: Float, digits: Int) -> String
 
-  case precision {
-    0 -> Ok(raw_str)
-    _ ->
-      case string.split(raw_str, ".") {
-        [int_part, frac_part] -> Ok(int_part <> "." <> frac_part)
-        _ -> Error(UnexpectedFormat)
-      }
+@external(javascript, "../number_ffi.mjs", "isFinite")
+fn is_finite(_: Float) -> Bool {
+  True
+}
+
+@external(erlang, "number_ffi", "safe_multiply")
+fn safe_multiply(a: Float, b: Float) -> Result(Float, Nil) {
+  let c = a *. b
+  case is_finite(c) {
+    False -> Error(Nil)
+    True -> Ok(c)
   }
 }
 
-@external(javascript, "../number_ffi.mjs", "safe_multiply")
-fn safe_multiply(a: Float, b: Float) -> Result(Float, Nil)
-
-@external(javascript, "../number_ffi.mjs", "to_fixed")
-fn to_fixed(f: Float, digits: Int) -> String
+@external(erlang, "number_ffi", "safe_divide")
+fn safe_divide(a: Float, b: Float) -> Result(Float, Nil) {
+  let c = a /. b
+  case is_finite(c) {
+    False -> Error(Nil)
+    True -> Ok(c)
+  }
+}

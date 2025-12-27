@@ -1,6 +1,6 @@
-import client/non_negative_float.{type NonNegativeFloat}
 import gleam/list
 import gleam/string
+import shared/non_negative_float.{type NonNegativeFloat}
 
 /// Formats a `NonNegativeFloat` amount as a human-readable string with appropriate
 /// precision and comma grouping.
@@ -22,6 +22,8 @@ import gleam/string
 /// ```
 pub fn format_currency_amount(amount: NonNegativeFloat) -> String {
   let precision = determine_max_precision(amount)
+
+  // todo: do not assert
   let assert Ok(result) = non_negative_float.to_fixed_string(amount, precision)
 
   case string.split(result, ".") {
@@ -69,6 +71,7 @@ fn add_comma_grouping(int_string: String) -> String {
 /// - 6 decimal places if the amount is at least 0.01 but less than 1.0
 /// - 8 decimal places for smaller amounts
 pub fn determine_max_precision(amount: NonNegativeFloat) -> Int {
+  // todo: use an epsilon?
   non_negative_float.with_value(amount, fn(a) {
     case a {
       _ if a == 0.0 -> 0

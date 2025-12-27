@@ -1,7 +1,6 @@
 import client/currency/collection.{type CurrencyCollection} as currency_collection
 import client/currency/filtering as currency_filtering
 import client/currency/formatting as currency_formatting
-import client/non_negative_float.{type NonNegativeFloat}
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
 import client/ui/button_dropdown.{
@@ -20,6 +19,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import shared/currency.{type Currency, Crypto}
+import shared/non_negative_float.{type NonNegativeFloat}
 import shared/positive_float.{type PositiveFloat}
 import shared/rates/rate_request.{RateRequest}
 
@@ -198,9 +198,12 @@ fn with_rate_with_custom_glow(
           }
         // converting from right to left
         Right ->
-          parsed_amount
-          |> non_negative_float.divide_by_positive(rate_value)
-          |> Some
+          case
+            non_negative_float.divide_by_positive(parsed_amount, rate_value)
+          {
+            Error(_) -> panic
+            Ok(x) -> Some(x)
+          }
       }
 
       // Update only the opposite side’s amount_input field with the converted value
@@ -315,7 +318,10 @@ pub fn with_amount(
 
           Right ->
             option.map(converter.rate, fn(rate) {
-              non_negative_float.divide_by_positive(parsed_amount, rate)
+              case non_negative_float.divide_by_positive(parsed_amount, rate) {
+                Error(_) -> panic
+                Ok(x) -> x
+              }
             })
         }
       }

@@ -1,11 +1,11 @@
 import client.{Model}
-import client/non_negative_float
 import client/side.{Left, Right}
 import client/ui/converter
 import gleam/option.{None, Some}
 import gleeunit
 import shared/client_state.{ConverterState}
 import shared/currency.{Crypto, Fiat}
+import shared/non_negative_float
 import shared/page_data.{PageData}
 import shared/positive_float
 import shared/rates/rate_response.{Kraken, RateResponse}

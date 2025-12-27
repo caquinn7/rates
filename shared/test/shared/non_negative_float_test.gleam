@@ -1,5 +1,5 @@
-import client/non_negative_float.{type NonNegativeFloat, InvalidPrecision}
 import qcheck.{type Generator}
+import shared/non_negative_float.{type NonNegativeFloat, InvalidPrecision}
 import shared/positive_float.{type PositiveFloat}
 
 // new
@@ -10,6 +10,15 @@ pub fn new_returns_error_if_less_than_zero_test() {
 
 pub fn new_returns_ok_if_equal_to_negative_zero_test() {
   let assert Ok(_) = non_negative_float.new(-0.0)
+}
+
+@target(javascript)
+pub fn new_returns_error_if_not_a_finite_number_test() {
+  let infinity = non_negative_float.unwrap(non_negative_float.max) *. 2.0
+  let nan = infinity /. infinity
+
+  assert non_negative_float.new(infinity) == Error(Nil)
+  assert non_negative_float.new(nan) == Error(Nil)
 }
 
 pub fn new_returns_ok_if_greater_than_or_equal_to_zero_test() {
@@ -107,13 +116,6 @@ pub fn is_zero_returns_false_for_known_small_value_test() {
 
 // multiply
 
-// pub fn infinity_test() {
-//   non_negative_float.max()
-//   |> echo
-//   |> non_negative_float.multiply(non_negative_float.from_float_unsafe(2.0))
-//   |> echo
-// }
-
 pub fn multiply_by_one_returns_self_test() {
   qcheck.given(
     max_bounded_non_negative_float_generator(
@@ -139,12 +141,43 @@ pub fn multiply_by_zero_returns_zero_test() {
 }
 
 pub fn multiply_test() {
-  use a <- qcheck.given(multiplication_safe_generator())
-  use b <- qcheck.given(multiplication_safe_generator())
+  // bound by sqrt of max float, safe for multiplication
+  let float_generator = qcheck.bounded_float(0.1, 1.0e154)
+
+  use a <- qcheck.given(qcheck.map(
+    float_generator,
+    non_negative_float.from_float_unsafe,
+  ))
+  use b <- qcheck.given(qcheck.map(
+    float_generator,
+    non_negative_float.from_float_unsafe,
+  ))
+
   let assert Ok(result) = non_negative_float.multiply(a, b)
 
   let a = non_negative_float.unwrap(a)
   let b = non_negative_float.unwrap(b)
+
+  assert non_negative_float.unwrap(result) == a *. b
+}
+
+pub fn multiply_by_positive_test() {
+  // bound by sqrt of max float, safe for multiplication
+  let float_generator = qcheck.bounded_float(0.1, 1.0e154)
+
+  use a <- qcheck.given(qcheck.map(
+    float_generator,
+    non_negative_float.from_float_unsafe,
+  ))
+  use b <- qcheck.given(qcheck.map(
+    float_generator,
+    positive_float.from_float_unsafe,
+  ))
+
+  let assert Ok(result) = non_negative_float.multiply_by_positive(a, b)
+
+  let a = non_negative_float.unwrap(a)
+  let b = positive_float.unwrap(b)
 
   assert non_negative_float.unwrap(result) == a *. b
 }
@@ -183,16 +216,19 @@ pub fn divide_by_one_returns_self_test() {
 }
 
 pub fn divide_test() {
-  use a <- qcheck.given(
-    max_bounded_non_negative_float_generator(
-      non_negative_float.from_float_unsafe(0.0),
-    ),
-  )
-  use b <- qcheck.given(
-    max_bounded_non_negative_float_generator(
-      non_negative_float.from_float_unsafe(0.1),
-    ),
-  )
+  // Keep values moderate - even 1e100 / 0.1 = 1e101 is well within bounds
+  let float_generator = qcheck.bounded_float(0.1, 1.0e100)
+
+  use a <- qcheck.given(qcheck.map(
+    float_generator,
+    non_negative_float.from_float_unsafe,
+  ))
+
+  use b <- qcheck.given(qcheck.map(
+    float_generator,
+    non_negative_float.from_float_unsafe,
+  ))
+
   let assert Ok(result) = non_negative_float.divide(a, b)
 
   let a = non_negative_float.unwrap(a)
@@ -204,16 +240,19 @@ pub fn divide_test() {
 // divide_by_positive
 
 pub fn divide_by_positive_test() {
-  use a <- qcheck.given(
-    max_bounded_non_negative_float_generator(
-      non_negative_float.from_float_unsafe(0.1),
-    ),
-  )
-  use b <- qcheck.given(
-    max_bounded_positive_float_generator(positive_float.from_float_unsafe(0.1)),
-  )
+  let bounded_float = qcheck.bounded_float(0.1, 1.0e100)
 
-  let result = non_negative_float.divide_by_positive(a, b)
+  use a <- qcheck.given(qcheck.map(
+    bounded_float,
+    non_negative_float.from_float_unsafe,
+  ))
+
+  use b <- qcheck.given(qcheck.map(
+    bounded_float,
+    positive_float.from_float_unsafe,
+  ))
+
+  let assert Ok(result) = non_negative_float.divide_by_positive(a, b)
 
   let a = non_negative_float.unwrap(a)
   let b = positive_float.unwrap(b)
@@ -310,12 +349,5 @@ fn max_bounded_non_negative_float_generator(
 
   min_float
   |> qcheck.bounded_float(max_float)
-  |> qcheck.map(non_negative_float.from_float_unsafe)
-}
-
-fn multiplication_safe_generator() -> Generator(NonNegativeFloat) {
-  // bound by sqrt of max float, safe for multiplication
-  0.0
-  |> qcheck.bounded_float(1.0e154)
   |> qcheck.map(non_negative_float.from_float_unsafe)
 }

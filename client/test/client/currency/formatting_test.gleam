@@ -1,5 +1,5 @@
 import client/currency/formatting
-import client/non_negative_float
+import shared/non_negative_float
 
 // format_currency_amount tests - focus on trailing zero removal logic
 

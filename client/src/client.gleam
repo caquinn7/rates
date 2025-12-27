@@ -5,7 +5,6 @@ import client/browser/history
 import client/browser/window
 import client/net/http_client
 import client/net/websocket_client
-import client/non_negative_float
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
 import client/ui/button_dropdown.{Enter}
@@ -37,6 +36,7 @@ import lustre/event
 import rsvp
 import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{type Currency}
+import shared/non_negative_float
 import shared/page_data.{type PageData}
 import shared/rates/rate_response.{RateResponse}
 import shared/subscriptions/subscription_id

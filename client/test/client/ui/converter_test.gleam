@@ -1,7 +1,6 @@
 import client/currency/collection as currency_collection
 import client/currency/filtering as currency_filtering
 import client/currency/formatting as currency_formatting
-import client/non_negative_float
 import client/side.{Left, Right}
 import client/ui/button_dropdown.{ArrowDown, ArrowUp, Enter, Other}
 import client/ui/converter.{
@@ -14,6 +13,7 @@ import client/ui/converter.{
 import gleam/list
 import gleam/option.{None, Some}
 import shared/currency.{Crypto}
+import shared/non_negative_float
 import shared/positive_float
 import shared/rates/rate_request.{RateRequest}
 
