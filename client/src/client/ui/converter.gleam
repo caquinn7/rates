@@ -193,7 +193,8 @@ fn with_rate_with_custom_glow(
           case
             non_negative_float.multiply_by_positive(parsed_amount, rate_value)
           {
-            Error(_) -> panic
+            Error(_) ->
+              panic as "multiplication overflow when converting amount"
             Ok(x) -> Some(x)
           }
         // converting from right to left
@@ -201,7 +202,7 @@ fn with_rate_with_custom_glow(
           case
             non_negative_float.divide_by_positive(parsed_amount, rate_value)
           {
-            Error(_) -> panic
+            Error(_) -> panic as "division overflow when converting amount"
             Ok(x) -> Some(x)
           }
       }
@@ -311,7 +312,8 @@ pub fn with_amount(
               case
                 non_negative_float.multiply_by_positive(parsed_amount, rate)
               {
-                Error(_) -> panic
+                Error(_) ->
+                  panic as "multiplication overflow when converting amount"
                 Ok(x) -> x
               }
             })
@@ -319,7 +321,7 @@ pub fn with_amount(
           Right ->
             option.map(converter.rate, fn(rate) {
               case non_negative_float.divide_by_positive(parsed_amount, rate) {
-                Error(_) -> panic
+                Error(_) -> panic as "division overflow when converting amount"
                 Ok(x) -> x
               }
             })
