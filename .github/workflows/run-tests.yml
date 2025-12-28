@@ -36,6 +36,7 @@ jobs:
           otp-version: ${{ env.OTP_VERSION }}
           gleam-version: ${{ env.GLEAM_VERSION }}
           rebar3-version: ${{ env.REBAR3_VERSION }}
+          version-type: strict
 
       - name: Run Shared Tests
         run: |
@@ -54,12 +55,15 @@ jobs:
     needs: shared-tests
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup BEAM
         uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ env.OTP_VERSION }}
           gleam-version: ${{ env.GLEAM_VERSION }}
           rebar3-version: ${{ env.REBAR3_VERSION }}
+          version-type: strict
+
       - name: Run Client Tests
         run: |
           cd client
@@ -73,17 +77,21 @@ jobs:
     needs: client-tests
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup BEAM
         uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ env.OTP_VERSION }}
           gleam-version: ${{ env.GLEAM_VERSION }}
           rebar3-version: ${{ env.REBAR3_VERSION }}
+          version-type: strict
+
       # - name: Set environment variables from secrets
       #   run: |
       #       cd server
       #       echo "COIN_MARKET_CAP_API_KEY=${{ secrets.COIN_MARKET_CAP_API_KEY }}" >> .env
       #   shell: bash
+
       - name: Run Server Tests
         run: |
           cd server
