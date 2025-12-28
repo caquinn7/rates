@@ -3,8 +3,8 @@ import client/browser/element as browser_element
 import client/browser/event as browser_event
 import client/browser/history
 import client/browser/window
-import client/net/http_client
-import client/net/websocket_client
+import client/network/http_client
+import client/network/websocket_client
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
 import client/ui/button_dropdown.{Enter}
