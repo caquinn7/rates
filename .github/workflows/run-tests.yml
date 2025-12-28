@@ -7,8 +7,8 @@ on:
   pull_request:
 
 env: # Define global variables
-  OTP_VERSION: "28.1.1"
-  GLEAM_VERSION: "1.13.0"
+  OTP_VERSION: "28.2"
+  GLEAM_VERSION: "1.14.0"
   REBAR3_VERSION: "3.25.1"
   NODE_VERSION: "24.12.0"
 
