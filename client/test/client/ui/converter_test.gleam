@@ -602,7 +602,10 @@ pub fn with_amount_successful_parse_with_rate_left_to_right_test() {
   let right_input = converter.get_converter_input(result, Right)
   let expected_converted_amount = non_negative_float.from_float_unsafe(250.0)
   let expected_raw =
-    currency_formatting.format_currency_amount(expected_converted_amount)
+    currency_formatting.format_currency_amount(
+      right_input.currency_selector.selected_currency,
+      expected_converted_amount,
+    )
 
   assert right_input.amount_input.raw == expected_raw
   assert right_input.amount_input.parsed == Some(expected_converted_amount)
@@ -636,7 +639,10 @@ pub fn with_amount_successful_parse_with_rate_right_to_left_test() {
   let left_input = converter.get_converter_input(result, Left)
   let expected_converted_amount = non_negative_float.from_float_unsafe(50.0)
   let expected_raw =
-    currency_formatting.format_currency_amount(expected_converted_amount)
+    currency_formatting.format_currency_amount(
+      left_input.currency_selector.selected_currency,
+      expected_converted_amount,
+    )
 
   assert left_input.amount_input.raw == expected_raw
   assert left_input.amount_input.parsed == Some(expected_converted_amount)
@@ -809,7 +815,10 @@ pub fn with_amount_zero_input_converts_correctly_test() {
   let right_input = converter.get_converter_input(result, Right)
   let expected_converted_amount = non_negative_float.from_float_unsafe(0.0)
   let expected_raw =
-    currency_formatting.format_currency_amount(expected_converted_amount)
+    currency_formatting.format_currency_amount(
+      right_input.currency_selector.selected_currency,
+      expected_converted_amount,
+    )
 
   assert right_input.amount_input.raw == expected_raw
   assert right_input.amount_input.parsed == Some(expected_converted_amount)

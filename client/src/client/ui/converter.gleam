@@ -217,7 +217,10 @@ fn with_rate_with_custom_glow(
 
             Some(amount) ->
               AmountInput(
-                currency_formatting.format_currency_amount(amount),
+                currency_formatting.format_currency_amount(
+                  converter_input.currency_selector.selected_currency,
+                  amount,
+                ),
                 Some(amount),
                 color_from_rate_change(previous_rate, rate),
               )
@@ -289,7 +292,10 @@ pub fn with_amount(
     converter.inputs
     |> map_converter_inputs(side, fn(input) {
       let raw_display =
-        currency_formatting.format_currency_amount(parsed_amount)
+        currency_formatting.format_currency_amount(
+          input.currency_selector.selected_currency,
+          parsed_amount,
+        )
 
       ConverterInput(
         ..input,
@@ -334,7 +340,10 @@ pub fn with_amount(
 
         Some(converted) -> {
           let raw_display =
-            currency_formatting.format_currency_amount(converted)
+            currency_formatting.format_currency_amount(
+              opposite_input.currency_selector.selected_currency,
+              converted,
+            )
 
           AmountInput(
             ..opposite_input.amount_input,
