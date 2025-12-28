@@ -4,6 +4,7 @@ import gleam/option.{None, Some}
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
 }
+import shared/positive_float
 
 pub fn decode_conversion_with_integer_amount_test() {
   let json =
@@ -23,7 +24,9 @@ pub fn decode_conversion_with_integer_amount_test() {
 
   let result = json.parse(json, cmc_conversion.decoder())
 
-  let assert Ok(CmcConversion(1, "BTC", "Bitcoin", 1.0, quote)) = result
+  let assert Ok(CmcConversion(1, "BTC", "Bitcoin", amount, quote)) = result
+
+  assert amount == positive_float.from_float_unsafe(1.0)
 
   assert dict.size(quote) == 1
   let assert Ok(_) = dict.get(quote, "2")
@@ -47,7 +50,8 @@ pub fn decode_conversion_with_float_amount_test() {
 
   let result = json.parse(json, cmc_conversion.decoder())
 
-  let assert Ok(CmcConversion(1, "BTC", "Bitcoin", 1.1, _)) = result
+  let assert Ok(CmcConversion(1, "BTC", "Bitcoin", amount, _)) = result
+  assert amount == positive_float.from_float_unsafe(1.1)
 }
 
 pub fn decode_quote_item_with_integer_amount_test() {
@@ -55,7 +59,8 @@ pub fn decode_quote_item_with_integer_amount_test() {
 
   let result = json.parse(json, cmc_conversion.quote_item_decoder())
 
-  assert Ok(QuoteItem(Some(100_000.0))) == result
+  let assert Ok(QuoteItem(Some(price))) = result
+  assert price == positive_float.from_float_unsafe(100_000.0)
 }
 
 pub fn decode_quote_item_with_float_amount_test() {
@@ -64,7 +69,8 @@ pub fn decode_quote_item_with_float_amount_test() {
 
   let result = json.parse(json, cmc_conversion.quote_item_decoder())
 
-  assert Ok(QuoteItem(Some(100_000.1))) == result
+  let assert Ok(QuoteItem(Some(price))) = result
+  assert price == positive_float.from_float_unsafe(100_000.1)
 }
 
 pub fn decode_quote_item_with_null_amount_test() {

@@ -1,7 +1,0 @@
----
-version: 1.4.1
-title: rate_response_encode_when_rate_is_none_test
-file: ./test/shared/rates/rate_response_test.gleam
-test_name: rate_response_encode_when_rate_is_none_test
----
-{"from":1,"to":2781,"rate":null,"source":"Kraken","timestamp":1756654456}

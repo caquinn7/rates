@@ -5,7 +5,6 @@ import client/browser/history
 import client/browser/window
 import client/net/http_client
 import client/net/websocket_client
-import client/positive_float
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
 import client/ui/button_dropdown.{Enter}
@@ -37,6 +36,7 @@ import lustre/event
 import rsvp
 import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{type Currency}
+import shared/non_negative_float
 import shared/page_data.{type PageData}
 import shared/rates/rate_response.{RateResponse}
 import shared/subscriptions/subscription_id
@@ -57,15 +57,14 @@ pub fn model_from_page_data(
   page_data: PageData,
 ) -> Result(Model, NewConverterError) {
   let build_converter = fn(rate_response, converter_id, amount) {
-    let assert RateResponse(from, to, Some(rate), _source, _timestamp) =
-      rate_response
+    let RateResponse(from, to, rate, _source, _timestamp) = rate_response
 
     converter.new(
       converter_id,
       page_data.currencies,
       #(from, to),
       float.to_string(amount),
-      Some(positive_float.from_float_unsafe(rate)),
+      rate,
     )
   }
 
@@ -136,7 +135,7 @@ pub fn model_to_client_state(model: Model) {
       let amount =
         converter
         |> converter.get_parsed_amount(Left)
-        |> option.map(positive_float.unwrap)
+        |> option.map(non_negative_float.unwrap)
         |> option.unwrap(1.0)
 
       ConverterState(
@@ -252,12 +251,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
             Ok(converter) -> {
               let model =
-                rate
-                |> option.map(fn(r) {
-                  let assert Ok(r) = positive_float.new(r)
-                  r
-                })
-                |> converter.with_rate(converter, _)
+                converter
+                |> converter.with_rate(rate)
                 |> model_with_converter(model, _)
 
               let effect =

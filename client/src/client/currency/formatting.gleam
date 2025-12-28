@@ -1,8 +1,8 @@
-import client/positive_float.{type PositiveFloat}
 import gleam/list
 import gleam/string
+import shared/non_negative_float.{type NonNegativeFloat}
 
-/// Formats a `PositiveFloat` amount as a human-readable string with appropriate
+/// Formats a `NonNegativeFloat` amount as a human-readable string with appropriate
 /// precision and comma grouping.
 ///
 /// - The decimal precision varies based on the size of the amount:
@@ -16,15 +16,19 @@ import gleam/string
 ///
 /// ## Examples
 /// ```gleam
-/// format_currency_amount(PositiveFloat(1234.567)) // => "1,234.567"
-/// format_currency_amount(PositiveFloat(0.00000123)) // => "0.00000123"
-/// format_currency_amount(PositiveFloat(1.2300)) // => "1.23"
+/// format_currency_amount(NonNegativeFloat(1234.567)) // => "1,234.567"
+/// format_currency_amount(NonNegativeFloat(0.00000123)) // => "0.00000123"
+/// format_currency_amount(NonNegativeFloat(1.2300)) // => "1.23"
 /// ```
-pub fn format_currency_amount(amount: PositiveFloat) -> String {
+pub fn format_currency_amount(amount: NonNegativeFloat) -> String {
   let precision = determine_max_precision(amount)
-  let assert Ok(result) = positive_float.to_fixed_string(amount, precision)
 
-  case string.split(result, ".") {
+  let fixed_str = case non_negative_float.to_fixed_string(amount, precision) {
+    Ok(s) -> s
+    _ -> non_negative_float.to_string(amount)
+  }
+
+  case string.split(fixed_str, ".") {
     [int_part, frac_part] -> {
       let int_part = add_comma_grouping(int_part)
       let trimmed_frac =
@@ -40,7 +44,7 @@ pub fn format_currency_amount(amount: PositiveFloat) -> String {
         _ -> int_part <> "." <> trimmed_frac
       }
     }
-    _ -> result
+    _ -> fixed_str
   }
 }
 
@@ -61,19 +65,26 @@ fn add_comma_grouping(int_string: String) -> String {
 }
 
 /// Determines the maximum number of decimal places (precision) to use
-/// when formatting a given currency amount.
+/// when formatting a given currency amount for display.
 ///
-/// The precision varies based on the value of the amount:
-/// - 0 decimal places if the amount is zero
+/// The precision varies based on the *conceptual value* of the amount:
+/// - 0 decimal places if the amount is effectively zero
 /// - 4 decimal places if the amount is at least 1.0
 /// - 6 decimal places if the amount is at least 0.01 but less than 1.0
 /// - 8 decimal places for smaller amounts
-pub fn determine_max_precision(amount: PositiveFloat) -> Int {
-  positive_float.with_value(amount, fn(a) {
+///
+/// To avoid display flicker caused by floating-point representation error,
+/// the function applies a small tolerance when comparing against thresholds,
+/// so values extremely close to a boundary are treated as belonging to the
+/// expected tier.
+pub fn determine_max_precision(amount: NonNegativeFloat) -> Int {
+  non_negative_float.with_value(amount, fn(a) {
+    let eps = 1.0e-12
+
     case a {
-      _ if a == 0.0 -> 0
-      _ if a >=. 1.0 -> 4
-      _ if a >=. 0.01 -> 6
+      _ if a <=. eps -> 0
+      _ if a +. eps >=. 1.0 -> 4
+      _ if a +. eps >=. 0.01 -> 6
       _ -> 8
     }
   })

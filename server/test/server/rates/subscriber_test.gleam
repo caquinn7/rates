@@ -18,6 +18,7 @@ import server/rates/rate_error.{CmcError, CurrencyNotFound}
 import server/rates/subscriber
 import server/utils/logger
 import shared/currency.{Crypto, Fiat}
+import shared/positive_float
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response.{CoinMarketCap, Kraken}
 import shared/subscriptions/subscription_id
@@ -38,12 +39,13 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
       get_all: fn() { panic },
     )
 
+  let expected_price = positive_float.from_float_unsafe(100_000.0)
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
       subscribe: fn(_) { Nil },
       unsubscribe: fn(_) { Nil },
-      check_for_price: fn(_) { Ok(PriceEntry(100_000.0, 100)) },
+      check_for_price: fn(_) { Ok(PriceEntry(expected_price, 100)) },
     )
 
   let assert Ok(currency_symbol_cache) =
@@ -74,12 +76,12 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
   let assert Ok(#(received_sub_id, Ok(rate_response))) =
     process.receive(subject, 1000)
 
-  assert sub_id == received_sub_id
-  assert 1 == rate_response.from
-  assert 2781 == rate_response.to
-  assert Some(100_000.0) == rate_response.rate
-  assert Kraken == rate_response.source
-  assert 100 == rate_response.timestamp
+  assert received_sub_id == sub_id
+  assert rate_response.from == 1
+  assert rate_response.to == 2781
+  assert rate_response.rate == Some(expected_price)
+  assert rate_response.source == Kraken
+  assert rate_response.timestamp == 100
 }
 
 pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
@@ -109,6 +111,7 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
       check_for_price: fn(_) { panic },
     )
 
+  let expected_price = positive_float.from_float_unsafe(100_000.0)
   let deps =
     Dependencies(
       currency_repository:,
@@ -121,8 +124,8 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
           1,
           "BTC",
           "Bitcoin",
-          1.0,
-          dict.insert(dict.new(), "2781", QuoteItem(Some(100_000.0))),
+          positive_float.from_float_unsafe(1.0),
+          dict.insert(dict.new(), "2781", QuoteItem(Some(expected_price))),
         )
         |> Some
         |> CmcResponse(CmcStatus(0, None), _)
@@ -145,12 +148,12 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
   let assert Ok(#(received_sub_id, Ok(rate_response))) =
     process.receive(subject, 1000)
 
-  assert sub_id == received_sub_id
-  assert 1 == rate_response.from
-  assert 2781 == rate_response.to
-  assert Some(100_000.0) == rate_response.rate
-  assert CoinMarketCap == rate_response.source
-  assert 100 == rate_response.timestamp
+  assert received_sub_id == sub_id
+  assert rate_response.from == 1
+  assert rate_response.to == 2781
+  assert rate_response.rate == Some(expected_price)
+  assert rate_response.source == CoinMarketCap
+  assert rate_response.timestamp == 100
 }
 
 pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
@@ -179,6 +182,7 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
       check_for_price: fn(_) { Error(Nil) },
     )
 
+  let expected_price = positive_float.from_float_unsafe(100_000.0)
   let deps =
     Dependencies(
       currency_repository:,
@@ -191,8 +195,8 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
           1,
           "BTC",
           "Bitcoin",
-          1.0,
-          dict.insert(dict.new(), "2781", QuoteItem(Some(100_000.0))),
+          positive_float.from_float_unsafe(1.0),
+          dict.insert(dict.new(), "2781", QuoteItem(Some(expected_price))),
         )
         |> Some
         |> CmcResponse(CmcStatus(0, None), _)
@@ -215,12 +219,12 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
   let assert Ok(#(received_sub_id, Ok(rate_response))) =
     process.receive(subject, 1000)
 
-  assert sub_id == received_sub_id
-  assert 1 == rate_response.from
-  assert 2781 == rate_response.to
-  assert Some(100_000.0) == rate_response.rate
-  assert CoinMarketCap == rate_response.source
-  assert 100 == rate_response.timestamp
+  assert received_sub_id == sub_id
+  assert rate_response.from == 1
+  assert rate_response.to == 2781
+  assert rate_response.rate == Some(expected_price)
+  assert rate_response.source == CoinMarketCap
+  assert rate_response.timestamp == 100
 }
 
 pub fn subscribe_returns_error_when_currency_id_not_found_test() {
@@ -274,8 +278,8 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
   let assert Ok(#(received_sub_id, Error(rate_err))) =
     process.receive(subject, 1000)
 
-  assert sub_id == received_sub_id
-  assert CurrencyNotFound(rate_req, 2) == rate_err
+  assert received_sub_id == sub_id
+  assert rate_err == CurrencyNotFound(rate_req, 2)
 }
 
 pub fn subscribe_returns_error_when_both_sources_fail_test() {
@@ -333,7 +337,7 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
   let assert Ok(#(received_sub_id, Error(rate_err))) =
     process.receive(subject, 1000)
 
-  assert sub_id == received_sub_id
+  assert received_sub_id == sub_id
   let assert CmcError(RateRequest(1, 2781), _) = rate_err
 }
 
@@ -356,12 +360,13 @@ pub fn subscribe_schedules_get_latest_rate_test() {
   let assert Ok(currency_symbol_cache) =
     currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
 
+  let expected_price = positive_float.from_float_unsafe(100_000.0)
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
       subscribe: fn(_) { Nil },
       unsubscribe: fn(_) { Nil },
-      check_for_price: fn(_) { Ok(PriceEntry(100_000.0, 100)) },
+      check_for_price: fn(_) { Ok(PriceEntry(expected_price, 100)) },
     )
 
   let deps =
@@ -390,12 +395,12 @@ pub fn subscribe_schedules_get_latest_rate_test() {
   let assert Ok(#(received_sub_id, Ok(rate_response))) =
     process.receive(subject, 1500)
 
-  assert sub_id == received_sub_id
-  assert 1 == rate_response.from
-  assert 2781 == rate_response.to
-  assert Some(100_000.0) == rate_response.rate
-  assert Kraken == rate_response.source
-  assert 100 == rate_response.timestamp
+  assert received_sub_id == sub_id
+  assert rate_response.from == 1
+  assert rate_response.to == 2781
+  assert rate_response.rate == Some(expected_price)
+  assert rate_response.source == Kraken
+  assert rate_response.timestamp == 100
 
   subscriber.stop(target)
 }
@@ -420,6 +425,7 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   let assert Ok(currency_symbol_cache) =
     currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
 
+  let expected_price = positive_float.from_float_unsafe(4000.0)
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -427,8 +433,9 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
       unsubscribe: fn(_) { Nil },
       check_for_price: fn(symbol) {
         case kraken_symbol.to_string(symbol) {
-          "BTC/USD" -> Ok(PriceEntry(100_000.0, 100))
-          "ETH/USD" -> Ok(PriceEntry(4000.0, 100))
+          "BTC/USD" ->
+            Ok(PriceEntry(positive_float.from_float_unsafe(100_000.0), 100))
+          "ETH/USD" -> Ok(PriceEntry(expected_price, 100))
           _ -> panic
         }
       },
@@ -459,17 +466,17 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   let assert Ok(#(received_sub_id, Ok(rate_response))) =
     process.receive(subject, 1500)
 
-  assert sub_id == received_sub_id
-  assert 1 == rate_response.from
-  assert 2781 == rate_response.to
+  assert received_sub_id == sub_id
+  assert rate_response.from == 1
+  assert rate_response.to == 2781
 
   let assert Ok(#(received_sub_id, Ok(rate_response))) =
     process.receive(subject, 1500)
 
-  assert sub_id == received_sub_id
-  assert 1027 == rate_response.from
-  assert 2781 == rate_response.to
-  assert Some(4000.0) == rate_response.rate
+  assert received_sub_id == sub_id
+  assert rate_response.from == 1027
+  assert rate_response.to == 2781
+  assert rate_response.rate == Some(expected_price)
 
   subscriber.stop(target)
 }
@@ -493,6 +500,9 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
   let assert Ok(currency_symbol_cache) =
     currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
 
+  let expected_kraken_price = positive_float.from_float_unsafe(100_000.0)
+  let expected_cmc_price = positive_float.from_float_unsafe(100_001.0)
+
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
@@ -500,7 +510,7 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
       unsubscribe: fn(_) { Nil },
       check_for_price: fn(_symbol) {
         case get_and_increment("call_count") {
-          0 -> Ok(PriceEntry(100_000.0, 100))
+          0 -> Ok(PriceEntry(expected_kraken_price, 100))
           _ -> Error(Nil)
         }
       },
@@ -518,8 +528,8 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
           1,
           "BTC",
           "Bitcoin",
-          1.0,
-          dict.insert(dict.new(), "2781", QuoteItem(Some(100_001.0))),
+          positive_float.from_float_unsafe(1.0),
+          dict.insert(dict.new(), "2781", QuoteItem(Some(expected_cmc_price))),
         )
         |> Some
         |> CmcResponse(CmcStatus(0, None), _)
@@ -540,13 +550,13 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
   // assert
   let assert Ok(#(_, Ok(rate_response))) = process.receive(subject, 1000)
 
-  assert Kraken == rate_response.source
-  assert Some(100_000.0) == rate_response.rate
+  assert rate_response.source == Kraken
+  assert rate_response.rate == Some(expected_kraken_price)
 
   let assert Ok(#(_, Ok(rate_response))) = process.receive(subject, 1500)
 
-  assert CoinMarketCap == rate_response.source
-  assert Some(100_001.0) == rate_response.rate
+  assert rate_response.source == CoinMarketCap
+  assert rate_response.rate == Some(expected_cmc_price)
 }
 
 pub fn stop_unsubscribes_from_kraken_test() {
@@ -574,7 +584,9 @@ pub fn stop_unsubscribes_from_kraken_test() {
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
       subscribe: fn(_) { Nil },
       unsubscribe: fn(_) { process.send(unsub_subject, True) },
-      check_for_price: fn(_) { Ok(PriceEntry(100_000.0, 100)) },
+      check_for_price: fn(_) {
+        Ok(PriceEntry(positive_float.from_float_unsafe(100_000.0), 100))
+      },
     )
 
   let deps =

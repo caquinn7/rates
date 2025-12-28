@@ -1,12 +1,13 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{type Option}
+import shared/positive_float.{type PositiveFloat}
 
 pub type RateResponse {
   RateResponse(
     from: Int,
     to: Int,
-    rate: Option(Float),
+    rate: Option(PositiveFloat),
     source: Source,
     timestamp: Int,
   )
@@ -30,7 +31,7 @@ pub fn encode(rate_response: RateResponse) -> Json {
   json.object([
     #("from", json.int(from)),
     #("to", json.int(to)),
-    #("rate", json.nullable(rate, json.float)),
+    #("rate", json.nullable(rate, positive_float.encode)),
     #("source", json.string(source_to_string(source))),
     #("timestamp", json.int(timestamp)),
   ])
@@ -48,7 +49,7 @@ pub fn decoder() -> Decoder(RateResponse) {
 
   use from <- decode.field("from", decode.int)
   use to <- decode.field("to", decode.int)
-  use rate <- decode.field("rate", decode.optional(decode.float))
+  use rate <- decode.field("rate", decode.optional(positive_float.decoder()))
   use source <- decode.field("source", source_decoder)
   use timestamp <- decode.field("timestamp", decode.int)
   decode.success(RateResponse(from:, to:, rate:, source:, timestamp:))

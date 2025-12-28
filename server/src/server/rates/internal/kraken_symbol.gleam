@@ -1,3 +1,5 @@
+import shared/positive_float.{type PositiveFloat}
+
 /// Represents a Kraken currency pair and whether it was found in the direct or reversed form.
 /// For example, `Direct("BTC/USD")` vs `Reversed("USD/BTC")`.
 pub opaque type KrakenSymbol {
@@ -38,9 +40,15 @@ pub fn to_string(symbol: KrakenSymbol) -> String {
 
 /// Applies the symbol direction to a price. Returns the price as-is for DirectSymbol,
 /// or the inverse for ReversedSymbol
-pub fn apply_price_direction(symbol: KrakenSymbol, price: Float) -> Float {
+pub fn apply_price_direction(
+  symbol: KrakenSymbol,
+  price: PositiveFloat,
+) -> PositiveFloat {
   case symbol {
     Direct(..) -> price
-    Reversed(..) -> 1.0 /. price
+    Reversed(..) ->
+      price
+      |> positive_float.with_value(fn(p) { 1.0 /. p })
+      |> positive_float.from_float_unsafe
   }
 }

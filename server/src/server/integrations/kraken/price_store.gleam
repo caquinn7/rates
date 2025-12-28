@@ -9,13 +9,14 @@ import gleam/list
 import gleam/pair
 import gleam/result
 import server/utils/time
+import shared/positive_float.{type PositiveFloat}
 
 pub opaque type PriceStore {
   PriceStore(EtsSet(String, PriceEntry))
 }
 
 pub type PriceEntry {
-  PriceEntry(price: Float, timestamp: Int)
+  PriceEntry(price: PositiveFloat, timestamp: Int)
 }
 
 const table_name = "kraken_price_store"
@@ -52,14 +53,14 @@ pub fn new() -> Result(PriceStore, Nil) {
 /// let Ok(store) = price_store.new()
 /// price_store.insert(store, "BTC/USD", 67350.25)
 /// ```
-pub fn insert(store: PriceStore, symbol: String, price: Float) -> Nil {
+pub fn insert(store: PriceStore, symbol: String, price: PositiveFloat) -> Nil {
   insert_with_timestamp(store, symbol, price, time.system_time_ms())
 }
 
 pub fn insert_with_timestamp(
   store: PriceStore,
   symbol: String,
-  price: Float,
+  price: PositiveFloat,
   current_time_ms: Int,
 ) -> Nil {
   let PriceStore(table) = store

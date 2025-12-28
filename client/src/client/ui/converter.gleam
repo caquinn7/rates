@@ -1,7 +1,6 @@
 import client/currency/collection.{type CurrencyCollection} as currency_collection
 import client/currency/filtering as currency_filtering
 import client/currency/formatting as currency_formatting
-import client/positive_float.{type PositiveFloat}
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
 import client/ui/button_dropdown.{
@@ -20,6 +19,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 import shared/currency.{type Currency, Crypto}
+import shared/non_negative_float.{type NonNegativeFloat}
+import shared/positive_float.{type PositiveFloat}
 import shared/rates/rate_request.{RateRequest}
 
 pub type Converter {
@@ -39,7 +40,7 @@ pub type ConverterInput {
 pub type AmountInput {
   AmountInput(
     raw: String,
-    parsed: Option(PositiveFloat),
+    parsed: Option(NonNegativeFloat),
     border_color: Option(RateChangeColor),
   )
 }
@@ -146,7 +147,7 @@ pub fn with_master_currency_list(
   |> filter_currencies(Right)
 }
 
-pub fn with_rate(converter, rate) -> Converter {
+pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter {
   with_rate_with_custom_glow(converter, rate, border_color_from_rate_change)
 }
 
@@ -188,12 +189,20 @@ fn with_rate_with_custom_glow(
       // Compute the value for the *opposite* field using the new rate
       let converted_amount = case edited_side {
         // converting from left to right
-        Left -> Some(positive_float.multiply(parsed_amount, rate_value))
-
+        Left ->
+          case
+            non_negative_float.multiply_by_positive(parsed_amount, rate_value)
+          {
+            Error(_) ->
+              panic as "multiplication overflow when converting amount"
+            Ok(x) -> Some(x)
+          }
         // converting from right to left
         Right ->
-          case positive_float.try_divide(parsed_amount, rate_value) {
-            Error(_) -> panic as "rate should not be zero"
+          case
+            non_negative_float.divide_by_positive(parsed_amount, rate_value)
+          {
+            Error(_) -> panic as "division overflow when converting amount"
             Ok(x) -> Some(x)
           }
       }
@@ -275,7 +284,7 @@ pub fn with_amount(
     })
   }
 
-  let map_successful_parse = fn(parsed_amount: PositiveFloat) {
+  let map_successful_parse = fn(parsed_amount: NonNegativeFloat) {
     // Update the side the user edited
     converter.inputs
     |> map_converter_inputs(side, fn(input) {
@@ -296,17 +305,27 @@ pub fn with_amount(
       let opposite_input =
         get_converter_input(converter, side.opposite_side(side))
 
-      let converted_amount = case side {
-        Left ->
-          option.map(converter.rate, positive_float.multiply(parsed_amount, _))
+      let converted_amount = {
+        case side {
+          Left ->
+            option.map(converter.rate, fn(rate) {
+              case
+                non_negative_float.multiply_by_positive(parsed_amount, rate)
+              {
+                Error(_) ->
+                  panic as "multiplication overflow when converting amount"
+                Ok(x) -> x
+              }
+            })
 
-        Right ->
-          option.map(converter.rate, fn(rate_value) {
-            case positive_float.try_divide(parsed_amount, rate_value) {
-              Ok(x) -> x
-              _ -> panic as "rate should not be zero"
-            }
-          })
+          Right ->
+            option.map(converter.rate, fn(rate) {
+              case non_negative_float.divide_by_positive(parsed_amount, rate) {
+                Error(_) -> panic as "division overflow when converting amount"
+                Ok(x) -> x
+              }
+            })
+        }
       }
 
       let amount_input = case converted_amount {
@@ -330,7 +349,7 @@ pub fn with_amount(
   }
 
   let sanitized_amount = string.replace(raw_amount, ",", "")
-  let inputs = case positive_float.parse(sanitized_amount) {
+  let inputs = case non_negative_float.parse(sanitized_amount) {
     Error(_) -> map_failed_parse()
     Ok(parsed) -> map_successful_parse(parsed)
   }
@@ -458,7 +477,7 @@ pub fn get_selected_currency_id(converter: Converter, side: Side) -> Int {
 pub fn get_parsed_amount(
   converter: Converter,
   side: Side,
-) -> Option(PositiveFloat) {
+) -> Option(NonNegativeFloat) {
   get_converter_input(converter, side).amount_input.parsed
 }
 

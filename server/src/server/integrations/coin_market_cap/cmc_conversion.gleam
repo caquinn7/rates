@@ -1,20 +1,20 @@
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
-import gleam/int
 import gleam/option.{type Option}
+import shared/positive_float.{type PositiveFloat}
 
 pub type CmcConversion {
   CmcConversion(
     id: Int,
     symbol: String,
     name: String,
-    amount: Float,
+    amount: PositiveFloat,
     quote: Dict(String, QuoteItem),
   )
 }
 
 pub type QuoteItem {
-  QuoteItem(price: Option(Float))
+  QuoteItem(price: Option(PositiveFloat))
 }
 
 pub fn decoder() -> Decoder(CmcConversion) {
@@ -35,7 +35,7 @@ pub fn decoder() -> Decoder(CmcConversion) {
   use id <- decode.field("id", decode.int)
   use symbol <- decode.field("symbol", decode.string)
   use name <- decode.field("name", decode.string)
-  use amount <- decode.field("amount", int_or_float_decoder())
+  use amount <- decode.field("amount", positive_float.decoder())
   use quote <- decode.field(
     "quote",
     decode.dict(decode.string, quote_item_decoder()),
@@ -44,10 +44,6 @@ pub fn decoder() -> Decoder(CmcConversion) {
 }
 
 pub fn quote_item_decoder() -> Decoder(QuoteItem) {
-  use price <- decode.field("price", decode.optional(int_or_float_decoder()))
+  use price <- decode.field("price", decode.optional(positive_float.decoder()))
   decode.success(QuoteItem(price))
-}
-
-fn int_or_float_decoder() -> Decoder(Float) {
-  decode.one_of(decode.float, or: [decode.map(decode.int, int.to_float)])
 }

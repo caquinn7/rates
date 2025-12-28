@@ -3,6 +3,7 @@ import server/currencies/currency_repository.{CurrencyRepository}
 import server/web/routes/home
 import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{Crypto, Fiat}
+import shared/positive_float
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{Kraken, RateResponse}
 
@@ -20,11 +21,12 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
       get_all: fn() { currencies },
     )
 
+  let expected_rate = positive_float.from_float_unsafe(50_000.0)
   let get_rate = fn(req: RateRequest) {
     Ok(RateResponse(
       from: req.from,
       to: req.to,
-      rate: Some(50_000.0),
+      rate: Some(expected_rate),
       source: Kraken,
       timestamp: 1_700_000_000,
     ))
@@ -40,7 +42,7 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
 
   assert page_data.rates
     == [
-      RateResponse(1, 2781, Some(50_000.0), Kraken, 1_700_000_000),
+      RateResponse(1, 2781, Some(expected_rate), Kraken, 1_700_000_000),
     ]
 }
 
@@ -59,11 +61,12 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
       get_all: fn() { currencies },
     )
 
+  let expected_rate = positive_float.from_float_unsafe(100.0)
   let get_rate = fn(req: RateRequest) {
     Ok(RateResponse(
       from: req.from,
       to: req.to,
-      rate: Some(100.0),
+      rate: Some(expected_rate),
       source: Kraken,
       timestamp: 1_700_000_000,
     ))
@@ -88,8 +91,8 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
 
   assert page_data.rates
     == [
-      RateResponse(1, 2, Some(100.0), Kraken, 1_700_000_000),
-      RateResponse(2, 3, Some(100.0), Kraken, 1_700_000_000),
+      RateResponse(1, 2, Some(expected_rate), Kraken, 1_700_000_000),
+      RateResponse(2, 3, Some(expected_rate), Kraken, 1_700_000_000),
     ]
 }
 
@@ -108,6 +111,9 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
       get_all: fn() { currencies },
     )
 
+  let expected_rate_1 = positive_float.from_float_unsafe(100.0)
+  let expected_rate_2 = positive_float.from_float_unsafe(200.0)
+
   let get_rate = fn(req: RateRequest) {
     case req.from, req.to {
       // First converter succeeds
@@ -115,7 +121,7 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
         Ok(RateResponse(
           from: 1,
           to: 2,
-          rate: Some(100.0),
+          rate: Some(expected_rate_1),
           source: Kraken,
           timestamp: 1_700_000_000,
         ))
@@ -126,7 +132,7 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
         Ok(RateResponse(
           from: 1,
           to: 3,
-          rate: Some(200.0),
+          rate: Some(expected_rate_2),
           source: Kraken,
           timestamp: 1_700_000_000,
         ))
@@ -154,8 +160,8 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
   // Only successful rates should be included (1st and 3rd)
   assert page_data.rates
     == [
-      RateResponse(1, 2, Some(100.0), Kraken, 1_700_000_000),
-      RateResponse(1, 3, Some(200.0), Kraken, 1_700_000_000),
+      RateResponse(1, 2, Some(expected_rate_1), Kraken, 1_700_000_000),
+      RateResponse(1, 3, Some(expected_rate_2), Kraken, 1_700_000_000),
     ]
 }
 
@@ -173,6 +179,8 @@ pub fn resolve_page_data_does_not_fetch_rates_for_invalid_currency_ids_test() {
       get_all: fn() { currencies },
     )
 
+  let expected_rate_1 = positive_float.from_float_unsafe(100.0)
+
   // This function will panic if called with invalid currency IDs
   let get_rate = fn(req: RateRequest) {
     case req.from, req.to {
@@ -181,7 +189,7 @@ pub fn resolve_page_data_does_not_fetch_rates_for_invalid_currency_ids_test() {
         Ok(RateResponse(
           from: 1,
           to: 2,
-          rate: Some(100.0),
+          rate: Some(expected_rate_1),
           source: Kraken,
           timestamp: 1_700_000_000,
         ))
@@ -210,7 +218,7 @@ pub fn resolve_page_data_does_not_fetch_rates_for_invalid_currency_ids_test() {
 
   // Only the valid rate should be fetched and included
   assert page_data.rates
-    == [RateResponse(1, 2, Some(100.0), Kraken, 1_700_000_000)]
+    == [RateResponse(1, 2, Some(expected_rate_1), Kraken, 1_700_000_000)]
 }
 
 pub fn resolve_page_data_uses_default_converter_when_all_converters_invalid_test() {
@@ -228,6 +236,7 @@ pub fn resolve_page_data_uses_default_converter_when_all_converters_invalid_test
       get_all: fn() { currencies },
     )
 
+  let expected_rate = positive_float.from_float_unsafe(50_000.0)
   let get_rate = fn(req: RateRequest) {
     case req.from, req.to {
       // Default BTC -> USD should be called
@@ -235,7 +244,7 @@ pub fn resolve_page_data_uses_default_converter_when_all_converters_invalid_test
         Ok(RateResponse(
           from: 1,
           to: 2781,
-          rate: Some(50_000.0),
+          rate: Some(expected_rate),
           source: Kraken,
           timestamp: 1_700_000_000,
         ))
@@ -258,5 +267,5 @@ pub fn resolve_page_data_uses_default_converter_when_all_converters_invalid_test
     == [ConverterState(from: 1, to: 2781, amount: 1.0)]
 
   assert page_data.rates
-    == [RateResponse(1, 2781, Some(50_000.0), Kraken, 1_700_000_000)]
+    == [RateResponse(1, 2781, Some(expected_rate), Kraken, 1_700_000_000)]
 }
