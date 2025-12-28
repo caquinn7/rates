@@ -1,3 +1,4 @@
+import gleam/json
 import qcheck.{type Generator}
 import shared/positive_float.{type PositiveFloat}
 
@@ -141,6 +142,28 @@ pub fn is_greater_than_returns_false_when_first_value_is_less_than_second_test()
   let b = positive_float.from_float_unsafe(0.02)
 
   assert !positive_float.is_greater_than(a, b)
+}
+
+// decoder
+
+pub fn decoder_decodes_from_float_test() {
+  let assert Ok(result) = json.parse("1.23", positive_float.decoder())
+  assert positive_float.unwrap(result) == 1.23
+}
+
+pub fn decoder_decodes_from_int_test() {
+  let assert Ok(result) = json.parse("1", positive_float.decoder())
+  assert positive_float.unwrap(result) == 1.0
+}
+
+pub fn decoder_returns_error_when_value_is_invalid_test() {
+  let assert Error(_) = json.parse("", positive_float.decoder())
+  let assert Error(_) = json.parse("1.", positive_float.decoder())
+  let assert Error(_) = json.parse(".1", positive_float.decoder())
+  let assert Error(_) = json.parse(".", positive_float.decoder())
+  let assert Error(_) = json.parse("a", positive_float.decoder())
+  let assert Error(_) = json.parse("0.0", positive_float.decoder())
+  let assert Error(_) = json.parse("-1.0", positive_float.decoder())
 }
 
 // generators
