@@ -10,7 +10,7 @@ import client/ui/auto_resize_input
 import client/ui/button_dropdown.{Enter}
 import client/ui/converter.{type Converter, type NewConverterError}
 import client/ui/icons
-import client/websocket.{
+import client/websocket/websocket.{
   type WebSocket, type WebSocketEvent, InvalidUrl, OnClose, OnOpen,
   OnTextMessage,
 }

@@ -119,7 +119,7 @@ pub fn send(ws: WebSocket, msg: String) -> Effect(a) {
   effect.from(fn(_) { do_send(ws, msg) })
 }
 
-@external(javascript, "../socket_ffi.mjs", "initSocket")
+@external(javascript, "./websocket_ffi.mjs", "initSocket")
 fn do_init(
   url: String,
   on_open: fn(WebSocket) -> Nil,
@@ -127,5 +127,5 @@ fn do_init(
   on_close: fn(Int) -> Nil,
 ) -> Nil
 
-@external(javascript, "../socket_ffi.mjs", "sendOverSocket")
+@external(javascript, "./websocket_ffi.mjs", "sendOverSocket")
 fn do_send(ws: WebSocket, msg: String) -> Nil

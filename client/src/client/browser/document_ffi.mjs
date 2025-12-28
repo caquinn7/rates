@@ -1,4 +1,4 @@
-import { Ok, Error } from "./gleam.mjs";
+import { Ok, Error } from "../../gleam.mjs";
 
 export function getElementById(id) {
   let found = document.getElementById(id);

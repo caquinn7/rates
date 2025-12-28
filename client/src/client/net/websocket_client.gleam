@@ -1,4 +1,4 @@
-import client/websocket.{type WebSocket}
+import client/websocket/websocket.{type WebSocket}
 import gleam/json
 import lustre/effect.{type Effect}
 import shared/rates/rate_request.{type RateRequest}

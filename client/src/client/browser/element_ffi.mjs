@@ -1,4 +1,4 @@
-import { Ok, Error } from "./gleam.mjs";
+import { Ok, Error } from "../../gleam.mjs";
 
 export function cast(raw) {
   if (raw instanceof Element) {

@@ -8,5 +8,5 @@ pub fn replace_state(state: Dynamic, url: Option(String)) -> Nil {
   })
 }
 
-@external(javascript, "../../history_ffi.mjs", "replaceState")
+@external(javascript, "./history_ffi.mjs", "replaceState")
 fn do_replace_state(state: Dynamic, url: String) -> Nil
