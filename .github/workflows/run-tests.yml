@@ -24,14 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node (JS target only)
         if: matrix.target == 'javascript'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup BEAM
-        if: matrix.target == 'erlang'
         uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ env.OTP_VERSION }}
