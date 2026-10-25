@@ -42,6 +42,8 @@ import server/utils/logger.{type Logger}
 import shared/positive_float.{type PositiveFloat}
 import stratus
 
+const websocket_connect_timeout_ms = 5000
+
 pub opaque type KrakenClient {
   KrakenClient(Subject(Msg))
 }
@@ -73,14 +75,27 @@ pub fn new(
   logger: Logger,
   create_price_store: fn() -> PriceStore,
 ) -> Result(KrakenClient, StartError) {
+  new_with_url(logger, create_price_store, "https://ws.kraken.com/v2")
+}
+
+/// Creates a client using an alternative Kraken WebSocket endpoint.
+pub fn new_with_url(
+  logger: Logger,
+  create_price_store: fn() -> PriceStore,
+  websocket_url: String,
+) -> Result(KrakenClient, StartError) {
   let handle_msg = fn(state, msg) { kraken_loop(state, msg) }
 
   let initialiser_wrapper = fn(self) {
-    initialiser(self, logger, create_price_store)
+    initialiser(self, logger, create_price_store, websocket_url)
     |> result.map_error(fn(err) { string.inspect(err) })
   }
 
-  actor.new_with_initialiser(100, initialiser_wrapper)
+  // Stratus completes the handshake during startup; let its timeout expire first.
+  actor.new_with_initialiser(
+    websocket_connect_timeout_ms + 1000,
+    initialiser_wrapper,
+  )
   |> actor.on_message(handle_msg)
   |> actor.start
   |> result.map(fn(started) { KrakenClient(started.data) })
@@ -90,9 +105,10 @@ fn initialiser(
   self: Subject(Msg),
   logger: Logger,
   create_price_store: fn() -> PriceStore,
+  websocket_url: String,
 ) -> Result(Initialised(State, Msg, Subject(Msg)), StartError) {
   use websocket_subject <- result.try(
-    init_websocket(self, logger)
+    init_websocket(self, logger, websocket_url)
     |> result.map(fn(started) { started.data }),
   )
 
@@ -254,19 +270,23 @@ fn kraken_loop(state: State, msg: Msg) -> actor.Next(State, Msg) {
 fn init_websocket(
   reply_to: Subject(Msg),
   logger: Logger,
+  websocket_url: String,
 ) -> Result(
   Started(Subject(stratus.InternalMessage(KrakenRequest))),
   StartError,
 ) {
-  let assert Ok(req) = http_request.to("https://ws.kraken.com/v2")
+  let assert Ok(req) = http_request.to(websocket_url)
 
-  stratus.websocket(
-    request: req,
-    init: fn() { #(#(reply_to, logger), None) },
-    loop: websocket_loop,
-  )
-  |> stratus.on_close(fn(_state) { logger.info(logger, "kraken socket closed") })
-  |> stratus.initialize
+  req
+  |> stratus.new(state: #(reply_to, logger))
+  |> stratus.with_connect_timeout(websocket_connect_timeout_ms)
+  |> stratus.on_message(websocket_loop)
+  |> stratus.on_close(fn(_state, reason) {
+    logger
+    |> logger.with("reason", string.inspect(reason))
+    |> logger.info("kraken socket closed")
+  })
+  |> stratus.start
 }
 
 fn websocket_loop(
