@@ -2,21 +2,18 @@
 
 name: Fly Deploy
 on:
-  workflow_run:
-    workflows:
-      - Run Tests
-    types:
-      - completed
+  push:
     branches:
       - main
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     name: Deploy app
     runs-on: ubuntu-latest
     concurrency: deploy-group # optional: ensure only one action runs at a time
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: flyctl deploy --remote-only
         env:
