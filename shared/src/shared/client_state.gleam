@@ -17,7 +17,9 @@ pub fn encode(state: ClientState) -> String {
   "v1:" <> encode_converter_states(state.converters)
 }
 
-pub fn encode_converter_states(converter_states: List(ConverterState)) -> String {
+pub fn encode_converter_states(
+  converter_states: List(ConverterState),
+) -> String {
   converter_states
   |> list.map(encode_converter_state)
   |> string.join(";")

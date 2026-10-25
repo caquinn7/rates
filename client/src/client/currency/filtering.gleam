@@ -3,7 +3,9 @@ import gleam/list
 import gleam/string
 import shared/currency.{type Currency, Crypto, Fiat}
 
-pub fn get_default_currencies(all_currencies: List(Currency)) -> List(Currency) {
+pub fn get_default_currencies(
+  all_currencies: List(Currency),
+) -> List(Currency) {
   // want top 5 ranked cryptos
   let cryptos =
     all_currencies

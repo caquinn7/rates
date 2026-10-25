@@ -7,10 +7,10 @@ on:
   pull_request:
 
 env: # Define global variables
-  OTP_VERSION: "28.2"
-  GLEAM_VERSION: "1.14.0"
-  REBAR3_VERSION: "3.25.1"
-  NODE_VERSION: "24.12.0"
+  OTP_VERSION: "29.1.1"
+  GLEAM_VERSION: "1.19.2"
+  REBAR3_VERSION: "3.27.0"
+  NODE_VERSION: "24.22.1"
 
 jobs:
   shared-tests:
@@ -55,6 +55,11 @@ jobs:
     needs: shared-tests
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup BEAM
         uses: erlef/setup-beam@v1
