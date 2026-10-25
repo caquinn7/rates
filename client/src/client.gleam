@@ -187,7 +187,7 @@ pub type Msg {
   UserClickedAddConverter
   UserClickedDeleteConverter(String)
   UserClickedInDocument(browser_event.Event)
-  ApiReturnedMatchedCurrencies(Result(List(Currency), rsvp.Error))
+  ApiReturnedMatchedCurrencies(Result(List(Currency), rsvp.Error(String)))
   AppScheduledReconnection
   AppScheduledRateChangeIndicatorReset(String, Side)
   AppScheduledStateSnapshot

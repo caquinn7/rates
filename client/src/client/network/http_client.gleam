@@ -5,7 +5,7 @@ import shared/currency.{type Currency}
 
 pub fn get_currencies(
   symbol: String,
-  handler: fn(Result(List(Currency), rsvp.Error)) -> msg,
+  handler: fn(Result(List(Currency), rsvp.Error(String))) -> msg,
 ) -> Effect(msg) {
   let currencies_decoder = decode.list(currency.decoder())
   let handler = rsvp.expect_json(currencies_decoder, handler)
