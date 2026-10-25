@@ -49,6 +49,9 @@ jobs:
           fi
           gleam format --check src test
 
+      - name: Check Lockfiles
+        run: git diff --exit-code -- '**/manifest.toml' '**/package-lock.json'
+
   client-tests:
     name: Client Tests
     runs-on: ubuntu-latest
@@ -75,6 +78,9 @@ jobs:
           gleam deps download
           gleam test
           gleam format --check src test
+
+      - name: Check Lockfiles
+        run: git diff --exit-code -- '**/manifest.toml' '**/package-lock.json'
 
   server-tests:
     name: Server Tests
@@ -103,6 +109,9 @@ jobs:
           gleam deps download
           gleam test
           gleam format --check src test
+
+      - name: Check Lockfiles
+        run: git diff --exit-code -- '**/manifest.toml' '**/package-lock.json'
 
   docker-build:
     name: Docker Build

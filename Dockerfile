@@ -10,9 +10,16 @@ COPY ./shared /build/shared
 COPY ./client /build/client
 COPY ./server /build/server
 
+# Record lockfiles so dependency downloads and builds cannot silently update them
+RUN sha256sum /build/shared/manifest.toml \
+    /build/client/manifest.toml \
+    /build/server/manifest.toml \
+    /build/client/package-lock.json \
+    > /tmp/lockfiles.sha256
+
 # Install Node.js dependencies for the client
 RUN cd /build/client \
-    && npm install
+    && npm ci
 
 # Compile the client code
 RUN cd /build/client \
@@ -21,6 +28,9 @@ RUN cd /build/client \
 # Compile the server code
 RUN cd /build/server \
     && gleam export erlang-shipment
+
+# Fail if any dependency lockfile changed during the build
+RUN sha256sum -c /tmp/lockfiles.sha256
 
 # Start from a clean slate
 FROM ghcr.io/gleam-lang/gleam:${GLEAM_VERSION}-erlang-alpine
