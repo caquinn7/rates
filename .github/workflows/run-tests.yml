@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env: # Define global variables
   OTP_VERSION: "29.1.1"
   GLEAM_VERSION: "1.19.2"
@@ -16,6 +20,7 @@ jobs:
   shared-tests:
     name: Shared Tests (${{ matrix.target }})
     runs-on: ubuntu-latest
+    timeout-minutes: 3
 
     strategy:
       matrix:
@@ -55,6 +60,7 @@ jobs:
   client-tests:
     name: Client Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
 
@@ -84,6 +90,7 @@ jobs:
   server-tests:
     name: Server Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
 
@@ -115,6 +122,7 @@ jobs:
     name: Docker Build
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
