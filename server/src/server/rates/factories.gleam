@@ -16,8 +16,7 @@ pub type RateSubscriberFactory =
   fn(
     SubscriptionId,
     Subject(#(SubscriptionId, Result(RateResponse, RateError))),
-  ) ->
-    RateSubscriber
+  ) -> RateSubscriber
 
 pub fn create_rate_resolver(
   deps: Dependencies,

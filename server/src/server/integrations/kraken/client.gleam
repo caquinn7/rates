@@ -339,14 +339,22 @@ fn log_confirmation_error(logger: Logger, symbol: String) -> Nil {
   |> logger.warning("Subscription confirmation failed")
 }
 
-fn log_price_update(logger: Logger, symbol: String, price: PositiveFloat) -> Nil {
+fn log_price_update(
+  logger: Logger,
+  symbol: String,
+  price: PositiveFloat,
+) -> Nil {
   logger
   |> logger.with("symbol", symbol)
   |> logger.with("price", positive_float.to_string(price))
   |> logger.debug("Received price update")
 }
 
-fn log_message_send_error(logger: Logger, attempted_msg: String, err: a) -> Nil {
+fn log_message_send_error(
+  logger: Logger,
+  attempted_msg: String,
+  err: a,
+) -> Nil {
   logger
   |> logger.with("attempted_msg", attempted_msg)
   |> logger.with("error", string.inspect(err))

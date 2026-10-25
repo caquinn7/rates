@@ -147,7 +147,10 @@ pub fn with_master_currency_list(
   |> filter_currencies(Right)
 }
 
-pub fn with_rate(converter: Converter, rate: Option(PositiveFloat)) -> Converter {
+pub fn with_rate(
+  converter: Converter,
+  rate: Option(PositiveFloat),
+) -> Converter {
   with_rate_with_custom_glow(converter, rate, border_color_from_rate_change)
 }
 
@@ -193,8 +196,7 @@ fn with_rate_with_custom_glow(
           case
             non_negative_float.multiply_by_positive(parsed_amount, rate_value)
           {
-            Error(_) ->
-              panic as "multiplication overflow when converting amount"
+            Error(_) -> panic as "multiplication overflow when converting amount"
             Ok(x) -> Some(x)
           }
         // converting from right to left
