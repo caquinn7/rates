@@ -1,21 +1,18 @@
 //// In-memory store for currency data using a public ETS table.
 ////
-//// ## Concurrency Design
+//// ## Ownership and concurrency
 ////
-//// The store uses a **Public** ETS table, allowing any process to read and write.
-//// This is intentional to support cache-on-miss behavior from HTTP handlers without
-//// requiring a single owner process.
+//// The process calling `new()` owns the table. The table is destroyed when that
+//// process exits, so the owner must remain alive for as long as the store is used.
 ////
-//// **Concurrency implications:**
-//// - Multiple processes can simultaneously insert currencies, leading to potential
-////   duplicate API calls when the cache is cold (race condition on cache miss).
-//// - Individual ETS operations are atomic, preventing data corruption.
-//// - Last write wins if multiple processes insert the same currency ID.
+//// Public access allows any process to read and write directly, without routing
+//// operations through the owner's mailbox. This supports both startup inserts
+//// and subsequent writes from `currency_symbol_cache`.
 ////
-//// This design trades occasional duplicate API calls for simpler architecture and
-//// better availability (no single point of failure). For the currency use case,
-//// where writes are infrequent and eventually consistent data is acceptable,
-//// this tradeoff is reasonable.
+//// The store holds currency data; `currency_symbol_cache` serializes cache checks
+//// and fetching. The store itself does not coordinate cache misses or API calls.
+//// Individual ETS operations are atomic. Inserting a currency replaces any
+//// existing entry with the same currency ID.
 
 import carpenter/table.{
   type Set as EtsSet, AutoWriteConcurrency, Public, Set as EtsSet, Table,
@@ -31,6 +28,8 @@ pub opaque type CurrencyStore {
 }
 
 /// Creates a new `CurrencyStore` by initializing an ETS table.
+///
+/// The calling process owns the table, which is destroyed when that process exits.
 ///
 /// The table is configured as:
 /// - **Public**: All processes can read and write to the table.
@@ -84,6 +83,9 @@ pub fn get_by_symbol(store: CurrencyStore, symbol: String) -> List(Currency) {
 }
 
 /// Deletes the underlying ETS table associated with the given `CurrencyStore`.
+///
+/// All references to the deleted table become invalid. The table is also destroyed
+/// automatically when its owner process exits.
 pub fn drop(store: CurrencyStore) -> Nil {
   let CurrencyStore(set) = store
   table.drop(set)
