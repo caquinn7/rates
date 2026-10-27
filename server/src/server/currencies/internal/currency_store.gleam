@@ -59,6 +59,11 @@ pub fn insert(store: CurrencyStore, currencies: List(Currency)) -> Nil {
   |> table.insert(set, _)
 }
 
+/// Returns all currencies in the store.
+///
+/// Scans the entire table and copies all entries into a list. The result has no
+/// guaranteed order and is not guaranteed to be a consistent snapshot while other
+/// processes are writing to the table.
 pub fn get_all(store: CurrencyStore) -> List(Currency) {
   store
   |> unwrap_table_name
@@ -66,6 +71,9 @@ pub fn get_all(store: CurrencyStore) -> List(Currency) {
   |> list.map(pair.second)
 }
 
+/// Looks up a currency by its ID.
+///
+/// Returns `Ok(currency)` when found, or `Error(Nil)` if the ID is absent.
 pub fn get_by_id(store: CurrencyStore, id: Int) -> Result(Currency, Nil) {
   let CurrencyStore(set) = store
 
@@ -75,6 +83,11 @@ pub fn get_by_id(store: CurrencyStore, id: Int) -> Result(Currency, Nil) {
   }
 }
 
+/// Returns all currencies whose symbol exactly matches `symbol`, including case.
+///
+/// Returns `[]` when no currencies match. Scans the entire table. The result has no
+/// guaranteed order and is not guaranteed to be a consistent snapshot while other
+/// processes are writing to the table.
 pub fn get_by_symbol(store: CurrencyStore, symbol: String) -> List(Currency) {
   store
   |> unwrap_table_name

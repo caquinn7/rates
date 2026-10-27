@@ -96,6 +96,16 @@ pub fn get_by_symbol_returns_empty_list_when_not_found_test() {
   assert result == []
 }
 
+pub fn get_by_symbol_is_case_sensitive_test() {
+  use store <- with_currency_store
+
+  let btc = Crypto(1, "Bitcoin", "BTC", Some(1))
+  currency_store.insert(store, [btc])
+
+  assert currency_store.get_by_symbol(store, "BTC") == [btc]
+  assert currency_store.get_by_symbol(store, "btc") == []
+}
+
 pub fn get_by_symbol_returns_multiple_currencies_with_same_symbol_test() {
   use store <- with_currency_store
 
