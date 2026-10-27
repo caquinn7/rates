@@ -40,6 +40,21 @@ pub fn insert_replaces_currency_when_id_already_exists_test() {
   assert currency_store.get_by_id(store, 1) == Ok(updated_currency)
 }
 
+pub fn insert_replaces_symbol_without_affecting_other_currencies_test() {
+  use store <- with_currency_store
+
+  let currency = Crypto(1, "Token", "OLD", Some(1))
+  let other_currency = Fiat(2781, "Other Currency", "OLD", "$")
+  currency_store.insert(store, [currency, other_currency])
+
+  let updated_currency = Crypto(..currency, symbol: "NEW")
+  currency_store.insert(store, [updated_currency])
+
+  assert currency_store.get_by_id(store, currency.id) == Ok(updated_currency)
+  assert currency_store.get_by_symbol(store, "NEW") == [updated_currency]
+  assert currency_store.get_by_symbol(store, "OLD") == [other_currency]
+}
+
 // get_by_id
 
 pub fn get_by_id_returns_currency_when_found_test() {
@@ -95,6 +110,20 @@ pub fn get_by_symbol_returns_multiple_currencies_with_same_symbol_test() {
   assert list.length(result) == 2
   assert list.contains(result, currency1)
   assert list.contains(result, currency2)
+}
+
+pub fn get_by_symbol_returns_crypto_and_fiat_with_same_symbol_test() {
+  use store <- with_currency_store
+
+  let crypto = Crypto(1, "Token", "USD", Some(1))
+  let fiat = Fiat(2781, "United States Dollar", "USD", "$")
+  let unrelated = Crypto(1027, "Ethereum", "ETH", Some(2))
+  currency_store.insert(store, [crypto, fiat, unrelated])
+
+  let result = currency_store.get_by_symbol(store, "USD")
+  assert list.length(result) == 2
+  assert list.contains(result, crypto)
+  assert list.contains(result, fiat)
 }
 
 /// Creates a new `CurrencyStore`, passes it to the given function, and ensures
