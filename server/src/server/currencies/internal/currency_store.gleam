@@ -66,7 +66,7 @@ pub fn insert(store: CurrencyStore, currencies: List(Currency)) -> Nil {
 /// processes are writing to the table.
 pub fn get_all(store: CurrencyStore) -> List(Currency) {
   store
-  |> unwrap_table_name
+  |> get_table_name
   |> table_to_list
   |> list.map(pair.second)
 }
@@ -90,7 +90,7 @@ pub fn get_by_id(store: CurrencyStore, id: Int) -> Result(Currency, Nil) {
 /// processes are writing to the table.
 pub fn get_by_symbol(store: CurrencyStore, symbol: String) -> List(Currency) {
   store
-  |> unwrap_table_name
+  |> get_table_name
   |> match_by_symbol(symbol)
   |> list.map(pair.second)
 }
@@ -104,11 +104,10 @@ pub fn drop(store: CurrencyStore) -> Nil {
   table.drop(set)
 }
 
-fn unwrap_table_name(store: CurrencyStore) {
+fn get_table_name(store: CurrencyStore) -> Atom {
   let CurrencyStore(set) = store
   let EtsSet(table) = set
   let Table(name) = table
-
   name
 }
 
