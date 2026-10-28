@@ -174,15 +174,14 @@ fn fetch_and_store_currencies(
 fn wait_for_kraken_symbols(start_time: Int, timeout_ms: Int) -> Nil {
   case pairs.count() > 0 {
     True -> Nil
-
     False -> {
       let elapsed = time.monotonic_time_ms() - start_time
       case elapsed >= timeout_ms {
+        True -> panic as "Timeout waiting for Kraken symbols"
         False -> {
           process.sleep(100)
           wait_for_kraken_symbols(start_time, timeout_ms)
         }
-        True -> panic as "Timeout waiting for Kraken symbols"
       }
     }
   }

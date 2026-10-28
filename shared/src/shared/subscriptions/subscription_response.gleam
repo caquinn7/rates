@@ -8,7 +8,7 @@ pub type SubscriptionResponse {
 }
 
 pub fn encode(subscription_response: SubscriptionResponse) -> Json {
-  let SubscriptionResponse(id, rate_response) = subscription_response
+  let SubscriptionResponse(id:, rate_response:) = subscription_response
 
   json.object([
     #("id", subscription_id.encode(id)),
