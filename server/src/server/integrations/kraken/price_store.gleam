@@ -5,6 +5,7 @@
 //// read access from any process, while write access is restricted to the owning process.
 
 import carpenter/table.{type Set as EtsSet, AutoWriteConcurrency, Protected}
+import gleam/erlang/atom.{type Atom}
 import gleam/list
 import gleam/pair
 import gleam/result
@@ -103,9 +104,15 @@ pub fn delete_price(store: PriceStore, symbol: String) -> Nil {
 ///
 /// Returns an error if the store has not been initialized yet.
 pub fn get_store() -> Result(PriceStore, Nil) {
-  table_name
-  |> table.ref
-  |> result.map(PriceStore)
+  use name <- result.try(atom.get(table_name))
+
+  case table_exists(name) {
+    False -> Error(Nil)
+    True ->
+      table_name
+      |> table.ref
+      |> result.map(PriceStore)
+  }
 }
 
 /// Deletes the underlying ETS table associated with the given `PriceStore`.
@@ -113,3 +120,6 @@ pub fn drop(store: PriceStore) -> Nil {
   let PriceStore(table) = store
   table.drop(table)
 }
+
+@external(erlang, "price_store_ffi", "table_exists")
+fn table_exists(table_name: Atom) -> Bool

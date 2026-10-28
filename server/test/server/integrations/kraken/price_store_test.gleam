@@ -47,20 +47,33 @@ pub fn insert_symbol_that_exists_test() {
   assert Ok(PriceEntry(expected_price, expected_timestamp)) == result
 }
 
-pub fn get_price_for_symbol_that_does_not_exist() {
+pub fn get_price_for_symbol_that_does_not_exist_test() {
   use store <- with_price_store
   assert Error(Nil) == price_store.get_price(store, "BTC/USD")
 }
 
 pub fn get_store_test() {
-  use _ <- with_price_store
-  let assert Ok(_) = price_store.get_store()
+  use store <- with_price_store
+
+  let price = positive_float.from_float_unsafe(90_000.0)
+  price_store.insert_with_timestamp(store, "BTC/USD", price, 1)
+
+  let assert Ok(retrieved_store) = price_store.get_store()
+  assert price_store.get_price(retrieved_store, "BTC/USD")
+    == Ok(PriceEntry(price, 1))
 }
 
-pub fn get_store_returns_error_when_not_initialized() {
+pub fn get_store_returns_error_when_not_initialized_test() {
   price_store.get_store()
   |> should.be_error
   |> should.equal(Nil)
+}
+
+pub fn get_store_returns_error_after_table_is_dropped_test() {
+  let assert Ok(store) = price_store.new()
+  price_store.drop(store)
+
+  assert price_store.get_store() == Error(Nil)
 }
 
 pub fn delete_existing_symbol_test() {
