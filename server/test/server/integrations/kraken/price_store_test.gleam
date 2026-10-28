@@ -212,7 +212,8 @@ pub fn delete_one_symbol_preserves_others_test() {
 /// ## Example
 /// ```gleam
 /// with_price_store(fn(store) {
-///   price_store.insert(store, "BTC/USD", 50000.0)
+///   let assert Ok(price) = positive_float.new(50_000.0)
+///   price_store.insert(store, "BTC/USD", price)
 ///   // ... perform assertions ...
 /// })
 /// ```
