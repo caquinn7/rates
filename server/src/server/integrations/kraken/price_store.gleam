@@ -128,11 +128,12 @@ pub fn get_store() -> Result(PriceStore, Nil) {
   use name <- result.try(atom.get(table_name))
 
   case table_exists(name) {
-    False -> Error(Nil)
     True ->
       table_name
       |> table.ref
       |> result.map(PriceStore)
+
+    False -> Error(Nil)
   }
 }
 

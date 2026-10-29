@@ -236,6 +236,12 @@ fn assert_non_owner_cannot_mutate(mutate: fn(PriceStore) -> Nil) {
   assert price_store.get_price(store, "BTC/USD") == Ok(PriceEntry(price, 1))
 }
 
+/// Runs `run` in a separate linked process and returns its result.
+///
+/// Lets tests exercise store access from a process that does not own the ETS table.
+/// A result must arrive within one second or the test fails. Unexpected worker
+/// crashes propagate through the process link. Deferred cleanup stops the worker
+/// and waits for its exit, even if waiting for the result fails.
 fn in_other_process(run: fn() -> a) -> a {
   let reply = process.new_subject()
   let worker = process.spawn(fn() { process.send(reply, run()) })
@@ -245,6 +251,11 @@ fn in_other_process(run: fn() -> a) -> a {
   value
 }
 
+/// Stops a test worker and waits for confirmation that it has exited.
+///
+/// Unlinks it first so killing it does not terminate the calling test process.
+/// Monitors it before sending the kill signal so its exit notification is not
+/// missed. Fails the test if no notification arrives within one second.
 fn stop_process(pid: process.Pid) {
   process.unlink(pid)
   let monitor = process.monitor(pid)
