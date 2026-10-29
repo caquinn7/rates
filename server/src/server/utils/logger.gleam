@@ -7,7 +7,7 @@ pub opaque type Logger {
   Logger(Dict(String, String))
 }
 
-fn unwrap(logger) {
+fn to_dict(logger: Logger) -> Dict(String, String) {
   let Logger(unwrapped) = logger
   unwrapped
 }
@@ -21,7 +21,7 @@ pub fn new() -> Logger {
 
 pub fn with(logger: Logger, key: String, value: String) -> Logger {
   logger
-  |> unwrap
+  |> to_dict
   |> glight.with(key, value)
   |> Logger
 }
@@ -41,7 +41,7 @@ fn with_pid(logger: Logger) -> Logger {
 pub fn debug(logger: Logger, message: String) -> Nil {
   logger
   |> with_pid
-  |> unwrap
+  |> to_dict
   |> glight.debug(message)
   Nil
 }
@@ -49,7 +49,7 @@ pub fn debug(logger: Logger, message: String) -> Nil {
 pub fn info(logger: Logger, message: String) -> Nil {
   logger
   |> with_pid
-  |> unwrap
+  |> to_dict
   |> glight.info(message)
   Nil
 }
@@ -57,7 +57,7 @@ pub fn info(logger: Logger, message: String) -> Nil {
 pub fn warning(logger: Logger, message: String) -> Nil {
   logger
   |> with_pid
-  |> unwrap
+  |> to_dict
   |> glight.warning(message)
   Nil
 }
@@ -65,7 +65,7 @@ pub fn warning(logger: Logger, message: String) -> Nil {
 pub fn error(logger: Logger, message: String) -> Nil {
   logger
   |> with_pid
-  |> unwrap
+  |> to_dict
   |> glight.error(message)
   Nil
 }

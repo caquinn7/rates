@@ -1,3 +1,7 @@
+import exception
+import gleam/dynamic/decode
+import gleam/erlang/atom
+import gleam/erlang/process
 import gleeunit/should
 import server/integrations/kraken/price_store.{type PriceStore, PriceEntry}
 import shared/positive_float
@@ -47,20 +51,100 @@ pub fn insert_symbol_that_exists_test() {
   assert Ok(PriceEntry(expected_price, expected_timestamp)) == result
 }
 
-pub fn get_price_for_symbol_that_does_not_exist() {
+pub fn get_price_for_symbol_that_does_not_exist_test() {
   use store <- with_price_store
   assert Error(Nil) == price_store.get_price(store, "BTC/USD")
 }
 
 pub fn get_store_test() {
-  use _ <- with_price_store
-  let assert Ok(_) = price_store.get_store()
+  use store <- with_price_store
+
+  let price = positive_float.from_float_unsafe(90_000.0)
+  price_store.insert_with_timestamp(store, "BTC/USD", price, 1)
+
+  let assert Ok(retrieved_store) = price_store.get_store()
+  assert price_store.get_price(retrieved_store, "BTC/USD")
+    == Ok(PriceEntry(price, 1))
 }
 
-pub fn get_store_returns_error_when_not_initialized() {
+pub fn get_store_returns_error_when_not_initialized_test() {
   price_store.get_store()
   |> should.be_error
   |> should.equal(Nil)
+}
+
+pub fn get_store_returns_error_after_table_is_dropped_test() {
+  let assert Ok(store) = price_store.new()
+  price_store.drop(store)
+
+  assert price_store.get_store() == Error(Nil)
+}
+
+pub fn non_owner_can_get_store_and_read_price_test() {
+  use store <- with_price_store
+
+  let price = positive_float.from_float_unsafe(90_000.0)
+  price_store.insert_with_timestamp(store, "BTC/USD", price, 1)
+
+  let result =
+    in_other_process(fn() {
+      let assert Ok(retrieved_store) = price_store.get_store()
+      price_store.get_price(retrieved_store, "BTC/USD")
+    })
+
+  assert result == Ok(PriceEntry(price, 1))
+}
+
+pub fn non_owner_cannot_insert_price_test() {
+  assert_non_owner_cannot_mutate(fn(store) {
+    price_store.insert_with_timestamp(
+      store,
+      "BTC/USD",
+      positive_float.from_float_unsafe(100_000.0),
+      2,
+    )
+  })
+}
+
+pub fn non_owner_cannot_delete_price_test() {
+  assert_non_owner_cannot_mutate(fn(store) {
+    price_store.delete_price(store, "BTC/USD")
+  })
+}
+
+pub fn non_owner_cannot_drop_store_test() {
+  assert_non_owner_cannot_mutate(price_store.drop)
+}
+
+pub fn owner_exit_removes_table_and_allows_recreation_test() {
+  let ready = process.new_subject()
+  let price = positive_float.from_float_unsafe(90_000.0)
+
+  let owner =
+    process.spawn(fn() {
+      let stop = process.new_subject()
+      let assert Ok(store) = price_store.new()
+      price_store.insert_with_timestamp(store, "BTC/USD", price, 1)
+      process.send(ready, stop)
+
+      let assert Ok(Nil) = process.receive(stop, 1000)
+      Nil
+    })
+  use <- exception.defer(fn() { stop_process(owner) })
+
+  let monitor = process.monitor(owner)
+  let assert Ok(stop) = process.receive(ready, 1000)
+  let assert Ok(store) = price_store.get_store()
+  assert price_store.get_price(store, "BTC/USD") == Ok(PriceEntry(price, 1))
+
+  process.send(stop, Nil)
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+
+  assert price_store.get_store() == Error(Nil)
+  with_price_store(fn(_) { Nil })
 }
 
 pub fn delete_existing_symbol_test() {
@@ -128,12 +212,59 @@ pub fn delete_one_symbol_preserves_others_test() {
 /// ## Example
 /// ```gleam
 /// with_price_store(fn(store) {
-///   price_store.insert(store, "BTC/USD", 50000.0)
+///   let assert Ok(price) = positive_float.new(50_000.0)
+///   price_store.insert(store, "BTC/USD", price)
 ///   // ... perform assertions ...
 /// })
 /// ```
 fn with_price_store(fun: fn(PriceStore) -> a) {
   let assert Ok(store) = price_store.new()
+  use <- exception.defer(fn() { price_store.drop(store) })
   fun(store)
-  price_store.drop(store)
+}
+
+fn assert_non_owner_cannot_mutate(mutate: fn(PriceStore) -> Nil) {
+  use store <- with_price_store
+
+  let price = positive_float.from_float_unsafe(90_000.0)
+  price_store.insert_with_timestamp(store, "BTC/USD", price, 1)
+
+  let assert Error(exception.Errored(reason)) =
+    in_other_process(fn() { exception.rescue(fn() { mutate(store) }) })
+
+  assert decode.run(reason, atom.decoder()) == Ok(atom.create("badarg"))
+  assert price_store.get_price(store, "BTC/USD") == Ok(PriceEntry(price, 1))
+}
+
+/// Runs `run` in a separate linked process and returns its result.
+///
+/// Lets tests exercise store access from a process that does not own the ETS table.
+/// A result must arrive within one second or the test fails. Unexpected worker
+/// crashes propagate through the process link. Deferred cleanup stops the worker
+/// and waits for its exit, even if waiting for the result fails.
+fn in_other_process(run: fn() -> a) -> a {
+  let reply = process.new_subject()
+  let worker = process.spawn(fn() { process.send(reply, run()) })
+  use <- exception.defer(fn() { stop_process(worker) })
+
+  let assert Ok(value) = process.receive(reply, 1000)
+  value
+}
+
+/// Stops a test worker and waits for confirmation that it has exited.
+///
+/// Unlinks it first so killing it does not terminate the calling test process.
+/// Monitors it before sending the kill signal so its exit notification is not
+/// missed. Fails the test if no notification arrives within one second.
+fn stop_process(pid: process.Pid) {
+  process.unlink(pid)
+  let monitor = process.monitor(pid)
+  process.kill(pid)
+
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+
+  Nil
 }
