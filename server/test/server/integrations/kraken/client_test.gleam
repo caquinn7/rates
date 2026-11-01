@@ -13,6 +13,7 @@ import server/utils/logger
 pub fn startup_waits_for_websocket_handshake_test() {
   let handler = fn(req) {
     process.sleep(250)
+
     mist.websocket(
       req,
       on_init: fn(_) { #(Nil, None) },
@@ -42,6 +43,7 @@ pub fn startup_waits_for_websocket_handshake_test() {
 pub fn startup_returns_websocket_handshake_failure_test() {
   let handler = fn(_) {
     process.sleep(250)
+
     response.new(503)
     |> response.set_body(mist.Bytes(bytes_tree.new()))
   }

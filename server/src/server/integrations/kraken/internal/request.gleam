@@ -21,6 +21,7 @@ import gleam/option.{type Option, None, Some}
 
 pub type KrakenRequest {
   KrakenRequest(method: Method, params: Params, req_id: Option(Int))
+  Ping(req_id: Int)
 }
 
 pub type Method {
@@ -36,20 +37,35 @@ pub type Params {
 }
 
 pub fn encode(kraken_req: KrakenRequest) -> Json {
-  let KrakenRequest(method, params, req_id) = kraken_req
-
-  case req_id {
-    None ->
+  case kraken_req {
+    Ping(req_id) ->
       json.object([
-        #("method", encode_method(method)),
-        #("params", encode_params(params)),
+        #("method", json.string("ping")),
+        #("req_id", json.int(req_id)),
       ])
 
+    KrakenRequest(method, params, req_id) ->
+      encode_subscription(method, params, req_id)
+  }
+}
+
+fn encode_subscription(
+  method: Method,
+  params: Params,
+  req_id: Option(Int),
+) -> Json {
+  case req_id {
     Some(i) ->
       json.object([
         #("method", encode_method(method)),
         #("params", encode_params(params)),
         #("req_id", json.int(i)),
+      ])
+
+    None ->
+      json.object([
+        #("method", encode_method(method)),
+        #("params", encode_params(params)),
       ])
   }
 }

@@ -40,14 +40,32 @@
 import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/int
+import gleam/list
 import server/utils/logger.{type Logger}
 
+/// Counts client interest in each symbol, sharing one Kraken subscription across
+/// all interested clients. A symbol has a positive count in either `pending`
+/// (awaiting confirmation) or `active` (confirmed), never both. Removing the last
+/// interest deletes its entry; reconnecting moves active interest back to pending.
 pub opaque type SubscriptionCounter {
   SubscriptionCounter(pending: Dict(String, Int), active: Dict(String, Int))
 }
 
+/// Creates an empty counter with no pending or active subscriptions.
 pub fn new() -> SubscriptionCounter {
   SubscriptionCounter(dict.new(), dict.new())
+}
+
+/// Preserve all client interest, but require fresh confirmations on a new socket.
+pub fn prepare_for_reconnect(
+  counter: SubscriptionCounter,
+) -> SubscriptionCounter {
+  SubscriptionCounter(dict.merge(counter.pending, counter.active), dict.new())
+}
+
+/// Each symbol with remaining interest, once regardless of its reference count.
+pub fn symbols(counter: SubscriptionCounter) -> List(String) {
+  list.append(dict.keys(counter.pending), dict.keys(counter.active))
 }
 
 /// Add a subscription request for a symbol
@@ -174,10 +192,12 @@ pub fn is_actively_subscribed(
   get_active_count(counter, symbol) > 0
 }
 
+/// Returns the confirmed interest count for a symbol, or zero if none is active.
 pub fn get_active_count(counter: SubscriptionCounter, symbol: String) -> Int {
   get_count(counter.active, symbol)
 }
 
+/// Returns the interest count awaiting confirmation for a symbol, or zero if none.
 pub fn get_pending_count(counter: SubscriptionCounter, symbol: String) -> Int {
   get_count(counter.pending, symbol)
 }
@@ -188,8 +208,6 @@ fn get_count(dict: Dict(String, Int), symbol: String) -> Int {
     Ok(i) -> i
   }
 }
-
-// logging
 
 pub fn log_subscription_count(
   counter: SubscriptionCounter,

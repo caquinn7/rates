@@ -7,6 +7,7 @@ pub type KrakenResponse {
   InstrumentsResponse(List(InstrumentPair))
   TickerSubscribeConfirmation(String)
   TickerResponse(String, PositiveFloat)
+  Pong(req_id: Int)
 }
 
 pub type InstrumentPair {
@@ -17,6 +18,7 @@ pub fn decoder() -> Decoder(KrakenResponse) {
   decode.one_of(ticker_subscribe_confirmation_decoder(), or: [
     ticker_data_decoder(),
     instruments_decoder(),
+    pong_decoder(),
   ])
 }
 
@@ -59,6 +61,14 @@ fn instruments_decoder() {
   //         ]
   //     }
   // }
+
+  use channel <- decode.field("channel", decode.string)
+  use kind <- decode.field("type", decode.string)
+  use <- bool.guard(
+    channel != "instrument" || kind != "snapshot",
+    decode.failure(InstrumentsResponse([]), "instrument snapshot"),
+  )
+
   let pair_decoder = fn() {
     use symbol <- decode.field("symbol", decode.string)
     use base <- decode.field("base", decode.string)
@@ -68,6 +78,13 @@ fn instruments_decoder() {
 
   use pairs <- decode.subfield(["data", "pairs"], decode.list(pair_decoder()))
   decode.success(InstrumentsResponse(pairs))
+}
+
+fn pong_decoder() {
+  use method <- decode.field("method", decode.string)
+  use <- bool.guard(method != "pong", decode.failure(Pong(0), "pong"))
+  use req_id <- decode.field("req_id", decode.int)
+  decode.success(Pong(req_id))
 }
 
 fn ticker_subscribe_confirmation_decoder() {

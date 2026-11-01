@@ -1,11 +1,12 @@
+import exception
 import gleam/dict
 import gleam/erlang/atom.{type Atom}
-import gleam/erlang/process
+import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/option.{None, Some}
 import server/currencies/currency_repository.{CurrencyRepository}
 import server/currencies/currency_symbol_cache
-import server/dependencies.{Dependencies}
+import server/dependencies.{type Dependencies, Dependencies}
 import server/integrations/coin_market_cap/client.{CmcResponse, CmcStatus}
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
@@ -14,7 +15,9 @@ import server/integrations/kraken/price_store.{PriceEntry}
 import server/rates/factories
 import server/rates/internal/kraken_interface.{KrakenInterface}
 import server/rates/internal/kraken_symbol
+import server/rates/internal/subscription_manager
 import server/rates/rate_error.{CmcError, CurrencyNotFound}
+import server/rates/rate_service_config.{RateServiceConfig}
 import server/rates/subscriber
 import server/utils/logger
 import shared/currency.{Crypto, Fiat}
@@ -22,6 +25,45 @@ import shared/positive_float
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response.{CoinMarketCap, Kraken}
 import shared/subscriptions/subscription_id
+
+type ScheduledUpdate {
+  ScheduledUpdate(delay_ms: Int, deliver: fn() -> Nil)
+}
+
+fn record_schedule(updates: Subject(ScheduledUpdate)) -> subscriber.Scheduler {
+  fn(delay, deliver) { process.send(updates, ScheduledUpdate(delay, deliver)) }
+}
+
+fn await_scheduled_update(updates, expected_delay) {
+  let assert Ok(ScheduledUpdate(delay, deliver)) =
+    process.receive(updates, 1000)
+  assert delay == expected_delay
+  deliver
+}
+
+fn scheduled_subscriber_factory(deps: Dependencies, updates) {
+  fn(id, reply_to) {
+    let assert Ok(manager) =
+      subscription_manager.new(deps.subscription_refresh_interval_ms)
+    let assert Ok(target) =
+      subscriber.new_with_scheduler(
+        id,
+        reply_to,
+        subscriber.Config(
+          base: RateServiceConfig(
+            get_currency: deps.currency_repository.get_by_id,
+            kraken_interface: deps.kraken_interface,
+            request_cmc_conversion: deps.request_cmc_conversion,
+            get_current_time_ms: deps.get_current_time_ms,
+          ),
+          subscription_manager: manager,
+          logger: deps.logger,
+        ),
+        record_schedule(updates),
+      )
+    target
+  }
+}
 
 pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
   let currencies = [
@@ -157,6 +199,7 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
 }
 
 pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
+  let interest = process.new_subject()
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
@@ -177,8 +220,8 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
-      subscribe: fn(_) { Nil },
-      unsubscribe: fn(_) { Nil },
+      subscribe: fn(_) { process.send(interest, #(True, process.self())) },
+      unsubscribe: fn(_) { process.send(interest, #(False, process.self())) },
       check_for_price: fn(_) { Error(Nil) },
     )
 
@@ -225,6 +268,105 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
   assert rate_response.rate == Some(expected_price)
   assert rate_response.source == CoinMarketCap
   assert rate_response.timestamp == 100
+
+  let assert Ok(#(True, pid)) = process.receive(interest, 1000)
+  let assert Ok(#(False, _)) = process.receive(interest, 1000)
+  let monitor = process.monitor(pid)
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+  assert process.receive(interest, 0) == Error(Nil)
+}
+
+pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
+  let interest = process.new_subject()
+  let subject = process.new_subject()
+  let updates = process.new_subject()
+  let kraken_price = positive_float.from_float_unsafe(100_000.0)
+  let cmc_price = positive_float.from_float_unsafe(100_001.0)
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", Some(1)),
+    Fiat(2781, "United States Dollar", "USD", "$"),
+  ]
+  let interface =
+    KrakenInterface(
+      get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
+      subscribe: fn(_) {
+        process.send(interest, #("subscribe", process.self()))
+      },
+      unsubscribe: fn(_) {
+        process.send(interest, #("unsubscribe", process.self()))
+      },
+      check_for_price: fn(_) {
+        case get_and_increment("recovery_price_lookups") {
+          0 -> Error(Nil)
+          _ -> Ok(PriceEntry(kraken_price, 200))
+        }
+      },
+    )
+  let assert Ok(manager) = subscription_manager.new(1000)
+  let assert Ok(id) = subscription_id.new("recovering")
+  let assert Ok(target) =
+    subscriber.new_with_scheduler(
+      id,
+      subject,
+      subscriber.Config(
+        base: RateServiceConfig(
+          get_currency: fn(id) {
+            list.find(currencies, fn(currency) { currency.id == id })
+          },
+          kraken_interface: interface,
+          request_cmc_conversion: fn(_) {
+            CmcConversion(
+              1,
+              "BTC",
+              "Bitcoin",
+              positive_float.from_float_unsafe(1.0),
+              dict.insert(dict.new(), "2781", QuoteItem(Some(cmc_price))),
+            )
+            |> Some
+            |> CmcResponse(CmcStatus(0, None), _)
+            |> Ok
+          },
+          get_current_time_ms: fn() { 100 },
+        ),
+        subscription_manager: manager,
+        logger: logger.new(),
+      ),
+      record_schedule(updates),
+    )
+  use <- exception.defer(fn() { subscriber.stop(target) })
+  subscriber.subscribe(target, RateRequest(1, 2781))
+  let assert Ok(#("subscribe", pid)) = process.receive(interest, 1000)
+  let monitor = process.monitor(pid)
+  let assert Ok(#(_, Ok(initial))) = process.receive(subject, 1000)
+  assert initial.source == CoinMarketCap
+  assert initial.rate == Some(cmc_price)
+  assert process.receive(interest, 1000) == Ok(#("unsubscribe", pid))
+
+  // Verify the CMC interval, then deliver the scheduled update immediately.
+  let recover = await_scheduled_update(updates, 30_000)
+  recover()
+  let assert Ok(#(_, Ok(recovered))) = process.receive(subject, 1000)
+  assert recovered.source == Kraken
+  assert recovered.rate == Some(kraken_price)
+  assert recovered.timestamp == 200
+  assert process.receive(interest, 1000) == Ok(#("subscribe", pid))
+
+  // Recovery retains interest and restores the requested Kraken interval.
+  let refresh = await_scheduled_update(updates, 1000)
+  refresh()
+  let assert Ok(#(_, Ok(next))) = process.receive(subject, 1000)
+  assert next.source == Kraken
+  assert process.receive(interest, 0) == Error(Nil)
+  subscriber.stop(target)
+  assert process.receive(interest, 1000) == Ok(#("unsubscribe", pid))
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+  assert process.receive(interest, 0) == Error(Nil)
 }
 
 pub fn subscribe_returns_error_when_currency_id_not_found_test() {
@@ -380,17 +522,21 @@ pub fn subscribe_schedules_get_latest_rate_test() {
       get_current_time_ms: fn() { panic },
       logger: logger.new(),
     )
-  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+  let updates = process.new_subject()
+  let subscriber_factory = scheduled_subscriber_factory(deps, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
   let target = subscriber_factory(sub_id, subject)
+  use <- exception.defer(fn() { subscriber.stop(target) })
 
   // act
   subscriber.subscribe(target, RateRequest(1, 2781))
 
   // assert
   let assert Ok(_) = process.receive(subject, 1000)
+  let refresh = await_scheduled_update(updates, 1000)
+  refresh()
 
   let assert Ok(#(received_sub_id, Ok(rate_response))) =
     process.receive(subject, 1500)
@@ -452,11 +598,13 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
       get_current_time_ms: fn() { panic },
       logger: logger.new(),
     )
-  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+  let updates = process.new_subject()
+  let subscriber_factory = scheduled_subscriber_factory(deps, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
   let target = subscriber_factory(sub_id, subject)
+  use <- exception.defer(fn() { subscriber.stop(target) })
 
   // act
   subscriber.subscribe(target, RateRequest(1, 2781))
@@ -469,6 +617,7 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   assert received_sub_id == sub_id
   assert rate_response.from == 1
   assert rate_response.to == 2781
+  let old_refresh = await_scheduled_update(updates, 1000)
 
   let assert Ok(#(received_sub_id, Ok(rate_response))) =
     process.receive(subject, 1500)
@@ -477,6 +626,16 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   assert rate_response.from == 1027
   assert rate_response.to == 2781
   assert rate_response.rate == Some(expected_price)
+
+  let current_refresh = await_scheduled_update(updates, 1000)
+  old_refresh()
+  current_refresh()
+  let assert Ok(#(_, Ok(latest))) = process.receive(subject, 1000)
+  assert latest.from == 1027
+  assert latest.rate == Some(expected_price)
+  assert process.receive(subject, 0) == Error(Nil)
+  let _ = await_scheduled_update(updates, 1000)
+  assert process.receive(updates, 0) == Error(Nil)
 
   subscriber.stop(target)
 }
@@ -538,11 +697,13 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
       get_current_time_ms: fn() { 1000 },
       logger: logger.new(),
     )
-  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+  let updates = process.new_subject()
+  let subscriber_factory = scheduled_subscriber_factory(deps, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
   let target = subscriber_factory(sub_id, subject)
+  use <- exception.defer(fn() { subscriber.stop(target) })
 
   // act
   subscriber.subscribe(target, RateRequest(1, 2781))
@@ -553,10 +714,14 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
   assert rate_response.source == Kraken
   assert rate_response.rate == Some(expected_kraken_price)
 
+  let refresh = await_scheduled_update(updates, 1000)
+  refresh()
+
   let assert Ok(#(_, Ok(rate_response))) = process.receive(subject, 1500)
 
   assert rate_response.source == CoinMarketCap
   assert rate_response.rate == Some(expected_cmc_price)
+  let _ = await_scheduled_update(updates, 30_000)
 }
 
 pub fn stop_unsubscribes_from_kraken_test() {

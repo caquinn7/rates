@@ -1,4 +1,31 @@
+import gleam/list
 import server/integrations/kraken/internal/subscription_counter
+
+pub fn reconnect_preserves_pending_and_active_reference_counts_test() {
+  // Two clients share a confirmed BTC subscription.
+  let #(_, counter) =
+    subscription_counter.new()
+    |> subscription_counter.add_subscription("BTC/USD")
+  let #(_, counter) = subscription_counter.add_subscription(counter, "BTC/USD")
+  let assert Ok(counter) =
+    subscription_counter.confirm_subscription(counter, "BTC/USD")
+
+  // One client's ETH subscription is still awaiting confirmation.
+  let #(_, counter) = subscription_counter.add_subscription(counter, "ETH/USD")
+
+  let counter = subscription_counter.prepare_for_reconnect(counter)
+
+  assert subscription_counter.get_pending_count(counter, "BTC/USD") == 2
+  assert subscription_counter.get_pending_count(counter, "ETH/USD") == 1
+  assert subscription_counter.get_active_count(counter, "BTC/USD") == 0
+
+  assert subscription_counter.prepare_for_reconnect(counter) == counter
+
+  let symbols = subscription_counter.symbols(counter)
+  assert list.length(symbols) == 2
+  assert list.contains(symbols, "BTC/USD")
+  assert list.contains(symbols, "ETH/USD")
+}
 
 pub fn add_subscription_should_subscribe_and_add_to_pending_on_first_request_test() {
   let #(should_subscribe, counter) =

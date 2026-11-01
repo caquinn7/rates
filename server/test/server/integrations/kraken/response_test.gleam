@@ -2,9 +2,42 @@ import gleam/json
 import gleam/list
 import gleeunit/should
 import server/integrations/kraken/internal/response.{
-  InstrumentPair, InstrumentsResponse, TickerResponse,
+  InstrumentPair, InstrumentsResponse, Pong, TickerResponse,
   TickerSubscribeConfirmation,
 }
+
+pub fn decode_correlated_pong_test() {
+  "{\"method\":\"pong\",\"req_id\":42}"
+  |> json.parse(response.decoder())
+  |> should.equal(Ok(Pong(42)))
+}
+
+pub fn decode_live_kraken_pong_without_success_field_test() {
+  "{\"method\":\"pong\",\"req_id\":42,\"time_in\":\"2026-10-31T15:49:04.391605Z\",\"time_out\":\"2026-10-31T15:49:04.391618Z\"}"
+  |> json.parse(response.decoder())
+  |> should.equal(Ok(Pong(42)))
+}
+
+pub fn malformed_or_uncorrelated_pongs_are_not_liveness_confirmations_test() {
+  list.each(
+    [
+      "{\"method\":\"pong\"}",
+      "{\"method\":\"pong\",\"req_id\":\"42\"}",
+      "{\"method\":\"subscribe\",\"req_id\":42}",
+    ],
+    fn(text) {
+      text |> json.parse(response.decoder()) |> should.be_error
+      Nil
+    },
+  )
+}
+
+pub fn instrument_update_is_not_a_startup_snapshot_test() {
+  "{\"channel\":\"instrument\",\"type\":\"update\",\"data\":{\"pairs\":[]}}"
+  |> json.parse(response.decoder())
+  |> should.be_error
+}
+
 import shared/positive_float
 
 pub fn decode_ticker_subscribe_confirmation_test() {

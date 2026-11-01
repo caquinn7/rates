@@ -3,7 +3,14 @@ import gleam/json
 import gleam/option.{None, Some}
 import gleeunit/should
 import server/integrations/kraken/internal/request.{
-  Instruments, KrakenRequest, Subscribe, Tickers, Unsubscribe,
+  Instruments, KrakenRequest, Ping, Subscribe, Tickers, Unsubscribe,
+}
+
+pub fn encode_application_ping_without_subscription_params_test() {
+  Ping(42)
+  |> request.encode
+  |> json.to_string
+  |> should.equal("{\"method\":\"ping\",\"req_id\":42}")
 }
 
 pub fn encode_method_subscribe_test() {
