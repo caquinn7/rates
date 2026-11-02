@@ -3,6 +3,7 @@
 import gleam/erlang/process.{type Monitor, type Pid, type Subject}
 import gleam/http/request as http_request
 import gleam/json
+import gleam/option.{None, Some}
 import gleam/otp/actor
 import gleam/result
 import gleam/string
@@ -33,7 +34,8 @@ pub type Event {
   Connected(Socket)
 
   /// A WebSocket text message was decoded as a Kraken response.
-  /// Unrecognized or malformed messages are ignored and produce no event.
+  /// Unrecognized messages are ignored; malformed responses are logged and
+  /// produce no event.
   Received(KrakenResponse)
 
   /// Connection setup failed or the socket exited. Carries a reason description
@@ -136,7 +138,7 @@ fn connect(
   |> stratus.new(Nil)
   |> stratus.with_connect_timeout(connect_timeout_ms)
   |> stratus.on_message(fn(state, message, conn) {
-    handle_message(state, message, conn, notify, send_text)
+    handle_message(state, message, conn, notify, logger, send_text)
   })
   |> stratus.on_close(fn(_, reason) {
     logger
@@ -148,22 +150,29 @@ fn connect(
 }
 
 /// Handles incoming WebSocket messages and queued Kraken requests.
-/// Decodes text responses and forwards them through `Received`, ignoring malformed
-/// or unrecognized responses and binary messages. Encodes outgoing requests and
-/// sends them through `send_text`; a write error stops the socket abnormally so
-/// its monitor can report the failure. The supplied state is preserved.
+/// Decodes text responses and forwards them through `Received`. Logs decoding
+/// failures with a short response excerpt, while unrecognized response kinds and
+/// binary messages stay quiet. Encodes outgoing requests through `send_text`;
+/// a write error stops the socket abnormally so its monitor can report the
+/// failure. The supplied state is preserved.
 fn handle_message(
   state: a,
   message: stratus.Message(KrakenRequest),
   conn: stratus.Connection,
   notify: fn(Event) -> Nil,
+  logger: Logger,
   send_text: SendText,
 ) -> stratus.Next(a, b) {
   case message {
     stratus.Text(text) -> {
       case json.parse(text, response.decoder()) {
-        Ok(message) -> notify(Received(message))
-        Error(_) -> Nil
+        Ok(Some(message)) -> notify(Received(message))
+        Ok(None) -> Nil
+        Error(error) ->
+          logger
+          |> logger.with("reason", string.inspect(error))
+          |> logger.with("response", string.slice(text, 0, 512))
+          |> logger.warning("Unable to decode Kraken response")
       }
       stratus.continue(state)
     }

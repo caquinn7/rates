@@ -162,7 +162,8 @@ pub fn stale_deadline_cannot_end_new_instrument_discovery_test() {
   let _ = await_request(fixture, 1, fn(req) { req == InstrumentSubscribe })
 
   process.send(client.data, GenerationEvent(0, DiscoveryDeadlineReached))
-  let snapshot = unwrap(json.parse(instrument_snapshot, response.decoder()))
+  let assert Some(snapshot) =
+    unwrap(json.parse(instrument_snapshot, response.decoder()))
 
   // Send both events from this process so the stale deadline is handled first.
   process.send(
@@ -355,6 +356,44 @@ pub fn worker_reports_socket_failure_before_its_own_normal_exit_test() {
 
   assert process.receive(events, 1000) == Ok(connection.Failed("Killed"))
   await_dead(worker, 100)
+}
+
+pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
+  use fixture, url <- with_server([])
+  let events = process.new_subject()
+  let worker =
+    connection.start(
+      process.self(),
+      process.send(events, _),
+      logger.new(),
+      url,
+      500,
+      connection.send_text,
+    )
+  use <- exception.defer(fn() { stop_process(worker) })
+
+  let opened = await_open(fixture, 0)
+  let assert Ok(connection.Connected(_)) = process.receive(events, 1000)
+
+  list.each(
+    [
+      "{\"channel\":\"heartbeat\"}",
+      "{\"channel\":\"status\",\"type\":\"update\"}",
+      "{\"method\":\"unsubscribe\",\"success\":true}",
+      "{\"method\":\"subscribe\",\"success\":true,\"result\":{\"channel\":\"instrument\"}}",
+      "{\"channel\":\"instrument\",\"type\":\"update\",\"data\":{\"pairs\":[]}}",
+      "{not-json",
+      "{\"method\":\"pong\",\"req_id\":\"not an integer\"}",
+      pong_json(42),
+    ],
+    fn(text) { process.send(opened.control, Send(text)) },
+  )
+
+  assert process.receive(events, 1000)
+    == Ok(connection.Received(response.Pong(42)))
+  assert process.receive(events, 0) == Error(Nil)
+  assert process.is_alive(worker)
+  assert process.is_alive(opened.pid)
 }
 
 pub fn outage_subscription_changes_determine_what_is_replayed_test() {

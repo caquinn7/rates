@@ -1,5 +1,6 @@
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some}
 import gleeunit/should
 import server/integrations/kraken/internal/response.{
   InstrumentPair, InstrumentsResponse, Pong, TickerResponse,
@@ -9,13 +10,13 @@ import server/integrations/kraken/internal/response.{
 pub fn decode_correlated_pong_test() {
   "{\"method\":\"pong\",\"req_id\":42}"
   |> json.parse(response.decoder())
-  |> should.equal(Ok(Pong(42)))
+  |> should.equal(Ok(Some(Pong(42))))
 }
 
 pub fn decode_live_kraken_pong_without_success_field_test() {
   "{\"method\":\"pong\",\"req_id\":42,\"time_in\":\"2026-10-31T15:49:04.391605Z\",\"time_out\":\"2026-10-31T15:49:04.391618Z\"}"
   |> json.parse(response.decoder())
-  |> should.equal(Ok(Pong(42)))
+  |> should.equal(Ok(Some(Pong(42))))
 }
 
 pub fn malformed_or_uncorrelated_pongs_are_not_liveness_confirmations_test() {
@@ -35,7 +36,7 @@ pub fn malformed_or_uncorrelated_pongs_are_not_liveness_confirmations_test() {
 pub fn instrument_update_is_not_a_startup_snapshot_test() {
   "{\"channel\":\"instrument\",\"type\":\"update\",\"data\":{\"pairs\":[]}}"
   |> json.parse(response.decoder())
-  |> should.be_error
+  |> should.equal(Ok(None))
 }
 
 import shared/positive_float
@@ -47,7 +48,7 @@ pub fn decode_ticker_subscribe_confirmation_test() {
   json_str
   |> json.parse(response.decoder())
   |> should.be_ok
-  |> should.equal(TickerSubscribeConfirmation("BTC/USD"))
+  |> should.equal(Some(TickerSubscribeConfirmation("BTC/USD")))
 }
 
 pub fn decode_ticker_unsubscribe_confirmation_should_not_be_mistaken_for_subscribe_confirmation_test() {
@@ -56,7 +57,7 @@ pub fn decode_ticker_unsubscribe_confirmation_should_not_be_mistaken_for_subscri
 
   json_str
   |> json.parse(response.decoder())
-  |> should.be_error
+  |> should.equal(Ok(None))
 }
 
 pub fn decode_ticker_subscribe_confirmation_when_success_is_false_test() {
@@ -75,10 +76,9 @@ pub fn decode_ticker_response_test() {
   json_str
   |> json.parse(response.decoder())
   |> should.be_ok
-  |> should.equal(TickerResponse(
-    "BTC/USD",
-    positive_float.from_float_unsafe(84_393.1),
-  ))
+  |> should.equal(
+    Some(TickerResponse("BTC/USD", positive_float.from_float_unsafe(84_393.1))),
+  )
 }
 
 pub fn decode_instrument_response_test() {
@@ -90,10 +90,64 @@ pub fn decode_instrument_response_test() {
     |> json.parse(response.decoder())
     |> should.be_ok
 
-  let assert InstrumentsResponse(pairs) = response
+  let assert Some(InstrumentsResponse(pairs)) = response
 
   pairs
   |> list.first
   |> should.be_ok
   |> should.equal(InstrumentPair("BTC/USD", "BTC", "USD"))
+}
+
+pub fn malformed_responses_preserve_the_selected_decoders_field_errors_test() {
+  list.each(
+    [
+      #("{\"method\":\"pong\",\"req_id\":\"42\"}", ["req_id"]),
+      #(
+        "{\"channel\":\"ticker\",\"type\":\"update\",\"data\":[{\"symbol\":\"BTC/USD\",\"last\":\"invalid\"}]}",
+        ["data", "0", "last"],
+      ),
+      #(
+        "{\"channel\":\"instrument\",\"type\":\"snapshot\",\"data\":{\"pairs\":[{\"symbol\":\"BTC/USD\",\"base\":42,\"quote\":\"USD\"}]}}",
+        ["data", "pairs", "0", "base"],
+      ),
+      #(
+        "{\"method\":\"subscribe\",\"success\":true,\"result\":{\"channel\":\"ticker\",\"symbol\":42}}",
+        ["result", "symbol"],
+      ),
+      #("{\"channel\":\"ticker\",\"type\":42}", ["type"]),
+    ],
+    fn(test_case) {
+      let #(text, expected_path) = test_case
+      let assert Error(json.UnableToDecode([error, ..])) =
+        json.parse(text, response.decoder())
+
+      assert error.path == expected_path
+    },
+  )
+}
+
+pub fn unhandled_message_kinds_are_ignored_without_decoding_their_payloads_test() {
+  list.each(
+    [
+      "{\"channel\":\"heartbeat\"}",
+      "{\"channel\":\"status\",\"type\":\"update\",\"data\":[{\"system\":\"online\"}]}",
+      "{\"method\":\"subscribe\",\"success\":true,\"result\":{\"channel\":\"instrument\"}}",
+      "{\"method\":\"future\",\"data\":[{\"symbol\":\"BTC/USD\",\"last\":100.0}]}",
+      "{\"channel\":\"future\",\"type\":\"update\",\"data\":[{\"symbol\":\"BTC/USD\",\"last\":100.0}]}",
+      "{\"channel\":\"ticker\",\"type\":\"future\"}",
+    ],
+    fn(text) {
+      text
+      |> json.parse(response.decoder())
+      |> should.equal(Ok(None))
+    },
+  )
+}
+
+pub fn decode_ticker_update_test() {
+  "{\"channel\":\"ticker\",\"type\":\"update\",\"data\":[{\"symbol\":\"BTC/USD\",\"last\":100.0}]}"
+  |> json.parse(response.decoder())
+  |> should.equal(
+    Ok(Some(TickerResponse("BTC/USD", positive_float.from_float_unsafe(100.0)))),
+  )
 }
