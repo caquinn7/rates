@@ -243,11 +243,11 @@ fn assert_non_owner_cannot_mutate(mutate: fn(PriceStore) -> Nil) {
 /// crashes propagate through the process link. Deferred cleanup stops the worker
 /// and waits for its exit, even if waiting for the result fails.
 fn in_other_process(run: fn() -> a) -> a {
-  let reply = process.new_subject()
-  let worker = process.spawn(fn() { process.send(reply, run()) })
+  let subject = process.new_subject()
+  let worker = process.spawn(fn() { process.send(subject, run()) })
   use <- exception.defer(fn() { stop_process(worker) })
 
-  let assert Ok(value) = process.receive(reply, 1000)
+  let assert Ok(value) = process.receive(subject, 1000)
   value
 }
 

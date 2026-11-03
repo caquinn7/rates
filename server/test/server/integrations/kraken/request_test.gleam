@@ -1,77 +1,54 @@
-import gleam/int
 import gleam/json
 import gleam/option.{None, Some}
-import gleeunit/should
 import server/integrations/kraken/internal/request.{
-  Instruments, KrakenRequest, Subscribe, Tickers, Unsubscribe,
+  Instruments, KrakenRequest, Ping, Subscribe, Tickers, Unsubscribe,
 }
 
-pub fn encode_method_subscribe_test() {
-  Subscribe
-  |> request.encode_method
-  |> json.to_string
-  |> should.equal("\"subscribe\"")
+pub fn encode_application_ping_without_subscription_params_test() {
+  let encoded =
+    Ping(42)
+    |> request.encode
+    |> json.to_string
+
+  assert encoded == "{\"method\":\"ping\",\"req_id\":42}"
 }
 
-pub fn encode_method_unsubscribe_test() {
-  Unsubscribe
-  |> request.encode_method
-  |> json.to_string
-  |> should.equal("\"unsubscribe\"")
+pub fn encode_subscribe_instruments_with_req_id_test() {
+  let encoded =
+    KrakenRequest(Subscribe, Instruments, Some(1))
+    |> request.encode
+    |> json.to_string
+
+  let expected =
+    "{\"method\":\"subscribe\","
+    <> "\"params\":{\"channel\":\"instrument\",\"snapshot\":true},"
+    <> "\"req_id\":1}"
+
+  assert encoded == expected
 }
 
-pub fn encode_params_instruments_test() {
-  Instruments
-  |> request.encode_params
-  |> json.to_string
-  |> should.equal("{\"channel\":\"instrument\",\"snapshot\":true}")
+pub fn encode_unsubscribe_instruments_with_no_req_id_test() {
+  let encoded =
+    KrakenRequest(Unsubscribe, Instruments, None)
+    |> request.encode
+    |> json.to_string
+
+  let expected =
+    "{\"method\":\"unsubscribe\","
+    <> "\"params\":{\"channel\":\"instrument\",\"snapshot\":true}}"
+
+  assert encoded == expected
 }
 
-pub fn encode_params_tickers_test() {
-  Tickers(["BTC/USD"])
-  |> request.encode_params
-  |> json.to_string
-  |> should.equal(
-    "{\"channel\":\"ticker\",\"symbol\":[\"BTC/USD\"],\"snapshot\":true}",
-  )
-}
+pub fn encode_subscribe_tickers_test() {
+  let encoded =
+    KrakenRequest(Subscribe, Tickers(["BTC/USD"]), None)
+    |> request.encode
+    |> json.to_string
 
-pub fn encode_kraken_request_with_req_id_test() {
-  let method = Subscribe
-  let params = Instruments
-  let req_id = 1
+  let expected =
+    "{\"method\":\"subscribe\","
+    <> "\"params\":{\"channel\":\"ticker\",\"symbol\":[\"BTC/USD\"],\"snapshot\":true}}"
 
-  KrakenRequest(method, params, Some(req_id))
-  |> request.encode
-  |> json.to_string
-  |> should.equal(
-    "{"
-    <> "\"method\":"
-    <> json.to_string(request.encode_method(method))
-    <> ","
-    <> "\"params\":"
-    <> json.to_string(request.encode_params(params))
-    <> ","
-    <> "\"req_id\":"
-    <> int.to_string(req_id)
-    <> "}",
-  )
-}
-
-pub fn encode_kraken_request_with_no_req_id_test() {
-  let method = Subscribe
-  let params = Instruments
-
-  KrakenRequest(method, params, None)
-  |> request.encode
-  |> json.to_string
-  |> should.equal(
-    "{"
-    <> "\"method\":"
-    <> json.to_string(request.encode_method(method))
-    <> ","
-    <> "\"params\":"
-    <> json.to_string(request.encode_params(params))
-    <> "}",
-  )
+  assert encoded == expected
 }

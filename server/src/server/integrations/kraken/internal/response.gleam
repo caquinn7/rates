@@ -1,23 +1,80 @@
 import gleam/bool
 import gleam/dynamic/decode.{type Decoder}
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import shared/positive_float.{type PositiveFloat}
 
+/// Messages decoded from Kraken's WebSocket API for instrument discovery,
+/// subscription tracking, price updates, and keepalive.
 pub type KrakenResponse {
+  /// Trading pairs from an instrument snapshot, used to populate the registry
+  /// of supported symbols and enable ticker subscriptions.
   InstrumentsResponse(List(InstrumentPair))
+
+  /// Acknowledges a successful ticker subscription for the given symbol.
   TickerSubscribeConfirmation(String)
+
+  /// A symbol and its positive last traded price. The decoder uses the first
+  /// data entry in the message; the session assigns a timestamp when storing it.
   TickerResponse(String, PositiveFloat)
+
+  /// Reply to a Kraken JSON ping, carrying its request ID so the session can
+  /// match the outstanding ping and clear its pong deadline.
+  Pong(req_id: Int)
 }
 
+/// Trading pair listed in a Kraken instrument snapshot, such as `BTC/USD`.
 pub type InstrumentPair {
-  InstrumentPair(symbol: String, base: String, quote: String)
+  InstrumentPair(
+    /// Kraken's subscription symbol for the pair, such as `BTC/USD`.
+    symbol: String,
+    /// Asset being priced, such as `BTC`.
+    base: String,
+    /// Asset the price is expressed in, such as `USD`.
+    quote: String,
+  )
 }
 
-pub fn decoder() -> Decoder(KrakenResponse) {
-  decode.one_of(ticker_subscribe_confirmation_decoder(), or: [
-    ticker_data_decoder(),
-    instruments_decoder(),
-  ])
+/// Selects a response decoder using the message's method, channel, and type.
+/// Returns `None` for message kinds the session does not consume, including
+/// heartbeats, status messages, unsubscribe confirmations, and instrument updates.
+/// Supported messages with invalid fields retain their specific decoding errors.
+pub fn decoder() -> Decoder(Option(KrakenResponse)) {
+  use method <- decode.optional_field("method", "", decode.string)
+
+  case method {
+    "pong" -> decode.map(pong_decoder(), Some)
+
+    "subscribe" -> {
+      use channel <- decode.subfield(["result", "channel"], decode.string)
+      case channel {
+        "ticker" -> decode.map(ticker_subscribe_confirmation_decoder(), Some)
+        _ -> decode.success(None)
+      }
+    }
+
+    "" -> channel_decoder()
+
+    _ -> decode.success(None)
+  }
+}
+
+fn channel_decoder() {
+  use channel <- decode.optional_field("channel", "", decode.string)
+
+  case channel {
+    "instrument" | "ticker" -> {
+      use kind <- decode.field("type", decode.string)
+      case channel, kind {
+        "instrument", "snapshot" -> decode.map(instruments_decoder(), Some)
+        "ticker", "snapshot" | "ticker", "update" ->
+          decode.map(ticker_data_decoder(), Some)
+        _, _ -> decode.success(None)
+      }
+    }
+
+    _ -> decode.success(None)
+  }
 }
 
 fn instruments_decoder() {
@@ -59,6 +116,7 @@ fn instruments_decoder() {
   //         ]
   //     }
   // }
+
   let pair_decoder = fn() {
     use symbol <- decode.field("symbol", decode.string)
     use base <- decode.field("base", decode.string)
@@ -68,6 +126,11 @@ fn instruments_decoder() {
 
   use pairs <- decode.subfield(["data", "pairs"], decode.list(pair_decoder()))
   decode.success(InstrumentsResponse(pairs))
+}
+
+fn pong_decoder() {
+  use req_id <- decode.field("req_id", decode.int)
+  decode.success(Pong(req_id))
 }
 
 fn ticker_subscribe_confirmation_decoder() {
@@ -94,20 +157,14 @@ fn ticker_subscribe_confirmation_decoder() {
   //     "time_in": "2025-04-27T15:37:48.652299Z",
   //     "time_out": "2025-04-27T15:37:48.652337Z"
   // }
-  let failure_decoder =
+  use success <- decode.field("success", decode.bool)
+  use <- bool.guard(
+    !success,
     decode.failure(
       TickerSubscribeConfirmation(""),
-      "TickerSubscribeConfirmation",
-    )
-
-  use method <- decode.field("method", decode.string)
-  use <- bool.guard(method != "subscribe", failure_decoder)
-
-  use success <- decode.field("success", decode.bool)
-  use <- bool.guard(!success, failure_decoder)
-
-  use channel <- decode.subfield(["result", "channel"], decode.string)
-  use <- bool.guard(channel != "ticker", failure_decoder)
+      "successful ticker subscription",
+    ),
+  )
 
   use symbol <- decode.subfield(["result", "symbol"], decode.string)
   decode.success(TickerSubscribeConfirmation(symbol))
