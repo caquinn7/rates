@@ -1,4 +1,11 @@
+import gleam/dynamic/decode
+@target(erlang)
+import gleam/float
+@target(erlang)
+import gleam/int
 import gleam/json
+import gleam/list
+import gleam/string
 import qcheck.{type Generator}
 import shared/positive_float.{type PositiveFloat}
 
@@ -66,6 +73,26 @@ pub fn multiply_returns_error_on_overflow_test() {
   assert positive_float.multiply(a, b) == Error(Nil)
 }
 
+pub fn multiply_returns_error_on_underflow_to_zero_test() {
+  let small = positive_float.from_float_unsafe(1.0e-300)
+  assert positive_float.multiply(small, small) == Error(Nil)
+}
+
+pub fn multiply_preserves_positive_subnormal_results_test() {
+  let a = 1.0e-300
+  let b = 1.0e-10
+  let expected = a *. b
+  assert expected >. 0.0
+
+  let assert Ok(value) =
+    positive_float.multiply(
+      positive_float.from_float_unsafe(a),
+      positive_float.from_float_unsafe(b),
+    )
+
+  assert positive_float.unwrap(value) == expected
+}
+
 // divide
 
 pub fn divide_by_one_returns_self_test() {
@@ -100,6 +127,27 @@ pub fn divide_returns_error_on_overflow_test() {
   let very_small = positive_float.from_float_unsafe(1.0e-308)
 
   assert positive_float.divide(very_large, very_small) == Error(Nil)
+}
+
+pub fn divide_returns_error_on_underflow_to_zero_test() {
+  let small = positive_float.from_float_unsafe(1.0e-300)
+  let large = positive_float.from_float_unsafe(1.0e300)
+  assert positive_float.divide(small, large) == Error(Nil)
+}
+
+pub fn divide_preserves_positive_subnormal_results_test() {
+  let a = 1.0e-300
+  let b = 1.0e10
+  let expected = a /. b
+  assert expected >. 0.0
+
+  let assert Ok(value) =
+    positive_float.divide(
+      positive_float.from_float_unsafe(a),
+      positive_float.from_float_unsafe(b),
+    )
+
+  assert positive_float.unwrap(value) == expected
 }
 
 // is_less_than
@@ -154,6 +202,52 @@ pub fn decoder_decodes_from_float_test() {
 pub fn decoder_decodes_from_int_test() {
   let assert Ok(result) = json.parse("1", positive_float.decoder())
   assert positive_float.unwrap(result) == 1.0
+}
+
+pub fn decoder_returns_error_for_oversized_integers_test() {
+  let oversized = "1" <> string.repeat("0", 309)
+  let assert Error(_) = json.parse(oversized, positive_float.decoder())
+  let assert Error(_) = json.parse("-" <> oversized, positive_float.decoder())
+}
+
+pub fn decoder_decodes_large_in_range_integer_test() {
+  let large = "1" <> string.repeat("0", 308)
+  let assert Ok(value) = json.parse(large, positive_float.decoder())
+  assert positive_float.unwrap(value) == 1.0e308
+}
+
+@target(erlang)
+pub fn decoder_preserves_native_integer_rounding_near_max_test() {
+  let max = positive_float.unwrap(positive_float.max)
+  let integer = float.truncate(max) + 1
+  let assert Ok(value) =
+    json.parse(int.to_string(integer), positive_float.decoder())
+
+  assert positive_float.unwrap(value) == max
+}
+
+pub fn decoder_map_receives_valid_placeholder_on_invalid_input_test() {
+  let decoder =
+    decode.map(positive_float.decoder(), fn(value) {
+      let assert Ok(_) = positive_float.new(positive_float.unwrap(value))
+      value
+    })
+
+  list.each(["0", "0.0", "-1", "-1.0", "\"bad\"", "null"], fn(input) {
+    let assert Error(_) = json.parse(input, decoder)
+  })
+}
+
+pub fn decoder_then_receives_valid_placeholder_on_invalid_input_test() {
+  let decoder =
+    decode.then(positive_float.decoder(), fn(value) {
+      let assert Ok(_) = positive_float.new(positive_float.unwrap(value))
+      decode.success(value)
+    })
+
+  list.each(["0", "0.0", "-1", "-1.0", "\"bad\"", "null"], fn(input) {
+    let assert Error(_) = json.parse(input, decoder)
+  })
 }
 
 pub fn decoder_returns_error_when_value_is_invalid_test() {
