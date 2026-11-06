@@ -16,6 +16,37 @@ Check it out [here](https://rates.fly.dev/?state=v1%3A1-2781%3B1027-2781%3B2010-
 - **Resilient Connections** - Automatic reconnection
 - **Theme Support** - Light and dark mode with smooth transitions
 
+## Local development
+
+Requires Gleam, Erlang/OTP, rebar3, Node.js, and npm. Install the client npm
+dependencies once from the repo root (and again when they change):
+
+```sh
+npm ci --prefix client
+```
+
+Set `SECRET_KEY_BASE` and `COIN_MARKET_CAP_API_KEY` in `server/.env` or export them
+in your shell. Then run from the repo root:
+
+```sh
+./dev
+```
+
+This builds the client assets, loads `server/.env` if present, and starts the
+server at http://localhost:8080. It does not reinstall npm dependencies. Stop
+with Ctrl+C and rerun after making changes.
+
+## Tests
+
+Run all test suites from the repo root:
+
+```sh
+./test
+```
+
+This tests shared on Erlang and JavaScript, client on JavaScript, and server on
+Erlang. It stops if any suite fails.
+
 ## Architecture
 
 This application is structured as a monorepo with three Gleam projects:
