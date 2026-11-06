@@ -830,7 +830,7 @@ pub fn with_amount_zero_input_converts_correctly_test() {
   assert result.rate == Some(positive_float.from_float_unsafe(2.5))
 }
 
-pub fn with_amount_removes_commas_before_parsing_test() {
+pub fn with_amount_accepts_valid_comma_grouping_test() {
   // Set up converter with a valid rate
   let target =
     Converter(
@@ -839,7 +839,7 @@ pub fn with_amount_removes_commas_before_parsing_test() {
       last_edited: Right,
     )
 
-  // User types "1,000" which should be sanitized to "1000" before parsing
+  // The parser validates the comma grouping before removing separators.
   let result = converter.with_amount(target, Left, "1,000")
 
   // Left side should parse successfully and format with comma
@@ -855,7 +855,7 @@ pub fn with_amount_removes_commas_before_parsing_test() {
     == Some(non_negative_float.from_float_unsafe(2000.0))
 }
 
-pub fn with_amount_handles_invalid_comma_placement_test() {
+pub fn with_amount_rejects_invalid_comma_placement_test() {
   // Set up converter with a valid rate
   let target =
     Converter(
@@ -864,20 +864,68 @@ pub fn with_amount_handles_invalid_comma_placement_test() {
       last_edited: Right,
     )
 
-  // User types "1,00" (invalid comma placement) which becomes "100" after sanitization
+  // Invalid grouping must not be silently interpreted as a different amount.
   let result = converter.with_amount(target, Left, "1,00")
 
-  // Left side should parse successfully as 100
+  // Preserve the invalid raw input without a parsed amount.
   let left_input = converter.get_converter_input(result, Left)
-  assert left_input.amount_input.raw == "100"
-  assert left_input.amount_input.parsed
-    == Some(non_negative_float.from_float_unsafe(100.0))
+  assert left_input.amount_input.raw == "1,00"
+  assert left_input.amount_input.parsed == None
 
-  // Right side should be converted: 100 * 2.0 = 200
+  // Clear the opposite amount instead of converting invalid input.
   let right_input = converter.get_converter_input(result, Right)
-  assert right_input.amount_input.raw == "200"
-  assert right_input.amount_input.parsed
-    == Some(non_negative_float.from_float_unsafe(200.0))
+  assert right_input.amount_input.raw == ""
+  assert right_input.amount_input.parsed == None
+}
+
+pub fn with_amount_rejects_malformed_numbers_on_both_sides_test() {
+  let target =
+    Converter(
+      ..empty_converter(),
+      rate: Some(positive_float.from_float_unsafe(1.0)),
+    )
+    |> converter.with_amount(Left, "100")
+
+  list.each([Left, Right], fn(edited_side) {
+    list.each([",123", "1,00", "1,234.5,6", "1.2.", "1..", ".."], fn(input) {
+      let result = converter.with_amount(target, edited_side, input)
+      let edited = converter.get_converter_input(result, edited_side)
+      let opposite_side = case edited_side {
+        Left -> Right
+        Right -> Left
+      }
+      let opposite = converter.get_converter_input(result, opposite_side)
+
+      assert edited.amount_input.raw == input
+      assert edited.amount_input.parsed == None
+      assert opposite.amount_input.raw == ""
+      assert opposite.amount_input.parsed == None
+      assert result.last_edited == edited_side
+      assert result.rate == target.rate
+    })
+  })
+}
+
+pub fn with_amount_reparses_large_formatted_amounts_test() {
+  let target =
+    Converter(
+      ..empty_converter(),
+      rate: Some(positive_float.from_float_unsafe(1.0)),
+    )
+  let expected = Some(non_negative_float.from_float_unsafe(1.0e21))
+  let formatted = "1,000,000,000,000,000,000,000"
+
+  list.each([Left, Right], fn(edited_side) {
+    let result =
+      target
+      |> converter.with_amount(edited_side, "1000000000000000000000")
+      |> converter.with_amount(edited_side, formatted)
+
+    assert result.inputs.0.amount_input.raw == formatted
+    assert result.inputs.1.amount_input.raw == formatted
+    assert result.inputs.0.amount_input.parsed == expected
+    assert result.inputs.1.amount_input.parsed == expected
+  })
 }
 
 pub fn with_amount_handles_multiple_commas_test() {

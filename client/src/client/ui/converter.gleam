@@ -13,7 +13,6 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/pair
 import gleam/result
-import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -359,8 +358,7 @@ pub fn with_amount(
     })
   }
 
-  let sanitized_amount = string.replace(raw_amount, ",", "")
-  let inputs = case non_negative_float.parse(sanitized_amount) {
+  let inputs = case non_negative_float.parse(raw_amount) {
     Error(_) -> map_failed_parse()
     Ok(parsed) -> map_successful_parse(parsed)
   }

@@ -233,7 +233,8 @@ pub fn decoder_map_receives_valid_placeholder_on_invalid_input_test() {
       value
     })
 
-  list.each(["0", "0.0", "-1", "-1.0", "\"bad\"", "null"], fn(input) {
+  ["0", "0.0", "-1", "-1.0", "\"bad\"", "null"]
+  |> list.each(fn(input) {
     let assert Error(_) = json.parse(input, decoder)
   })
 }
@@ -245,7 +246,8 @@ pub fn decoder_then_receives_valid_placeholder_on_invalid_input_test() {
       decode.success(value)
     })
 
-  list.each(["0", "0.0", "-1", "-1.0", "\"bad\"", "null"], fn(input) {
+  ["0", "0.0", "-1", "-1.0", "\"bad\"", "null"]
+  |> list.each(fn(input) {
     let assert Error(_) = json.parse(input, decoder)
   })
 }

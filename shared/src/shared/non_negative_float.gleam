@@ -12,18 +12,20 @@ pub const max = NonNegativeFloat(1.7976931348623157e308)
 /// A non-negative floating-point number.
 ///
 /// The `NonNegativeFloat` type guarantees that the wrapped `Float` is
-/// greater than or equal to `0.0`.
+/// finite and greater than or equal to `0.0`.
 pub opaque type NonNegativeFloat {
   NonNegativeFloat(Float)
 }
 
 /// Creates a `NonNegativeFloat` from a `Float`,
 /// returning an error if the value is less than `0.0`.
+/// Negative zero is normalized to positive zero.
 /// 
 /// On the JavaScript runtime, also checks that the value is not `Infinity` or `NaN`.
 pub fn new(f: Float) -> Result(NonNegativeFloat, Nil) {
   case is_finite(f) && f >=. 0.0 {
     False -> Error(Nil)
+    True if f <=. 0.0 -> Ok(NonNegativeFloat(0.0))
     True -> Ok(NonNegativeFloat(f))
   }
 }
@@ -36,7 +38,7 @@ pub fn from_float_unsafe(f: Float) -> NonNegativeFloat {
   }
 }
 
-/// Parses a string into a `NonNegativeFloat`, validating formatting and positivity.
+/// Parses a string into a `NonNegativeFloat`, validating formatting and non-negativity.
 ///
 /// Accepts:
 /// - Optional commas in the integer portion (e.g., `"1,000.25"`)
@@ -46,64 +48,58 @@ pub fn from_float_unsafe(f: Float) -> NonNegativeFloat {
 ///
 /// Rejects:
 /// - Invalid comma grouping (e.g., `"1,2,3"`)
+/// - Multiple decimal points or commas outside the integer portion
 /// - Negative values or non-numeric input
 pub fn parse(str: String) -> Result(NonNegativeFloat, Nil) {
-  let drop_trailing_decimal = fn(str) {
-    case string.ends_with(str, ".") {
-      False -> str
-      True -> string.drop_end(str, 1)
-    }
-  }
-
-  let add_zero_if_starts_with_decimal = fn(str) {
-    case string.starts_with(str, ".") {
-      False -> str
-      True -> "0" <> str
-    }
-  }
-
-  let is_valid_comma_grouping = fn(int_str) {
-    let assert [head, ..tail] = string.split(int_str, ",")
-
-    string.length(head) <= 3
-    && list.all(tail, fn(chunk) { string.length(chunk) == 3 })
-  }
-
-  let parse_float = fn(str) {
-    str
-    |> float.parse
-    |> result.lazy_or(fn() {
-      str
-      |> int.parse
-      |> result.map(int.to_float)
-    })
-  }
-
-  let cleaned =
-    str
-    |> drop_trailing_decimal
-    |> add_zero_if_starts_with_decimal
-
-  use #(int_part, frac_part) <- result.try(case string.split(cleaned, ".") {
+  // Validate the original decimal structure before normalizing either end.
+  use #(int_part, frac_part) <- result.try(case string.split(str, ".") {
     [i] -> Ok(#(i, ""))
+    ["", ""] -> Error(Nil)
+    ["", f] -> Ok(#("0", f))
     [i, f] -> Ok(#(i, f))
     _ -> Error(Nil)
   })
-
-  let str_has_comma = string.contains(str, ",")
+  use <- bool.guard(string.contains(frac_part, ","), Error(Nil))
   use <- bool.guard(
-    str_has_comma && !is_valid_comma_grouping(int_part),
+    string.contains(str, ",") && !is_valid_comma_grouping(int_part),
     Error(Nil),
   )
 
   int_part
   |> string.replace(",", "")
   |> string.append(case frac_part == "" {
-    False -> "." <> frac_part
     True -> ""
+    False -> "." <> frac_part
   })
   |> parse_float
   |> result.try(new)
+}
+
+fn parse_float(str: String) -> Result(Float, Nil) {
+  str
+  |> float.parse
+  |> result.lazy_or(fn() {
+    str
+    |> int.parse
+    |> result.try(safe_int_to_float)
+  })
+}
+
+fn is_valid_comma_grouping(int_str: String) -> Bool {
+  let assert [head, ..tail] = string.split(int_str, ",")
+  let head = case head {
+    "+" <> digits | "-" <> digits -> digits
+    _ -> head
+  }
+
+  is_digits(head)
+  && string.length(head) <= 3
+  && list.all(tail, fn(chunk) { string.length(chunk) == 3 && is_digits(chunk) })
+}
+
+fn is_digits(str: String) -> Bool {
+  str != ""
+  && list.all(string.to_graphemes(str), string.contains("0123456789", _))
 }
 
 /// Applies a function to the inner float value of a `NonNegativeFloat` and returns the result.
@@ -158,7 +154,8 @@ pub fn divide(
 ) -> Result(NonNegativeFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
-  result.map(float.divide(a, b), NonNegativeFloat)
+  use <- bool.guard(b == 0.0, Error(Nil))
+  result.try(safe_divide(a, b), new)
 }
 
 /// Attempts to divide a `NonNegativeFloat` by a `PositiveFloat`,
@@ -204,6 +201,8 @@ pub type ToFixedStringError {
 /// digits after the decimal point. When `precision` is `0`, the decimal point is
 /// omitted entirely.
 ///
+/// Supports every finite `NonNegativeFloat` without using exponential notation.
+///
 /// This function is intended for **display formatting of approximate values**
 /// (such as exchange rates or converted amounts), not for representing stored
 /// monetary balances.
@@ -233,6 +232,15 @@ pub fn to_fixed_string(
 @external(erlang, "number_ffi", "to_fixed")
 @external(javascript, "../number_ffi.mjs", "toFixed")
 fn to_fixed(f: Float, digits: Int) -> String
+
+@external(erlang, "number_ffi", "safe_int_to_float")
+fn safe_int_to_float(value: Int) -> Result(Float, Nil) {
+  let value = int.to_float(value)
+  case is_finite(value) {
+    True -> Ok(value)
+    False -> Error(Nil)
+  }
+}
 
 @external(javascript, "../number_ffi.mjs", "isFinite")
 fn is_finite(_: Float) -> Bool {

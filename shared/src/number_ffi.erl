@@ -25,5 +25,15 @@ safe_int_to_float(Value) ->
       {error, nil}
   end.
 
+to_fixed(Float, Digits) when Float >= 1.0e21, Digits >= 0 ->
+  % Large fixed-decimal strings can exceed float_to_binary's output-size limit.
+  % Floats at 1e21 and above cannot represent fractional parts, so format the
+  % stored integer with integer_to_binary and add the requested decimal places
+  % as zeros.
+  Whole = integer_to_binary(trunc(Float)),
+  case Digits of
+    0 -> Whole;
+    _ -> <<Whole/binary, ".", (binary:copy(<<"0">>, Digits))/binary>>
+  end;
 to_fixed(Float, Digits) when Digits >= 0 ->
   float_to_binary(Float, [{decimals, Digits}]).
