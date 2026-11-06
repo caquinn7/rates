@@ -21,6 +21,41 @@ const element_name = "auto-resize-input"
 
 const change_event = "change"
 
+const focus_event = "input-focus"
+
+const blur_event = "input-blur"
+
+pub type InputEvent {
+  InputEvent(value: String, selection_start: Int, selection_end: Int)
+}
+
+pub type Selection {
+  Selection(value: String, start: Int, end: Int, revision: Int)
+}
+
+fn input_event_decoder() -> decode.Decoder(InputEvent) {
+  use value <- decode.field("value", decode.string)
+  use selection_start <- decode.field("selectionStart", decode.int)
+  use selection_end <- decode.field("selectionEnd", decode.int)
+  decode.success(InputEvent(value:, selection_start:, selection_end:))
+}
+
+fn selection_decoder() -> decode.Decoder(Selection) {
+  use value <- decode.field("value", decode.string)
+  use start <- decode.field("start", decode.int)
+  use end <- decode.field("end", decode.int)
+  use revision <- decode.field("revision", decode.int)
+  decode.success(Selection(value:, start:, end:, revision:))
+}
+
+fn input_event_json(input: InputEvent) -> json.Json {
+  json.object([
+    #("value", json.string(input.value)),
+    #("selectionStart", json.int(input.selection_start)),
+    #("selectionEnd", json.int(input.selection_end)),
+  ])
+}
+
 /// Registers this component as a custom web component.
 /// 
 /// Uses a shadow DOM to encapsulate the input and mirror element, preventing
@@ -46,6 +81,10 @@ pub fn register() -> Result(Nil, lustre.Error) {
       |> decode.optional
       |> decode.map(ParentSetBorderColor)
     }),
+    component.on_property_change(
+      "selection",
+      decode.map(decode.optional(selection_decoder()), ParentSetSelection),
+    ),
     component.open_shadow_root(True),
   ]
 
@@ -73,12 +112,39 @@ pub fn disabled(is_disabled: Bool) -> Attribute(msg) {
   attribute.property("disabled", json.bool(is_disabled))
 }
 
-pub fn on_change(handler: fn(String) -> msg) -> Attribute(msg) {
-  let decoder =
-    decode.at(["detail"], decode.string)
-    |> decode.map(handler)
+pub fn on_change(handler: fn(InputEvent) -> msg) -> Attribute(msg) {
+  event.on(
+    change_event,
+    decode.map(decode.at(["detail"], input_event_decoder()), handler),
+  )
+}
 
-  event.on(change_event, decoder)
+pub fn on_focus(handler: fn(InputEvent) -> msg) -> Attribute(msg) {
+  event.on(
+    focus_event,
+    decode.map(decode.at(["detail"], input_event_decoder()), handler),
+  )
+}
+
+pub fn on_blur(handler: fn(InputEvent) -> msg) -> Attribute(msg) {
+  event.on(
+    blur_event,
+    decode.map(decode.at(["detail"], input_event_decoder()), handler),
+  )
+}
+
+pub fn selection(value: Option(Selection)) -> Attribute(msg) {
+  attribute.property(
+    "selection",
+    json.nullable(value, fn(selection) {
+      json.object([
+        #("value", json.string(selection.value)),
+        #("start", json.int(selection.start)),
+        #("end", json.int(selection.end)),
+        #("revision", json.int(selection.revision)),
+      ])
+    }),
+  )
 }
 
 pub fn border_color(color: Option(String)) -> Attribute(msg) {
@@ -106,7 +172,10 @@ type Msg {
   ParentSetMinWidth(Int)
   ParentSetDisabled(Bool)
   ParentSetBorderColor(Option(String))
-  UserTypedValue(String)
+  ParentSetSelection(Option(Selection))
+  UserTypedValue(InputEvent)
+  UserFocused(InputEvent)
+  UserBlurred(InputEvent)
   UserResizedInput(Int)
 }
 
@@ -128,13 +197,41 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    UserTypedValue(value) ->
+    ParentSetSelection(None) -> #(model, effect.none())
+
+    ParentSetSelection(Some(selection)) -> #(
+      model,
+      effect.before_paint(fn(_, _) {
+        case get_shadow_elements(model.id) {
+          Ok(#(input, _)) ->
+            browser_element.set_selection_range(
+              input,
+              selection.value,
+              selection.start,
+              selection.end,
+            )
+          Error(_) -> Nil
+        }
+      }),
+    )
+
+    UserFocused(input) -> #(
+      model,
+      event.emit(focus_event, input_event_json(input)),
+    )
+
+    UserBlurred(input) -> #(
+      model,
+      event.emit(blur_event, input_event_json(input)),
+    )
+
+    UserTypedValue(input) ->
       case model.disabled {
         False -> #(
-          Model(..model, value:),
+          Model(..model, value: input.value),
           effect.batch([
             resize_input(model.id, model.min_width),
-            event.emit(change_event, json.string(value)),
+            event.emit(change_event, input_event_json(input)),
           ]),
         )
 
@@ -169,7 +266,18 @@ fn view(model: Model) -> Element(Msg) {
         None -> attribute.none()
         Some(color) -> attribute.style("--glow-color", "var(" <> color <> ")")
       },
-      event.on_input(UserTypedValue),
+      event.on(
+        "input",
+        decode.map(decode.at(["target"], input_event_decoder()), UserTypedValue),
+      ),
+      event.on(
+        "focus",
+        decode.map(decode.at(["target"], input_event_decoder()), UserFocused),
+      ),
+      event.on(
+        "blur",
+        decode.map(decode.at(["target"], input_event_decoder()), UserBlurred),
+      ),
     ])
 
   let mirror_input =

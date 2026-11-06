@@ -2,13 +2,14 @@ import client/currency/collection as currency_collection
 import client/currency/filtering as currency_filtering
 import client/currency/formatting as currency_formatting
 import client/side.{Left, Right}
+import client/ui/auto_resize_input.{InputEvent}
 import client/ui/button_dropdown.{ArrowDown, ArrowUp, Enter, Other}
 import client/ui/converter.{
-  AmountInput, Converter, ConverterInput, CurrencySelector, Decreased,
-  EmptyCurrencyList, FocusOnCurrencyFilter, Increased, NoChange, NoEffect,
-  RequestCurrencies, RequestRate, ScrollToOption, SelectedCurrencyNotFound,
-  UserClickedCurrencySelector, UserEnteredAmount, UserFilteredCurrencies,
-  UserPressedKeyInCurrencySelector,
+  AmountCommitDue, AmountCommitted, Converter, ConverterInput, CurrencySelector,
+  Decreased, EmptyCurrencyList, FocusOnCurrencyFilter, Increased, NoChange,
+  NoEffect, RequestCurrencies, RequestRate, ScheduleAmountCommit, ScrollToOption,
+  SelectedCurrencyNotFound, UserClickedCurrencySelector, UserEnteredAmount,
+  UserFilteredCurrencies, UserFocusedAmount, UserPressedKeyInCurrencySelector,
 }
 import gleam/list
 import gleam/option.{None, Some}
@@ -164,7 +165,7 @@ pub fn with_rate_calculates_right_side_when_left_edited_test() {
   // Set up converter with valid amount on left side
   let left_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "100",
         Some(non_negative_float.from_float_unsafe(100.0)),
         None,
@@ -204,7 +205,7 @@ pub fn with_rate_calculates_left_side_when_right_edited_test() {
   // Set up converter with valid amount on right side
   let right_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "500",
         Some(non_negative_float.from_float_unsafe(500.0)),
         None,
@@ -244,7 +245,7 @@ pub fn with_rate_no_conversion_when_no_parsed_amount_test() {
   // Set up converter with no valid parsed amount on the last edited side
   let left_input =
     ConverterInput(
-      AmountInput("invalid", None, None),
+      converter.new_amount_input("invalid", None, None),
       // Raw input but no parsed value
       empty_converter_input().currency_selector,
     )
@@ -279,7 +280,7 @@ pub fn with_rate_handles_none_rate_when_left_side_is_last_edited_test() {
   // Set up converter with valid amount on left side
   let left_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "100",
         Some(non_negative_float.from_float_unsafe(100.0)),
         None,
@@ -323,7 +324,7 @@ pub fn with_rate_handles_none_rate_when_right_side_is_last_edited_test() {
   // Set up converter with valid amount on right side
   let right_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "250",
         Some(non_negative_float.from_float_unsafe(250.0)),
         None,
@@ -367,7 +368,7 @@ pub fn with_rate_transitions_from_none_to_some_test() {
   // Set up converter with None rate and "price not tracked" showing
   let left_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "100",
         Some(non_negative_float.from_float_unsafe(100.0)),
         None,
@@ -377,7 +378,7 @@ pub fn with_rate_transitions_from_none_to_some_test() {
 
   let right_input =
     ConverterInput(
-      AmountInput("price not tracked", None, None),
+      converter.new_amount_input("price not tracked", None, None),
       empty_converter_input().currency_selector,
     )
 
@@ -416,7 +417,7 @@ pub fn with_rate_sets_border_color_to_none_when_no_parsed_amount_test() {
   // Set up converter with no valid parsed amount
   let left_input =
     ConverterInput(
-      AmountInput("invalid", None, None),
+      converter.new_amount_input("invalid", None, None),
       empty_converter_input().currency_selector,
     )
 
@@ -439,7 +440,7 @@ pub fn with_rate_sets_border_color_to_none_when_rate_is_none_test() {
   // Set up converter with valid amount
   let left_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "100",
         Some(non_negative_float.from_float_unsafe(100.0)),
         None,
@@ -464,7 +465,11 @@ pub fn with_rate_sets_border_color_to_none_when_rate_is_none_test() {
 pub fn with_rate_sets_right_border_color_to_some_when_left_side_edited_test() {
   let left_input =
     ConverterInput(
-      AmountInput("50", Some(non_negative_float.from_float_unsafe(50.0)), None),
+      converter.new_amount_input(
+        "50",
+        Some(non_negative_float.from_float_unsafe(50.0)),
+        None,
+      ),
       empty_converter_input().currency_selector,
     )
 
@@ -489,7 +494,7 @@ pub fn with_rate_sets_right_border_color_to_some_when_left_side_edited_test() {
 pub fn with_rate_sets_left_border_color_to_some_when_right_side_edited_test() {
   let right_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "200",
         Some(non_negative_float.from_float_unsafe(200.0)),
         None,
@@ -557,7 +562,11 @@ pub fn border_color_from_rate_change_returns_none_when_new_rate_is_none_test() {
 pub fn with_glow_cleared_sets_border_color_to_none_test() {
   let left_input =
     ConverterInput(
-      AmountInput("50", Some(non_negative_float.from_float_unsafe(50.0)), None),
+      converter.new_amount_input(
+        "50",
+        Some(non_negative_float.from_float_unsafe(50.0)),
+        None,
+      ),
       empty_converter_input().currency_selector,
     )
 
@@ -682,13 +691,17 @@ pub fn with_amount_failed_parse_clears_opposite_side_test() {
   // Set up converter with existing amounts on both sides
   let left_input =
     ConverterInput(
-      AmountInput("50", Some(non_negative_float.from_float_unsafe(50.0)), None),
+      converter.new_amount_input(
+        "50",
+        Some(non_negative_float.from_float_unsafe(50.0)),
+        None,
+      ),
       empty_converter_input().currency_selector,
     )
 
   let right_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "100",
         Some(non_negative_float.from_float_unsafe(100.0)),
         None,
@@ -748,7 +761,7 @@ pub fn with_amount_empty_string_clears_both_sides_test() {
   // Set up converter with existing amounts on both sides
   let left_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "100",
         Some(non_negative_float.from_float_unsafe(100.0)),
         None,
@@ -758,7 +771,7 @@ pub fn with_amount_empty_string_clears_both_sides_test() {
 
   let right_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "250",
         Some(non_negative_float.from_float_unsafe(250.0)),
         None,
@@ -830,7 +843,7 @@ pub fn with_amount_zero_input_converts_correctly_test() {
   assert result.rate == Some(positive_float.from_float_unsafe(2.5))
 }
 
-pub fn with_amount_removes_commas_before_parsing_test() {
+pub fn with_amount_accepts_valid_comma_grouping_test() {
   // Set up converter with a valid rate
   let target =
     Converter(
@@ -839,7 +852,7 @@ pub fn with_amount_removes_commas_before_parsing_test() {
       last_edited: Right,
     )
 
-  // User types "1,000" which should be sanitized to "1000" before parsing
+  // The parser validates the comma grouping before removing separators.
   let result = converter.with_amount(target, Left, "1,000")
 
   // Left side should parse successfully and format with comma
@@ -855,7 +868,7 @@ pub fn with_amount_removes_commas_before_parsing_test() {
     == Some(non_negative_float.from_float_unsafe(2000.0))
 }
 
-pub fn with_amount_handles_invalid_comma_placement_test() {
+pub fn with_amount_rejects_invalid_comma_placement_test() {
   // Set up converter with a valid rate
   let target =
     Converter(
@@ -864,20 +877,68 @@ pub fn with_amount_handles_invalid_comma_placement_test() {
       last_edited: Right,
     )
 
-  // User types "1,00" (invalid comma placement) which becomes "100" after sanitization
+  // Invalid grouping must not be silently interpreted as a different amount.
   let result = converter.with_amount(target, Left, "1,00")
 
-  // Left side should parse successfully as 100
+  // Preserve the invalid raw input without a parsed amount.
   let left_input = converter.get_converter_input(result, Left)
-  assert left_input.amount_input.raw == "100"
-  assert left_input.amount_input.parsed
-    == Some(non_negative_float.from_float_unsafe(100.0))
+  assert left_input.amount_input.raw == "1,00"
+  assert left_input.amount_input.parsed == None
 
-  // Right side should be converted: 100 * 2.0 = 200
+  // Clear the opposite amount instead of converting invalid input.
   let right_input = converter.get_converter_input(result, Right)
-  assert right_input.amount_input.raw == "200"
-  assert right_input.amount_input.parsed
-    == Some(non_negative_float.from_float_unsafe(200.0))
+  assert right_input.amount_input.raw == ""
+  assert right_input.amount_input.parsed == None
+}
+
+pub fn with_amount_rejects_malformed_numbers_on_both_sides_test() {
+  let target =
+    Converter(
+      ..empty_converter(),
+      rate: Some(positive_float.from_float_unsafe(1.0)),
+    )
+    |> converter.with_amount(Left, "100")
+
+  list.each([Left, Right], fn(edited_side) {
+    list.each([",123", "1,00", "1,234.5,6", "1.2.", "1..", ".."], fn(input) {
+      let result = converter.with_amount(target, edited_side, input)
+      let edited = converter.get_converter_input(result, edited_side)
+      let opposite_side = case edited_side {
+        Left -> Right
+        Right -> Left
+      }
+      let opposite = converter.get_converter_input(result, opposite_side)
+
+      assert edited.amount_input.raw == input
+      assert edited.amount_input.parsed == None
+      assert opposite.amount_input.raw == ""
+      assert opposite.amount_input.parsed == None
+      assert result.last_edited == edited_side
+      assert result.rate == target.rate
+    })
+  })
+}
+
+pub fn with_amount_reparses_large_formatted_amounts_test() {
+  let target =
+    Converter(
+      ..empty_converter(),
+      rate: Some(positive_float.from_float_unsafe(1.0)),
+    )
+  let expected = Some(non_negative_float.from_float_unsafe(1.0e21))
+  let formatted = "1,000,000,000,000,000,000,000"
+
+  list.each([Left, Right], fn(edited_side) {
+    let result =
+      target
+      |> converter.with_amount(edited_side, "1000000000000000000000")
+      |> converter.with_amount(edited_side, formatted)
+
+    assert result.inputs.0.amount_input.raw == formatted
+    assert result.inputs.1.amount_input.raw == formatted
+    assert result.inputs.0.amount_input.parsed == expected
+    assert result.inputs.1.amount_input.parsed == expected
+  })
 }
 
 pub fn with_amount_handles_multiple_commas_test() {
@@ -1195,7 +1256,7 @@ pub fn to_rate_request_extracts_currency_ids_test() {
 pub fn map_converter_inputs_only_updates_targeted_side_test() {
   let left_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "100",
         Some(non_negative_float.from_float_unsafe(100.0)),
         None,
@@ -1212,7 +1273,7 @@ pub fn map_converter_inputs_only_updates_targeted_side_test() {
 
   let right_input =
     ConverterInput(
-      AmountInput(
+      converter.new_amount_input(
         "200",
         Some(non_negative_float.from_float_unsafe(200.0)),
         None,
@@ -1234,7 +1295,7 @@ pub fn map_converter_inputs_only_updates_targeted_side_test() {
     converter.map_converter_inputs(original_inputs, Left, fn(input) {
       ConverterInput(
         ..input,
-        amount_input: AmountInput(
+        amount_input: converter.new_amount_input(
           "150",
           Some(non_negative_float.from_float_unsafe(150.0)),
           None,
@@ -1253,17 +1314,31 @@ pub fn map_converter_inputs_only_updates_targeted_side_test() {
 
 // update - UserEnteredAmount
 
-pub fn update_user_entered_amount_calls_with_amount_test() {
-  let #(result_converter, effect) =
-    converter.update(empty_converter(), UserEnteredAmount(Left, "123"))
+pub fn update_user_entered_amount_schedules_conversion_test() {
+  let empty_input = InputEvent(value: "", selection_start: 0, selection_end: 0)
+  let #(focused, _) =
+    converter.update(empty_converter(), UserFocusedAmount(Left, empty_input))
 
-  // Should call with_amount and update the state accordingly
-  // We don't need to test the detailed behavior (that's covered by with_amount tests)
-  // Just verify that the message routes to the right function
-  assert converter.get_converter_input(result_converter, Left).amount_input.raw
-    == "123"
+  // Input updates the draft and schedules conversion without parsing yet.
+  let edited_input =
+    InputEvent(value: "123", selection_start: 3, selection_end: 3)
+  let #(pending, schedule_effect) =
+    converter.update(focused, UserEnteredAmount(Left, edited_input))
+  let pending_amount = converter.get_converter_input(pending, Left).amount_input
+  let assert Some(active_edit) = pending_amount.active_edit
 
-  assert effect == NoEffect
+  assert active_edit.draft == "123"
+  assert pending_amount.parsed == None
+  let assert ScheduleAmountCommit(Left, revision) = schedule_effect
+
+  // The scheduled callback commits the amount using that revision.
+  let #(committed, commit_effect) =
+    converter.update(pending, AmountCommitDue(Left, revision))
+  let committed_amount =
+    converter.get_converter_input(committed, Left).amount_input
+
+  assert committed_amount.raw == "123"
+  assert commit_effect == AmountCommitted
 }
 
 // update - UserClickedCurrencySelector
@@ -1736,7 +1811,7 @@ fn empty_converter() {
 
 fn empty_converter_input() {
   ConverterInput(
-    AmountInput("", None, None),
+    converter.new_amount_input("", None, None),
     CurrencySelector(
       id: "",
       show_dropdown: False,

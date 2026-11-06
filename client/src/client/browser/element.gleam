@@ -46,5 +46,14 @@ pub fn offset_width(element: Element) -> Int
 @external(javascript, "./element_ffi.mjs", "focus")
 pub fn focus(element: Element) -> Nil
 
+/// Restores selection only if the focused input still has the expected value.
+@external(javascript, "./element_ffi.mjs", "setSelectionRange")
+pub fn set_selection_range(
+  element: Element,
+  expected_value: String,
+  start: Int,
+  end: Int,
+) -> Nil
+
 @external(javascript, "./element_ffi.mjs", "scrollIntoView")
 pub fn scroll_into_view(element: Element) -> Nil

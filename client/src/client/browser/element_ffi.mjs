@@ -42,6 +42,12 @@ export function focus(elem) {
   elem.focus();
 }
 
+export function setSelectionRange(elem, expectedValue, start, end) {
+  if (elem.getRootNode().activeElement === elem && elem.value === expectedValue) {
+    elem.setSelectionRange(start, end);
+  }
+}
+
 export function scrollIntoView(element) {
   element.scrollIntoView({ behavior: "instant", block: "center" });
 }

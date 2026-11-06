@@ -156,13 +156,13 @@ fn connect(
 /// a write error stops the socket abnormally so its monitor can report the
 /// failure. The supplied state is preserved.
 fn handle_message(
-  state: a,
+  state: Nil,
   message: stratus.Message(KrakenRequest),
   conn: stratus.Connection,
   notify: fn(Event) -> Nil,
   logger: Logger,
   send_text: SendText,
-) -> stratus.Next(a, b) {
+) -> stratus.Next(Nil, KrakenRequest) {
   case message {
     stratus.Text(text) -> {
       case json.parse(text, response.decoder()) {

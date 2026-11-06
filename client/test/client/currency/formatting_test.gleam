@@ -77,6 +77,14 @@ pub fn format_currency_amount_billions_test() {
   assert formatting.format_currency_amount(crypto, p) == "1,234,567,890.12"
 }
 
+pub fn format_currency_amount_large_value_keeps_fixed_notation_test() {
+  let amount = non_negative_float.from_float_unsafe(1.0e21)
+  assert formatting.format_currency_amount(crypto, amount)
+    == "1,000,000,000,000,000,000,000"
+  assert formatting.format_currency_amount(fiat, amount)
+    == "1,000,000,000,000,000,000,000"
+}
+
 // Exactly at thousand boundary
 pub fn format_currency_amount_exactly_thousand_test() {
   let p = non_negative_float.from_float_unsafe(1000.0)

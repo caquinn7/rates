@@ -17,7 +17,6 @@ import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import lustre/event
 import shared/currency.{type Currency, Crypto}
 import shared/non_negative_float.{type NonNegativeFloat}
 import shared/positive_float.{type PositiveFloat}
@@ -42,7 +41,25 @@ pub type AmountInput {
     raw: String,
     parsed: Option(NonNegativeFloat),
     border_color: Option(RateChangeColor),
+    active_edit: Option(AmountEditSession),
+    revision: Int,
   )
+}
+
+pub type AmountEditSession {
+  AmountEditSession(
+    draft: String,
+    pending: Bool,
+    selection: Option(auto_resize_input.Selection),
+  )
+}
+
+pub fn new_amount_input(
+  raw: String,
+  parsed: Option(NonNegativeFloat),
+  border_color: Option(RateChangeColor),
+) -> AmountInput {
+  AmountInput(raw:, parsed:, border_color:, active_edit: None, revision: 0)
 }
 
 pub type CurrencySelector {
@@ -85,7 +102,7 @@ pub fn new(
   let empty_converter = {
     let empty_converter_input = fn(side) {
       ConverterInput(
-        AmountInput("", None, None),
+        new_amount_input("", None, None),
         CurrencySelector(
           "currency-selector-" <> id <> "-" <> side.to_string(side),
           False,
@@ -151,6 +168,10 @@ pub fn with_rate(
   converter: Converter,
   rate: Option(PositiveFloat),
 ) -> Converter {
+  let converter = case rate {
+    None -> finish_amount_edits(Converter(..converter, rate: None))
+    Some(_) -> converter
+  }
   with_rate_with_custom_glow(converter, rate, border_color_from_rate_change)
 }
 
@@ -173,6 +194,11 @@ fn with_rate_with_custom_glow(
   let edited_side_parsed_amount =
     get_converter_input(converter, edited_side).amount_input.parsed
 
+  use <- bool.guard(
+    has_pending_amount_edit(converter),
+    Converter(..converter, rate:),
+  )
+
   // Decide how to update the inputs based on whether we have both a rate and parsed amount
   let inputs = case rate, edited_side_parsed_amount {
     None, Some(_) -> {
@@ -181,7 +207,12 @@ fn with_rate_with_custom_glow(
       |> map_converter_inputs(opposite_side, fn(input) {
         ConverterInput(
           ..input,
-          amount_input: AmountInput("price not tracked", None, None),
+          amount_input: AmountInput(
+            ..input.amount_input,
+            raw: "price not tracked",
+            parsed: None,
+            border_color: None,
+          ),
         )
       })
     }
@@ -215,16 +246,23 @@ fn with_rate_with_custom_glow(
         side.opposite_side(edited_side),
         fn(converter_input) {
           let amount_input = case converted_amount {
-            None -> AmountInput("price not tracked", None, None)
+            None ->
+              AmountInput(
+                ..converter_input.amount_input,
+                raw: "price not tracked",
+                parsed: None,
+                border_color: None,
+              )
 
             Some(amount) ->
               AmountInput(
-                currency_formatting.format_currency_amount(
+                ..converter_input.amount_input,
+                raw: currency_formatting.format_currency_amount(
                   converter_input.currency_selector.selected_currency,
                   amount,
                 ),
-                Some(amount),
-                color_from_rate_change(previous_rate, rate),
+                parsed: Some(amount),
+                border_color: color_from_rate_change(previous_rate, rate),
               )
           }
 
@@ -359,8 +397,7 @@ pub fn with_amount(
     })
   }
 
-  let sanitized_amount = string.replace(raw_amount, ",", "")
-  let inputs = case non_negative_float.parse(sanitized_amount) {
+  let inputs = case non_negative_float.parse(raw_amount) {
     Error(_) -> map_failed_parse()
     Ok(parsed) -> map_successful_parse(parsed)
   }
@@ -385,6 +422,7 @@ pub fn with_selected_currency(
   side: Side,
   currency: Currency,
 ) -> Converter {
+  let converter = finish_amount_edits(converter)
   converter_with_mapped_inputs(converter, side, fn(input) {
     ConverterInput(
       ..input,
@@ -502,8 +540,97 @@ pub fn to_rate_request(converter: Converter) {
   RateRequest(from.id, to.id)
 }
 
+fn editing_string(value: NonNegativeFloat) -> String {
+  // Keep the float's round-trippable representation, including its exponent.
+  let text = non_negative_float.to_string(value)
+  case string.ends_with(text, ".0") {
+    True -> string.drop_end(text, 2)
+    False -> text
+  }
+}
+
+fn selection_for_rewrite(
+  input: auto_resize_input.InputEvent,
+  text: String,
+  revision: Int,
+) -> Option(auto_resize_input.Selection) {
+  case input.value == text {
+    True -> None
+    False -> {
+      let map_offset = fn(offset) {
+        input.value
+        |> string.slice(0, offset)
+        |> string.replace(",", "")
+        |> string.length
+        |> int.min(string.length(text))
+      }
+      Some(auto_resize_input.Selection(
+        value: text,
+        start: map_offset(input.selection_start),
+        end: map_offset(input.selection_end),
+        revision:,
+      ))
+    }
+  }
+}
+
+pub fn has_pending_amount_edit(converter: Converter) -> Bool {
+  list.any([Left, Right], fn(side) {
+    case get_converter_input(converter, side).amount_input.active_edit {
+      Some(edit) -> edit.pending
+      None -> False
+    }
+  })
+}
+
+fn finish_amount_edit(
+  converter: Converter,
+  side: Side,
+  text: String,
+) -> #(Converter, Bool) {
+  let amount = get_converter_input(converter, side).amount_input
+  case amount.active_edit {
+    None -> #(converter, False)
+    Some(edit) -> {
+      // Untouched drafts may predate a live-rate update. A very fast blur can
+      // also report the display text before the focus rewrite reaches the DOM.
+      let changed = edit.pending || { text != edit.draft && text != amount.raw }
+      let converter = case changed {
+        True -> with_amount(converter, side, text)
+        False -> converter
+      }
+
+      let converter =
+        converter_with_mapped_inputs(converter, side, fn(input) {
+          ConverterInput(
+            ..input,
+            amount_input: AmountInput(
+              ..input.amount_input,
+              active_edit: None,
+              revision: amount.revision + 1,
+            ),
+          )
+        })
+
+      #(converter, changed)
+    }
+  }
+}
+
+fn finish_amount_edits(converter: Converter) -> Converter {
+  list.fold([Left, Right], converter, fn(converter, side) {
+    case get_converter_input(converter, side).amount_input.active_edit {
+      None -> converter
+      Some(edit) -> finish_amount_edit(converter, side, edit.draft).0
+    }
+  })
+}
+
 pub type Msg {
-  UserEnteredAmount(Side, String)
+  UserFocusedAmount(Side, auto_resize_input.InputEvent)
+  UserEnteredAmount(Side, auto_resize_input.InputEvent)
+  UserBlurredAmount(Side, auto_resize_input.InputEvent)
+  AmountCommitDue(Side, Int)
   UserClickedCurrencySelector(Side)
   UserFilteredCurrencies(Side, String)
   UserPressedKeyInCurrencySelector(Side, NavKey)
@@ -512,6 +639,8 @@ pub type Msg {
 
 pub type Effect {
   NoEffect
+  ScheduleAmountCommit(Side, Int)
+  AmountCommitted
   FocusOnCurrencyFilter(Side)
   ScrollToOption(side: Side, index: Int)
   RequestRate
@@ -520,10 +649,114 @@ pub type Effect {
 
 pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
   case msg {
-    UserEnteredAmount(side, amount_text) -> #(
-      with_amount(converter, side, amount_text),
-      NoEffect,
-    )
+    UserFocusedAmount(side, input_event) -> {
+      let changed = has_pending_amount_edit(converter)
+      let converter = finish_amount_edits(converter)
+      let converter =
+        converter_with_mapped_inputs(converter, side, fn(input) {
+          let amount = input.amount_input
+          let draft = case amount.parsed {
+            None -> amount.raw
+            Some(value) -> editing_string(value)
+          }
+          let revision = amount.revision + 1
+
+          ConverterInput(
+            ..input,
+            amount_input: AmountInput(
+              ..amount,
+              revision:,
+              active_edit: Some(AmountEditSession(
+                draft:,
+                pending: False,
+                selection: selection_for_rewrite(input_event, draft, revision),
+              )),
+            ),
+          )
+        })
+
+      #(converter, case changed {
+        True -> AmountCommitted
+        False -> NoEffect
+      })
+    }
+
+    UserEnteredAmount(side, input_event) -> {
+      let amount = get_converter_input(converter, side).amount_input
+      case amount.active_edit {
+        None -> #(converter, NoEffect)
+        Some(edit) if input_event.value == edit.draft -> #(converter, NoEffect)
+        Some(_) -> {
+          let draft = case non_negative_float.parse(input_event.value) {
+            Ok(_) -> string.replace(input_event.value, ",", "")
+            Error(_) -> input_event.value
+          }
+          let revision = amount.revision + 1
+
+          let converter =
+            converter_with_mapped_inputs(converter, side, fn(input) {
+              ConverterInput(
+                ..input,
+                amount_input: AmountInput(
+                  ..amount,
+                  revision:,
+                  active_edit: Some(AmountEditSession(
+                    draft:,
+                    pending: True,
+                    selection: selection_for_rewrite(
+                      input_event,
+                      draft,
+                      revision,
+                    ),
+                  )),
+                ),
+              )
+            })
+
+          #(
+            Converter(..converter, last_edited: side),
+            ScheduleAmountCommit(side, revision),
+          )
+        }
+      }
+    }
+
+    UserBlurredAmount(side, input_event) -> {
+      let #(converter, changed) =
+        finish_amount_edit(converter, side, input_event.value)
+
+      let effect = case changed {
+        True -> AmountCommitted
+        False -> NoEffect
+      }
+
+      #(converter, effect)
+    }
+
+    AmountCommitDue(side, revision) -> {
+      let amount = get_converter_input(converter, side).amount_input
+      case amount.active_edit {
+        Some(edit) if edit.pending && amount.revision == revision -> {
+          let converter = with_amount(converter, side, edit.draft)
+          let converter =
+            converter_with_mapped_inputs(converter, side, fn(input) {
+              ConverterInput(
+                ..input,
+                amount_input: AmountInput(
+                  ..input.amount_input,
+                  active_edit: Some(
+                    AmountEditSession(..edit, pending: False, selection: None),
+                  ),
+                ),
+              )
+            })
+
+          #(converter, AmountCommitted)
+        }
+
+        _ -> #(converter, NoEffect)
+      }
+    }
 
     UserClickedCurrencySelector(side) -> {
       let converter =
@@ -677,7 +910,9 @@ pub fn view(converter: Converter) -> Element(Msg) {
         "amount-input-" <> converter.id <> "-" <> side.to_string(side),
         target_input.amount_input,
         option.is_none(converter.rate),
+        UserFocusedAmount(side, _),
         UserEnteredAmount(side, _),
+        UserBlurredAmount(side, _),
       ),
       currency_selector(
         target_input.currency_selector,
@@ -715,21 +950,29 @@ fn amount_input(
   id: String,
   amount_input: AmountInput,
   disabled: Bool,
-  on_change: fn(String) -> Msg,
+  on_focus: fn(auto_resize_input.InputEvent) -> Msg,
+  on_change: fn(auto_resize_input.InputEvent) -> Msg,
+  on_blur: fn(auto_resize_input.InputEvent) -> Msg,
 ) -> Element(Msg) {
   let border_color =
     amount_input.border_color
     |> option.map(rate_change_color_to_css_var)
 
+  let #(value, selection) = case amount_input.active_edit {
+    None -> #(amount_input.raw, None)
+    Some(edit) -> #(edit.draft, edit.selection)
+  }
+
   auto_resize_input.element([
     auto_resize_input.id(id),
-    auto_resize_input.value(amount_input.raw),
+    auto_resize_input.value(value),
+    auto_resize_input.selection(selection),
     auto_resize_input.min_width(184),
     auto_resize_input.disabled(disabled),
     auto_resize_input.border_color(border_color),
-    on_change
-      |> auto_resize_input.on_change
-      |> event.debounce(300),
+    auto_resize_input.on_focus(on_focus),
+    auto_resize_input.on_change(on_change),
+    auto_resize_input.on_blur(on_blur),
   ])
 }
 

@@ -10,7 +10,7 @@ pub const max = PositiveFloat(1.7976931348623157e308)
 /// A positive floating-point number.
 ///
 /// The `PositiveFloat` type guarantees that the wrapped `Float` is
-/// greater than `0.0`.
+/// finite and greater than `0.0`.
 pub opaque type PositiveFloat {
   PositiveFloat(Float)
 }
@@ -21,16 +21,16 @@ pub opaque type PositiveFloat {
 /// On the JavaScript runtime, also checks that the value is not `Infinity` or `NaN`.
 pub fn new(f: Float) -> Result(PositiveFloat, Nil) {
   case is_finite(f) && f >. 0.0 {
-    False -> Error(Nil)
     True -> Ok(PositiveFloat(f))
+    False -> Error(Nil)
   }
 }
 
 /// Panics on invalid input!
 pub fn from_float_unsafe(x: Float) -> PositiveFloat {
   case new(x) {
-    Error(_) -> panic as "Expected a positive, finite value"
     Ok(p) -> p
+    Error(_) -> panic as "Expected a positive, finite value"
   }
 }
 
@@ -42,9 +42,9 @@ pub fn from_float_unsafe(x: Float) -> PositiveFloat {
 /// ```gleam
 /// let str_value = with_value(p, float.to_string)
 /// ```
-pub fn with_value(p: PositiveFloat, fun: fn(Float) -> a) -> a {
+pub fn with_value(p: PositiveFloat, f: fn(Float) -> a) -> a {
   let PositiveFloat(value) = p
-  fun(value)
+  f(value)
 }
 
 pub fn unwrap(p: PositiveFloat) -> Float {
@@ -52,25 +52,25 @@ pub fn unwrap(p: PositiveFloat) -> Float {
 }
 
 /// Attempts to multiply two `PositiveFloat` values,
-/// returning `Error(Nil)` if the result overflows.
+/// returning `Error(Nil)` if the result overflows or underflows to zero.
 pub fn multiply(
   a: PositiveFloat,
   b: PositiveFloat,
 ) -> Result(PositiveFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
-  result.map(safe_multiply(a, b), PositiveFloat)
+  result.try(safe_multiply(a, b), new)
 }
 
 /// Attempts to divide two `PositiveFloat` values,
-/// returning `Error(Nil)` if the result overflows.
+/// returning `Error(Nil)` if the result overflows or underflows to zero.
 pub fn divide(
   a: PositiveFloat,
   by b: PositiveFloat,
 ) -> Result(PositiveFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
-  result.map(safe_divide(a, b), PositiveFloat)
+  result.try(safe_divide(a, b), new)
 }
 
 /// Returns `True` if the first `PositiveFloat` is strictly less than the second, otherwise `False`.
@@ -97,13 +97,34 @@ pub fn encode(p: PositiveFloat) -> Json {
   json.float(unwrap(p))
 }
 
+/// Decodes a positive, finite number from an `Int` or `Float`.
+///
+/// Integers are converted to floats and may be rounded.
+/// Fails for zero, negative or non-finite values, integers too large to convert
+/// to a finite float, and non-numeric inputs.
 pub fn decoder() -> Decoder(PositiveFloat) {
-  use raw <- decode.then(
-    decode.one_of(decode.float, or: [decode.map(decode.int, int.to_float)]),
-  )
+  let int_decoder = {
+    use raw <- decode.then(decode.int)
+    case safe_int_to_float(raw) {
+      Ok(value) -> decode.success(value)
+      Error(_) -> decode.failure(1.0, "Float")
+    }
+  }
+  use raw <- decode.then(decode.one_of(decode.float, or: [int_decoder]))
   case new(raw) {
-    Error(_) -> decode.failure(PositiveFloat(0.0), "PositiveFloat")
     Ok(p) -> decode.success(p)
+    // Downstream callbacks may receive this placeholder while errors are
+    // collected, so it must uphold the PositiveFloat invariant.
+    Error(_) -> decode.failure(PositiveFloat(1.0), "PositiveFloat")
+  }
+}
+
+@external(erlang, "number_ffi", "safe_int_to_float")
+fn safe_int_to_float(value: Int) -> Result(Float, Nil) {
+  let value = int.to_float(value)
+  case is_finite(value) {
+    True -> Ok(value)
+    False -> Error(Nil)
   }
 }
 
@@ -121,8 +142,8 @@ fn is_finite(_: Float) -> Bool {
 fn safe_multiply(a: Float, b: Float) -> Result(Float, Nil) {
   let c = a *. b
   case is_finite(c) {
-    False -> Error(Nil)
     True -> Ok(c)
+    False -> Error(Nil)
   }
 }
 
@@ -130,7 +151,7 @@ fn safe_multiply(a: Float, b: Float) -> Result(Float, Nil) {
 fn safe_divide(a: Float, b: Float) -> Result(Float, Nil) {
   let c = a /. b
   case is_finite(c) {
-    False -> Error(Nil)
     True -> Ok(c)
+    False -> Error(Nil)
   }
 }
