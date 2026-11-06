@@ -4,7 +4,7 @@ import gleam/erlang/atom
 import gleam/erlang/process
 import gleeunit/should
 import server/integrations/kraken/price_store.{type PriceStore, PriceEntry}
-import shared/positive_float
+import shared/numbers/positive_float
 
 pub fn unable_to_create_twice_test() {
   use _ <- with_price_store

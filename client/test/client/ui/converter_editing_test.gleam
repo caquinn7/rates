@@ -8,8 +8,8 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import shared/currency.{Crypto}
-import shared/non_negative_float
-import shared/positive_float
+import shared/numbers/non_negative_float
+import shared/numbers/positive_float
 
 pub fn focus_reveals_ungrouped_value_without_changing_driver_test() {
   let original = new_converter()

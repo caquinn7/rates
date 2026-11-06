@@ -1,7 +1,7 @@
 import birdie
 import gleam/json
 import gleam/option.{Some}
-import shared/positive_float
+import shared/numbers/positive_float
 import shared/rates/rate_response.{Kraken, RateResponse}
 import shared/subscriptions/subscription_id
 import shared/subscriptions/subscription_response.{SubscriptionResponse}

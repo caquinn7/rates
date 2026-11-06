@@ -3,7 +3,7 @@ import server/currencies/currency_repository.{CurrencyRepository}
 import server/web/routes/home
 import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{Crypto, Fiat}
-import shared/positive_float
+import shared/numbers/positive_float
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{Kraken, RateResponse}
 

@@ -1,9 +1,9 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/float
 import gleam/function
-import gleam/int
 import gleam/json.{type Json}
 import gleam/result
+import shared/internal/numbers as number_ops
 
 pub const max = PositiveFloat(1.7976931348623157e308)
 
@@ -20,7 +20,7 @@ pub opaque type PositiveFloat {
 /// 
 /// On the JavaScript runtime, also checks that the value is not `Infinity` or `NaN`.
 pub fn new(f: Float) -> Result(PositiveFloat, Nil) {
-  case is_finite(f) && f >. 0.0 {
+  case number_ops.is_finite(f) && f >. 0.0 {
     True -> Ok(PositiveFloat(f))
     False -> Error(Nil)
   }
@@ -59,7 +59,7 @@ pub fn multiply(
 ) -> Result(PositiveFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
-  result.try(safe_multiply(a, b), new)
+  result.try(number_ops.safe_multiply(a, b), new)
 }
 
 /// Attempts to divide two `PositiveFloat` values,
@@ -70,7 +70,7 @@ pub fn divide(
 ) -> Result(PositiveFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
-  result.try(safe_divide(a, b), new)
+  result.try(number_ops.safe_divide(a, b), new)
 }
 
 /// Returns `True` if the first `PositiveFloat` is strictly less than the second, otherwise `False`.
@@ -105,7 +105,7 @@ pub fn encode(p: PositiveFloat) -> Json {
 pub fn decoder() -> Decoder(PositiveFloat) {
   let int_decoder = {
     use raw <- decode.then(decode.int)
-    case safe_int_to_float(raw) {
+    case number_ops.safe_int_to_float(raw) {
       Ok(value) -> decode.success(value)
       Error(_) -> decode.failure(1.0, "Float")
     }
@@ -116,42 +116,5 @@ pub fn decoder() -> Decoder(PositiveFloat) {
     // Downstream callbacks may receive this placeholder while errors are
     // collected, so it must uphold the PositiveFloat invariant.
     Error(_) -> decode.failure(PositiveFloat(1.0), "PositiveFloat")
-  }
-}
-
-@external(erlang, "number_ffi", "safe_int_to_float")
-fn safe_int_to_float(value: Int) -> Result(Float, Nil) {
-  let value = int.to_float(value)
-  case is_finite(value) {
-    True -> Ok(value)
-    False -> Error(Nil)
-  }
-}
-
-/// Checks if the given float is a finite number.
-///
-/// On the JavaScript runtime, uses `Number.isFinite` to detect `Infinity` and `NaN`.
-/// On the Erlang runtime, always returns `True` since Erlang arithmetic errors are caught
-/// via exceptions rather than special float values.
-@external(javascript, "../number_ffi.mjs", "isFinite")
-fn is_finite(_: Float) -> Bool {
-  True
-}
-
-@external(erlang, "number_ffi", "safe_multiply")
-fn safe_multiply(a: Float, b: Float) -> Result(Float, Nil) {
-  let c = a *. b
-  case is_finite(c) {
-    True -> Ok(c)
-    False -> Error(Nil)
-  }
-}
-
-@external(erlang, "number_ffi", "safe_divide")
-fn safe_divide(a: Float, b: Float) -> Result(Float, Nil) {
-  let c = a /. b
-  case is_finite(c) {
-    True -> Ok(c)
-    False -> Error(Nil)
   }
 }

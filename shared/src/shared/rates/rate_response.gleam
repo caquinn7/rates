@@ -1,7 +1,7 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{type Option}
-import shared/positive_float.{type PositiveFloat}
+import shared/numbers/positive_float.{type PositiveFloat}
 
 pub type RateResponse {
   RateResponse(

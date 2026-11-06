@@ -12,7 +12,7 @@ import gleam/list
 import gleam/pair
 import gleam/result
 import server/utils/time
-import shared/positive_float.{type PositiveFloat}
+import shared/numbers/positive_float.{type PositiveFloat}
 
 pub opaque type PriceStore {
   PriceStore(EtsSet(String, PriceEntry))
@@ -60,7 +60,7 @@ pub fn new() -> Result(PriceStore, Nil) {
 /// Example:
 /// ```gleam
 /// import server/integrations/kraken/price_store
-/// import shared/positive_float
+/// import shared/numbers/positive_float
 ///
 /// let assert Ok(store) = price_store.new()
 /// let assert Ok(price) = positive_float.new(67_350.25)

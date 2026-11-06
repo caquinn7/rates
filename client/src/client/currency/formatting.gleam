@@ -1,7 +1,7 @@
 import gleam/list
 import gleam/string
 import shared/currency.{type Currency, Crypto, Fiat}
-import shared/non_negative_float.{type NonNegativeFloat}
+import shared/numbers/non_negative_float.{type NonNegativeFloat}
 
 /// Formats a `NonNegativeFloat` amount as a human-readable string with appropriate
 /// precision and comma grouping.

@@ -36,7 +36,7 @@ import lustre/event
 import rsvp
 import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{type Currency}
-import shared/non_negative_float
+import shared/numbers/non_negative_float
 import shared/page_data.{type PageData}
 import shared/rates/rate_response.{RateResponse}
 import shared/subscriptions/subscription_id

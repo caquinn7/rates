@@ -2,8 +2,8 @@ import gleam/json
 import gleam/option.{Some}
 import shared/client_state.{ConverterState}
 import shared/currency.{Crypto, Fiat}
+import shared/numbers/positive_float
 import shared/page_data.{PageData}
-import shared/positive_float
 import shared/rates/rate_response.{Kraken, RateResponse}
 
 pub fn encode_page_data_to_json_test() {
