@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+cd "$(dirname "$0")/client"
+gleam run -m lustre/dev build
+
+cd ../server
+if [ -f .env ]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
+exec gleam run

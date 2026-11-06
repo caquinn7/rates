@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+cd "$(dirname "$0")/shared"
+gleam test --target erlang
+gleam test --target javascript
+
+cd ../client
+gleam test --target javascript
+
+cd ../server
+exec gleam test --target erlang
