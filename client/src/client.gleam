@@ -250,6 +250,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             Error(_) -> #(model, effect.none())
 
             Ok(converter) -> {
+              let finalized_edit =
+                option.is_none(rate)
+                && converter.has_pending_amount_edit(converter)
               let model =
                 converter
                 |> converter.with_rate(rate)
@@ -271,7 +274,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                   Nil
                 })
 
-              #(model, effect)
+              let snapshot_effect = case finalized_edit {
+                True -> schedule_state_snapshot()
+                False -> effect.none()
+              }
+              #(model, effect.batch([effect, snapshot_effect]))
             }
           }
         }
@@ -288,6 +295,23 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
             let converter_effect = case converter_effect {
               converter.NoEffect -> effect.none()
+
+              converter.ScheduleAmountCommit(side, revision) ->
+                effect.from(fn(dispatch) {
+                  let _ =
+                    window.set_timeout(
+                      fn() {
+                        dispatch(FromConverter(
+                          converter.id,
+                          converter.AmountCommitDue(side, revision),
+                        ))
+                      },
+                      300,
+                    )
+                  Nil
+                })
+
+              converter.AmountCommitted -> schedule_state_snapshot()
 
               converter.FocusOnCurrencyFilter(side) ->
                 effect.before_paint(fn(_, _) {
@@ -342,15 +366,6 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             }
 
             let snapshot_effect = case converter_msg {
-              converter.UserEnteredAmount(_, _) ->
-                effect.from(fn(dispatch) {
-                  window.set_timeout(
-                    fn() { dispatch(AppScheduledStateSnapshot) },
-                    1000,
-                  )
-                  Nil
-                })
-
               converter.UserPressedKeyInCurrencySelector(_, Enter)
               | converter.UserSelectedCurrency(_, _) -> {
                 encode_state_in_url(model)
@@ -531,6 +546,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.none())
     }
   }
+}
+
+fn schedule_state_snapshot() -> Effect(Msg) {
+  effect.from(fn(dispatch) {
+    let _ =
+      window.set_timeout(fn() { dispatch(AppScheduledStateSnapshot) }, 1000)
+    Nil
+  })
 }
 
 fn encode_state_in_url(model: Model) {
