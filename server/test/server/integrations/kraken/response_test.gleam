@@ -39,7 +39,7 @@ pub fn instrument_update_is_not_a_startup_snapshot_test() {
   |> should.equal(Ok(None))
 }
 
-import shared/positive_float
+import shared/numbers/positive_float
 
 pub fn decode_ticker_subscribe_confirmation_test() {
   let json_str =

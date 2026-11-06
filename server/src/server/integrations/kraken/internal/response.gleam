@@ -2,7 +2,7 @@ import gleam/bool
 import gleam/dynamic/decode.{type Decoder}
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import shared/positive_float.{type PositiveFloat}
+import shared/numbers/positive_float.{type PositiveFloat}
 
 /// Messages decoded from Kraken's WebSocket API for instrument discovery,
 /// subscription tracking, price updates, and keepalive.

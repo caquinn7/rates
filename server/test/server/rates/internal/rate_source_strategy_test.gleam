@@ -14,7 +14,7 @@ import server/rates/internal/rate_source_strategy.{
 }
 import server/rates/rate_error.{CmcError}
 import shared/currency.{Crypto, Fiat}
-import shared/positive_float
+import shared/numbers/positive_float
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response
 

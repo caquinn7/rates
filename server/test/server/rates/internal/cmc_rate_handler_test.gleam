@@ -10,7 +10,7 @@ import server/integrations/coin_market_cap/cmc_conversion.{
 import server/rates/internal/cmc_rate_handler.{
   CurrencyNotFound, RequestFailed, UnexpectedResponse, ValidationError,
 }
-import shared/positive_float
+import shared/numbers/positive_float
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response.{CoinMarketCap, RateResponse}
 

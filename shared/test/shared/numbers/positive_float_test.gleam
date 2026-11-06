@@ -7,7 +7,7 @@ import gleam/json
 import gleam/list
 import gleam/string
 import qcheck.{type Generator}
-import shared/positive_float.{type PositiveFloat}
+import shared/numbers/positive_float.{type PositiveFloat}
 
 // new
 

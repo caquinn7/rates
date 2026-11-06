@@ -23,7 +23,7 @@ import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
 import server/utils/logger
 import server/utils/time
-import shared/positive_float
+import shared/numbers/positive_float
 
 type PongMode {
   Echo

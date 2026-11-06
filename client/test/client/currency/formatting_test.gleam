@@ -1,7 +1,7 @@
 import client/currency/formatting
 import gleam/option.{Some}
 import shared/currency.{Crypto, Fiat}
-import shared/non_negative_float
+import shared/numbers/non_negative_float
 
 const fiat = Fiat(2781, "United States Dollar", "USD", "$")
 

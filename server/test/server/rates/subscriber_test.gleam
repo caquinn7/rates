@@ -21,7 +21,7 @@ import server/rates/rate_service_config.{RateServiceConfig}
 import server/rates/subscriber
 import server/utils/logger
 import shared/currency.{Crypto, Fiat}
-import shared/positive_float
+import shared/numbers/positive_float
 import shared/rates/rate_request.{RateRequest}
 import shared/rates/rate_response.{CoinMarketCap, Kraken}
 import shared/subscriptions/subscription_id

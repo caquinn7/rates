@@ -1,4 +1,4 @@
-import shared/positive_float.{type PositiveFloat}
+import shared/numbers/positive_float.{type PositiveFloat}
 
 /// Represents a Kraken currency pair and whether it was found in the direct or reversed form.
 /// For example, `Direct("BTC/USD")` vs `Reversed("USD/BTC")`.

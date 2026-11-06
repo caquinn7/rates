@@ -1,6 +1,6 @@
 import gleam/json
 import gleam/option.{None, Some}
-import shared/positive_float
+import shared/numbers/positive_float
 import shared/rates/rate_response.{Kraken, RateResponse}
 
 pub fn decode_rate_response_json_test() {

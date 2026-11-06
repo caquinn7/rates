@@ -18,8 +18,8 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import shared/currency.{type Currency, Crypto}
-import shared/non_negative_float.{type NonNegativeFloat}
-import shared/positive_float.{type PositiveFloat}
+import shared/numbers/non_negative_float.{type NonNegativeFloat}
+import shared/numbers/positive_float.{type PositiveFloat}
 import shared/rates/rate_request.{RateRequest}
 
 pub type Converter {

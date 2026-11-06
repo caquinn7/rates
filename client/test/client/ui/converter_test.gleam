@@ -14,8 +14,8 @@ import client/ui/converter.{
 import gleam/list
 import gleam/option.{None, Some}
 import shared/currency.{Crypto}
-import shared/non_negative_float
-import shared/positive_float
+import shared/numbers/non_negative_float
+import shared/numbers/positive_float
 import shared/rates/rate_request.{RateRequest}
 
 // new

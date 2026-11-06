@@ -5,7 +5,8 @@ import gleam/int
 import gleam/list
 import gleam/result
 import gleam/string
-import shared/positive_float.{type PositiveFloat}
+import shared/internal/numbers as number_ops
+import shared/numbers/positive_float.{type PositiveFloat}
 
 pub const max = NonNegativeFloat(1.7976931348623157e308)
 
@@ -23,7 +24,7 @@ pub opaque type NonNegativeFloat {
 /// 
 /// On the JavaScript runtime, also checks that the value is not `Infinity` or `NaN`.
 pub fn new(f: Float) -> Result(NonNegativeFloat, Nil) {
-  case is_finite(f) && f >=. 0.0 {
+  case number_ops.is_finite(f) && f >=. 0.0 {
     False -> Error(Nil)
     True if f <=. 0.0 -> Ok(NonNegativeFloat(0.0))
     True -> Ok(NonNegativeFloat(f))
@@ -81,7 +82,7 @@ fn parse_float(str: String) -> Result(Float, Nil) {
   |> result.lazy_or(fn() {
     str
     |> int.parse
-    |> result.try(safe_int_to_float)
+    |> result.try(number_ops.safe_int_to_float)
   })
 }
 
@@ -132,7 +133,7 @@ pub fn multiply(
 ) -> Result(NonNegativeFloat, Nil) {
   use a <- with_value(a)
   use b <- with_value(b)
-  result.map(safe_multiply(a, b), NonNegativeFloat)
+  result.map(number_ops.safe_multiply(a, b), NonNegativeFloat)
 }
 
 /// Attempts to multiply a `NonNegativeFloat` by a `PositiveFloat`,
@@ -143,7 +144,7 @@ pub fn multiply_by_positive(
 ) -> Result(NonNegativeFloat, Nil) {
   use a <- with_value(a)
   use b <- positive_float.with_value(b)
-  result.map(safe_multiply(a, b), NonNegativeFloat)
+  result.map(number_ops.safe_multiply(a, b), NonNegativeFloat)
 }
 
 /// Attempts to divide two `NonNegativeFloat` values,
@@ -155,7 +156,7 @@ pub fn divide(
   use a <- with_value(a)
   use b <- with_value(b)
   use <- bool.guard(b == 0.0, Error(Nil))
-  result.try(safe_divide(a, b), new)
+  result.try(number_ops.safe_divide(a, b), new)
 }
 
 /// Attempts to divide a `NonNegativeFloat` by a `PositiveFloat`,
@@ -166,7 +167,7 @@ pub fn divide_by_positive(
 ) -> Result(NonNegativeFloat, Nil) {
   use a <- with_value(a)
   use b <- positive_float.with_value(b)
-  result.map(safe_divide(a, b), NonNegativeFloat)
+  result.map(number_ops.safe_divide(a, b), NonNegativeFloat)
 }
 
 /// Returns `True` if the first `NonNegativeFloat` is strictly less than the second, otherwise `False`.
@@ -230,37 +231,5 @@ pub fn to_fixed_string(
 }
 
 @external(erlang, "number_ffi", "to_fixed")
-@external(javascript, "../number_ffi.mjs", "toFixed")
+@external(javascript, "../internal/number_ffi.mjs", "toFixed")
 fn to_fixed(f: Float, digits: Int) -> String
-
-@external(erlang, "number_ffi", "safe_int_to_float")
-fn safe_int_to_float(value: Int) -> Result(Float, Nil) {
-  let value = int.to_float(value)
-  case is_finite(value) {
-    True -> Ok(value)
-    False -> Error(Nil)
-  }
-}
-
-@external(javascript, "../number_ffi.mjs", "isFinite")
-fn is_finite(_: Float) -> Bool {
-  True
-}
-
-@external(erlang, "number_ffi", "safe_multiply")
-fn safe_multiply(a: Float, b: Float) -> Result(Float, Nil) {
-  let c = a *. b
-  case is_finite(c) {
-    False -> Error(Nil)
-    True -> Ok(c)
-  }
-}
-
-@external(erlang, "number_ffi", "safe_divide")
-fn safe_divide(a: Float, b: Float) -> Result(Float, Nil) {
-  let c = a /. b
-  case is_finite(c) {
-    False -> Error(Nil)
-    True -> Ok(c)
-  }
-}

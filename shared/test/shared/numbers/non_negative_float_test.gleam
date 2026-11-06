@@ -4,8 +4,10 @@ import gleam/int
 import gleam/list
 import gleam/string
 import qcheck.{type Generator}
-import shared/non_negative_float.{type NonNegativeFloat, InvalidPrecision}
-import shared/positive_float.{type PositiveFloat}
+import shared/numbers/non_negative_float.{
+  type NonNegativeFloat, InvalidPrecision,
+}
+import shared/numbers/positive_float.{type PositiveFloat}
 
 // new
 

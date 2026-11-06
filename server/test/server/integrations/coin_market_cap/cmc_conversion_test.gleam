@@ -4,7 +4,7 @@ import gleam/option.{None, Some}
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
 }
-import shared/positive_float
+import shared/numbers/positive_float
 
 pub fn decode_conversion_with_integer_amount_test() {
   let json =
