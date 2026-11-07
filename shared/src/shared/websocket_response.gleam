@@ -5,8 +5,6 @@ import shared/rates/rate_response.{type RateResponse}
 import shared/subscriptions/subscription_id.{type SubscriptionId}
 
 /// Messages the server sends over the application's WebSocket connection.
-///
-/// Each message is a JSON object with a `type` field identifying its variant.
 pub type WebsocketResponse {
   /// A successful rate lookup for a subscription. The rate may be absent when
   /// the price is not tracked; that is a valid result rather than a failure.

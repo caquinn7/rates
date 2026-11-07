@@ -159,6 +159,7 @@ pub fn model_to_client_state_with_multiple_converters_test() {
       socket: None,
       reconnect_attempts: 0,
       protocol_error: False,
+      next_loading_token: 1,
     )
 
   let result = client.model_to_client_state(model)
@@ -191,6 +192,7 @@ pub fn model_to_client_state_uses_default_amount_when_unparseable_test() {
       socket: None,
       reconnect_attempts: 0,
       protocol_error: False,
+      next_loading_token: 1,
     )
 
   let result = client.model_to_client_state(model)

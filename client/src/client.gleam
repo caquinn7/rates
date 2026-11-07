@@ -47,6 +47,8 @@ import shared/websocket_response.{
 
 const converter_id_prefix = "converter"
 
+const loading_indicator_delay_ms = 300
+
 pub type Model {
   Model(
     currencies: List(Currency),
@@ -54,6 +56,7 @@ pub type Model {
     socket: Option(WebSocket),
     reconnect_attempts: Int,
     protocol_error: Bool,
+    next_loading_token: Int,
   )
 }
 
@@ -100,6 +103,7 @@ pub fn model_from_page_data(
     socket: None,
     reconnect_attempts: 0,
     protocol_error: False,
+    next_loading_token: 1,
   ))
 }
 
@@ -195,6 +199,7 @@ pub type Msg {
   ApiReturnedMatchedCurrencies(Result(List(Currency), rsvp.Error(String)))
   AppScheduledReconnection
   AppScheduledRateChangeIndicatorReset(String, Side)
+  AppScheduledLoadingIndicator(String, Int)
   AppScheduledStateSnapshot
 }
 
@@ -313,6 +318,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         case converter.update(target_converter, converter_msg) {
           #(converter, converter_effect) -> {
             let model = model_with_converter(model, converter)
+            let #(model, loading_effect) = case converter_effect {
+              converter.RequestRate ->
+                schedule_loading_indicator(model, converter)
+              _ -> #(model, effect.none())
+            }
 
             let converter_effect = case converter_effect {
               converter.NoEffect -> effect.none()
@@ -396,7 +406,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               _ -> effect.none()
             }
 
-            #(model, effect.batch([converter_effect, snapshot_effect]))
+            #(
+              model,
+              effect.batch([converter_effect, loading_effect, snapshot_effect]),
+            )
           }
         }
       })
@@ -419,8 +432,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           ..model,
           converters: list.append(model.converters, [new_converter]),
         )
+      let #(model, loading_effect) =
+        schedule_loading_indicator(model, new_converter)
 
-      let effect = case model.socket {
+      let subscribe_effect = case model.socket {
         None -> {
           echo "could not request rate. socket not initialized."
           effect.none()
@@ -436,7 +451,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       let _ = encode_state_in_url(model)
 
-      #(model, effect)
+      #(model, effect.batch([subscribe_effect, loading_effect]))
     }
 
     UserClickedDeleteConverter(converter_id) -> {
@@ -563,10 +578,64 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.none())
     }
 
+    AppScheduledLoadingIndicator(converter_id, expected_token) -> {
+      let target =
+        list.find(model.converters, fn(converter) {
+          converter.id == converter_id
+        })
+      let model = case target {
+        Error(_) -> model
+        Ok(converter) ->
+          case converter.rate_status {
+            converter.Waiting(token, _) if token == expected_token ->
+              model_with_converter(
+                model,
+                converter.Converter(
+                  ..converter,
+                  rate_status: converter.Waiting(token, True),
+                ),
+              )
+            _ -> model
+          }
+      }
+      #(model, effect.none())
+    }
+
     AppScheduledStateSnapshot -> {
       encode_state_in_url(model)
       #(model, effect.none())
     }
+  }
+}
+
+fn schedule_loading_indicator(
+  model: Model,
+  target: Converter,
+) -> #(Model, Effect(Msg)) {
+  case target.rate_status {
+    converter.Waiting(_, _) -> {
+      // Model-wide tokens distinguish requests even when a deleted converter ID
+      // is reused before its loading timer fires.
+      let token = model.next_loading_token
+      let target =
+        converter.Converter(
+          ..target,
+          rate_status: converter.Waiting(token, False),
+        )
+      let model = model_with_converter(model, target)
+      let model = Model(..model, next_loading_token: token + 1)
+      let effect =
+        effect.from(fn(dispatch) {
+          let _ =
+            window.set_timeout(
+              fn() { dispatch(AppScheduledLoadingIndicator(target.id, token)) },
+              loading_indicator_delay_ms,
+            )
+          Nil
+        })
+      #(model, effect)
+    }
+    _ -> #(model, effect.none())
   }
 }
 

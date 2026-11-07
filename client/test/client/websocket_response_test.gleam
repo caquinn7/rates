@@ -224,7 +224,7 @@ pub fn changing_currency_clears_rate_and_error_and_invalidates_edit_timer_test()
       )
 
     assert changed_converter.rate == None
-    assert changed_converter.rate_status == Waiting
+    assert changed_converter.rate_status == Waiting(0, False)
     assert changed_converter.last_edited == edited_side
     assert_parsed_amount(changed_converter, edited_side, 123.0)
     assert amount_input(changed_converter, calculated_side).raw == ""

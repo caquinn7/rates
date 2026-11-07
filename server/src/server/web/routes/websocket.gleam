@@ -49,7 +49,7 @@ pub fn handler(
   create_rate_subscriber: fn(SubscriptionId, Subject(SubscriptionResult)) ->
     RateSubscriber,
 ) -> mist.Next(State, SubscriptionResult) {
-  let State(subject, rate_subscribers, logger) = state
+  let State(subject:, rate_subscribers:, logger:) = state
 
   log_message_received(logger, message)
 
@@ -191,7 +191,7 @@ fn log_rate_response_success(
   subscription_id: SubscriptionId,
   rate_response: RateResponse,
 ) -> Nil {
-  let RateResponse(from, to, rate, source, timestamp) = rate_response
+  let RateResponse(from:, to:, rate:, source:, timestamp:) = rate_response
 
   logger
   |> logger.with("subscription_id", subscription_id.to_string(subscription_id))

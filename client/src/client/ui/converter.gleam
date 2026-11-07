@@ -37,7 +37,7 @@ pub type Converter {
 }
 
 pub type RateStatus {
-  Waiting
+  Waiting(token: Int, show_indicator: Bool)
   Current
   NotTracked
   Failed(SubscriptionError)
@@ -208,7 +208,7 @@ pub fn with_rate_error(
 
 pub fn waiting_for_rate(converter: Converter) -> Converter {
   let converter = finish_amount_edits(converter)
-  Converter(..converter, rate: None, rate_status: Waiting)
+  Converter(..converter, rate: None, rate_status: Waiting(0, False))
   |> clear_calculated_amount
   |> with_glow_cleared(Left)
   |> with_glow_cleared(Right)
@@ -938,9 +938,6 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
 }
 
 pub fn view(converter: Converter) -> Element(Msg) {
-  let equal_sign =
-    html.p([attribute.class("text-2xl font-semi-bold")], [element.text("=")])
-
   let conversion_input_elem = fn(side) {
     let target_input = get_converter_input(converter, side)
 
@@ -991,15 +988,43 @@ pub fn view(converter: Converter) -> Element(Msg) {
           <> "space-y-4 md:space-y-0 md:space-x-4",
         ),
       ],
-      [conversion_input_elem(Left), equal_sign, conversion_input_elem(Right)],
+      [
+        conversion_input_elem(Left),
+        conversion_indicator(converter),
+        conversion_input_elem(Right),
+      ],
     )
   html.div([attribute.class("min-w-0")], [inputs, rate_status_view(converter)])
 }
 
+fn conversion_indicator(converter: Converter) -> Element(Msg) {
+  let symbol = case converter.rate_status {
+    Waiting(_, True) ->
+      html.span(
+        [
+          attribute.class(
+            "loading loading-spinner size-5 motion-reduce:animate-none",
+          ),
+          attribute.role("status"),
+          attribute.attribute("aria-label", "Loading rate"),
+          attribute.attribute("aria-live", "polite"),
+        ],
+        [],
+      )
+    _ ->
+      html.span([attribute.class("text-2xl font-semi-bold")], [html.text("=")])
+  }
+  html.span(
+    [
+      attribute.id("rate-indicator-" <> converter.id),
+      attribute.class("inline-flex size-6 shrink-0 items-center justify-center"),
+    ],
+    [symbol],
+  )
+}
+
 fn rate_status_view(converter: Converter) -> Element(Msg) {
-  let #(message, classes) = case converter.rate_status {
-    Current | NotTracked -> #("", "")
-    Waiting -> #("Waiting for a rate…", "text-base-content/70")
+  case converter.rate_status {
     Failed(error) -> {
       let reason = case error {
         CurrencyNotFound(_) -> "Unable to load this currency right now."
@@ -1009,18 +1034,20 @@ fn rate_status_view(converter: Converter) -> Element(Msg) {
         Some(_) -> "Using last known rate. "
         None -> ""
       }
-      #(prefix <> reason, "text-base-content border-l-2 border-warning pl-3")
+      html.p(
+        [
+          attribute.id("rate-status-" <> converter.id),
+          attribute.role("status"),
+          attribute.attribute("aria-live", "polite"),
+          attribute.class(
+            "text-sm max-w-xl pb-2 text-base-content border-l-2 border-warning pl-3",
+          ),
+        ],
+        [html.text(prefix <> reason)],
+      )
     }
+    _ -> element.none()
   }
-  html.p(
-    [
-      attribute.id("rate-status-" <> converter.id),
-      attribute.role("status"),
-      attribute.attribute("aria-live", "polite"),
-      attribute.class("text-sm max-w-xl pb-2 " <> classes),
-    ],
-    [html.text(message)],
-  )
 }
 
 fn conversion_input(
