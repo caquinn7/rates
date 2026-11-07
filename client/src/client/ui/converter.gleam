@@ -21,6 +21,9 @@ import shared/currency.{type Currency, Crypto}
 import shared/numbers/non_negative_float.{type NonNegativeFloat}
 import shared/numbers/positive_float.{type PositiveFloat}
 import shared/rates/rate_request.{RateRequest}
+import shared/websocket_response.{
+  type SubscriptionError, CurrencyNotFound, RateUnavailable,
+}
 
 pub type Converter {
   Converter(
@@ -29,7 +32,15 @@ pub type Converter {
     inputs: #(ConverterInput, ConverterInput),
     rate: Option(PositiveFloat),
     last_edited: Side,
+    rate_status: RateStatus,
   )
+}
+
+pub type RateStatus {
+  Waiting
+  Current
+  NotTracked
+  Failed(SubscriptionError)
 }
 
 pub type ConverterInput {
@@ -120,6 +131,7 @@ pub fn new(
       #(empty_converter_input(Left), empty_converter_input(Right)),
       None,
       Left,
+      NotTracked,
     )
   }
 
@@ -168,11 +180,51 @@ pub fn with_rate(
   converter: Converter,
   rate: Option(PositiveFloat),
 ) -> Converter {
+  let converter =
+    Converter(..converter, rate_status: case rate {
+      Some(_) -> Current
+      None -> NotTracked
+    })
   let converter = case rate {
     None -> finish_amount_edits(Converter(..converter, rate: None))
     Some(_) -> converter
   }
   with_rate_with_custom_glow(converter, rate, border_color_from_rate_change)
+}
+
+pub fn with_rate_error(
+  converter: Converter,
+  error: SubscriptionError,
+) -> Converter {
+  let converter =
+    Converter(..converter, rate_status: Failed(error))
+    |> with_glow_cleared(Left)
+    |> with_glow_cleared(Right)
+  case converter.rate {
+    Some(_) -> converter
+    None -> clear_calculated_amount(converter)
+  }
+}
+
+pub fn waiting_for_rate(converter: Converter) -> Converter {
+  let converter = finish_amount_edits(converter)
+  Converter(..converter, rate: None, rate_status: Waiting)
+  |> clear_calculated_amount
+  |> with_glow_cleared(Left)
+  |> with_glow_cleared(Right)
+}
+
+fn clear_calculated_amount(converter: Converter) -> Converter {
+  converter_with_mapped_inputs(
+    converter,
+    side.opposite_side(converter.last_edited),
+    fn(input) {
+      ConverterInput(
+        ..input,
+        amount_input: AmountInput(..input.amount_input, raw: "", parsed: None),
+      )
+    },
+  )
 }
 
 fn with_rate_with_custom_glow(
@@ -423,15 +475,21 @@ pub fn with_selected_currency(
   currency: Currency,
 ) -> Converter {
   let converter = finish_amount_edits(converter)
-  converter_with_mapped_inputs(converter, side, fn(input) {
-    ConverterInput(
-      ..input,
-      currency_selector: CurrencySelector(
-        ..input.currency_selector,
-        selected_currency: currency,
-      ),
-    )
-  })
+  let changed = get_selected_currency_id(converter, side) != currency.id
+  let converter =
+    converter_with_mapped_inputs(converter, side, fn(input) {
+      ConverterInput(
+        ..input,
+        currency_selector: CurrencySelector(
+          ..input.currency_selector,
+          selected_currency: currency,
+        ),
+      )
+    })
+  case changed {
+    True -> waiting_for_rate(converter)
+    False -> converter
+  }
 }
 
 pub fn with_focused_index(
@@ -924,15 +982,44 @@ pub fn view(converter: Converter) -> Element(Msg) {
     )
   }
 
-  html.div(
+  let inputs =
+    html.div(
+      [
+        attribute.class(
+          "flex flex-col md:flex-row "
+          <> "items-center justify-left py-4 "
+          <> "space-y-4 md:space-y-0 md:space-x-4",
+        ),
+      ],
+      [conversion_input_elem(Left), equal_sign, conversion_input_elem(Right)],
+    )
+  html.div([attribute.class("min-w-0")], [inputs, rate_status_view(converter)])
+}
+
+fn rate_status_view(converter: Converter) -> Element(Msg) {
+  let #(message, classes) = case converter.rate_status {
+    Current | NotTracked -> #("", "")
+    Waiting -> #("Waiting for a rate…", "text-base-content/70")
+    Failed(error) -> {
+      let reason = case error {
+        CurrencyNotFound(_) -> "Unable to load this currency right now."
+        RateUnavailable -> "Rate unavailable. Retrying automatically."
+      }
+      let prefix = case converter.rate {
+        Some(_) -> "Using last known rate. "
+        None -> ""
+      }
+      #(prefix <> reason, "text-base-content border-l-2 border-warning pl-3")
+    }
+  }
+  html.p(
     [
-      attribute.class(
-        "flex flex-col md:flex-row "
-        <> "items-center justify-left py-4 "
-        <> "space-y-4 md:space-y-0 md:space-x-4",
-      ),
+      attribute.id("rate-status-" <> converter.id),
+      attribute.role("status"),
+      attribute.attribute("aria-live", "polite"),
+      attribute.class("text-sm max-w-xl pb-2 " <> classes),
     ],
-    [conversion_input_elem(Left), equal_sign, conversion_input_elem(Right)],
+    [html.text(message)],
   )
 }
 

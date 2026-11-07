@@ -1,12 +1,14 @@
 import exception
 import gleam/erlang/process.{type Pid, type Subject}
 import gleam/http/request
+import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{Some}
 import gleam/otp/actor
 import mist
+import server/integrations/coin_market_cap/client.{HttpError}
 import server/integrations/kraken/client_recovery_test as fixture
 import server/integrations/kraken/internal/session
 import server/integrations/kraken/pairs
@@ -21,10 +23,16 @@ import server/utils/retry
 import server/utils/time
 import server/web/routes/websocket
 import shared/currency.{Crypto, Fiat}
+import shared/numbers/positive_float
 import shared/rates/rate_request.{RateRequest}
+import shared/rates/rate_response.{CoinMarketCap, RateResponse}
 import shared/subscriptions/subscription_id
 import shared/subscriptions/subscription_request.{SubscriptionRequest}
 import shared/websocket_request
+import shared/websocket_response.{
+  CurrencyNotFound, ProtocolError, RateUnavailable, SubscriptionFailed,
+  SubscriptionUpdate,
+}
 import stratus
 
 type BrowserMessage {
@@ -106,6 +114,102 @@ pub fn abrupt_browser_tcp_disconnect_cancels_all_its_subscriptions_test() {
   assert process.is_alive(kraken.pid)
 }
 
+pub fn malformed_request_returns_json_and_keeps_socket_usable_test() {
+  use url, _ <- with_failing_provider
+  use browser, replies <- with_browser(url)
+
+  Send("not JSON")
+  |> stratus.to_user_message
+  |> process.send(browser.data, _)
+  assert receive_response(replies) == ProtocolError
+
+  browser_subscribe(browser, [#("bitcoin", bitcoin_id)])
+  assert receive_response(replies)
+    == SubscriptionFailed(
+      subscription_id.from_string_unsafe("bitcoin"),
+      RateRequest(bitcoin_id, usd_id),
+      RateUnavailable,
+    )
+}
+
+pub fn missing_currency_error_preserves_subscription_and_pair_test() {
+  use url, _ <- with_failing_provider
+  use browser, replies <- with_browser(url)
+
+  browser_subscribe(browser, [#("missing", 999)])
+  assert receive_response(replies)
+    == SubscriptionFailed(
+      subscription_id.from_string_unsafe("missing"),
+      RateRequest(999, usd_id),
+      CurrencyNotFound(999),
+    )
+}
+
+pub fn provider_failure_can_be_followed_by_a_successful_update_test() {
+  use url, reply_targets <- with_failing_provider
+  use browser, replies <- with_browser(url)
+
+  browser_subscribe(browser, [#("bitcoin", bitcoin_id)])
+  let id = subscription_id.from_string_unsafe("bitcoin")
+  assert receive_response(replies)
+    == SubscriptionFailed(id, RateRequest(bitcoin_id, usd_id), RateUnavailable)
+
+  let reply_to = unwrap(process.receive(reply_targets, 1000))
+  let rate =
+    RateResponse(
+      bitcoin_id,
+      usd_id,
+      Some(positive_float.from_float_unsafe(100.0)),
+      CoinMarketCap,
+      123,
+    )
+  process.send(reply_to, #(id, Ok(rate)))
+  assert receive_response(replies) == SubscriptionUpdate(id, rate)
+}
+
+fn receive_response(replies) {
+  unwrap(process.receive(replies, 1000))
+  |> json.parse(websocket_response.decoder())
+  |> unwrap
+}
+
+fn with_failing_provider(run) {
+  let reply_targets = process.new_subject()
+  let factory = fn(id, reply_to) {
+    process.send(reply_targets, reply_to)
+    let currencies = [
+      Crypto(bitcoin_id, "Bitcoin", "BTC", Some(1)),
+      Fiat(usd_id, "US Dollar", "USD", "$"),
+    ]
+    let config =
+      subscriber.Config(
+        base: RateServiceConfig(
+          get_currency: fn(id) {
+            list.find(currencies, fn(currency) { currency.id == id })
+          },
+          kraken_interface: KrakenInterface(
+            get_kraken_symbol: fn(_) { Error(Nil) },
+            subscribe: fn(_) { panic },
+            unsubscribe: fn(_) { panic },
+            check_for_price: fn(_) { panic },
+          ),
+          request_cmc_conversion: fn(_) {
+            Error(HttpError(httpc.InvalidUtf8Response))
+          },
+          get_current_time_ms: fn() { 123 },
+        ),
+        subscription_manager: unwrap(subscription_manager.new(1000)),
+        logger: logger.new(),
+      )
+
+    subscriber.new_with_scheduler(id, reply_to, config, fn(_, _) { Nil })
+    |> unwrap
+  }
+
+  use url <- with_application_factory(factory)
+  run(url, reply_targets)
+}
+
 fn with_application(kraken: Subject(session.Message), run) {
   let subscribers = process.new_subject()
   let assert Ok(store) = price_store.get_store()
@@ -114,6 +218,11 @@ fn with_application(kraken: Subject(session.Message), run) {
     create_rate_subscriber(id, reply_to, kraken_interface)
   }
 
+  use url <- with_application_factory(factory)
+  run(url, subscribers)
+}
+
+fn with_application_factory(factory, run) {
   let ready = process.new_subject()
   let handler = fn(req) {
     mist.websocket(
@@ -139,7 +248,7 @@ fn with_application(kraken: Subject(session.Message), run) {
   let port = unwrap(process.receive(ready, 1000))
   let url = "http://127.0.0.1:" <> int.to_string(port) <> "/ws"
 
-  run(url, subscribers)
+  run(url)
 }
 
 fn create_kraken_interface(kraken, subscribers, store) {

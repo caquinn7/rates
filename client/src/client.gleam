@@ -38,9 +38,12 @@ import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{type Currency}
 import shared/numbers/non_negative_float
 import shared/page_data.{type PageData}
+import shared/rates/rate_request.{type RateRequest, RateRequest}
 import shared/rates/rate_response.{RateResponse}
 import shared/subscriptions/subscription_id
-import shared/subscriptions/subscription_response.{SubscriptionResponse}
+import shared/websocket_response.{
+  ProtocolError, SubscriptionFailed, SubscriptionUpdate,
+}
 
 const converter_id_prefix = "converter"
 
@@ -50,6 +53,7 @@ pub type Model {
     converters: List(Converter),
     socket: Option(WebSocket),
     reconnect_attempts: Int,
+    protocol_error: Bool,
   )
 }
 
@@ -95,6 +99,7 @@ pub fn model_from_page_data(
     converters:,
     socket: None,
     reconnect_attempts: 0,
+    protocol_error: False,
   ))
 }
 
@@ -206,7 +211,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     FromWebSocket(OnOpen(socket)) -> {
-      let model = Model(..model, socket: Some(socket), reconnect_attempts: 0)
+      let model =
+        Model(
+          ..model,
+          socket: Some(socket),
+          reconnect_attempts: 0,
+          protocol_error: False,
+        )
 
       let effect =
         model.converters
@@ -223,28 +234,38 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     FromWebSocket(OnTextMessage(msg)) -> {
-      case json.parse(msg, subscription_response.decoder()) {
+      case json.parse(msg, websocket_response.decoder()) {
         Error(_) -> {
           echo "failed to decode conversion response from server: " <> msg
-          #(model, effect.none())
+          #(Model(..model, protocol_error: True), effect.none())
         }
 
-        Ok(SubscriptionResponse(sub_id, rate_response)) -> {
+        Ok(ProtocolError) -> #(
+          Model(..model, protocol_error: True),
+          effect.none(),
+        )
+
+        Ok(SubscriptionFailed(sub_id, request, error)) -> {
+          let model = Model(..model, protocol_error: False)
+          let target = matching_converter(model, sub_id, request)
+          case target {
+            Ok(converter) -> #(
+              model_with_converter(
+                model,
+                converter.with_rate_error(converter, error),
+              ),
+              effect.none(),
+            )
+            Error(_) -> #(model, effect.none())
+          }
+        }
+
+        Ok(SubscriptionUpdate(sub_id, rate_response)) -> {
+          let model = Model(..model, protocol_error: False)
           let RateResponse(from, to, rate, _source, _timestamp) = rate_response
 
-          let target_converter = {
-            use converter <- result.try(
-              list.find(model.converters, fn(converter) {
-                converter.id == subscription_id.to_string(sub_id)
-              }),
-            )
-
-            let current_request = converter.to_rate_request(converter)
-            case current_request.from == from && current_request.to == to {
-              False -> Error(Nil)
-              True -> Ok(converter)
-            }
-          }
+          let target_converter =
+            matching_converter(model, sub_id, RateRequest(from, to))
 
           case target_converter {
             Error(_) -> #(model, effect.none())
@@ -391,6 +412,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           "1",
           None,
         )
+      let new_converter = converter.waiting_for_rate(new_converter)
 
       let model =
         Model(
@@ -548,6 +570,22 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
+fn matching_converter(
+  model: Model,
+  id: subscription_id.SubscriptionId,
+  request: RateRequest,
+) -> Result(Converter, Nil) {
+  use converter <- result.try(
+    list.find(model.converters, fn(converter) {
+      converter.id == subscription_id.to_string(id)
+    }),
+  )
+  case converter.to_rate_request(converter) == request {
+    True -> Ok(converter)
+    False -> Error(Nil)
+  }
+}
+
 fn schedule_state_snapshot() -> Effect(Msg) {
   effect.from(fn(dispatch) {
     let _ =
@@ -592,9 +630,22 @@ fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
   })
 }
 
-fn view(model: Model) -> Element(Msg) {
+pub fn view(model: Model) -> Element(Msg) {
   element.fragment([
     header(model),
+    case model.protocol_error {
+      True ->
+        html.div(
+          [
+            attribute.role("alert"),
+            attribute.class(
+              "mx-auto max-w-4xl px-4 py-3 text-sm text-base-content",
+            ),
+          ],
+          [html.text("Unable to update live rates. Reload the page.")],
+        )
+      False -> element.none()
+    },
     main_content(model),
   ])
 }
@@ -698,7 +749,7 @@ fn converter_row(
     |> element.map(FromConverter(converter.id, _))
 
   let left_column = case show_add {
-    False -> html.div([attribute.class("w-12")], [])
+    False -> element.none()
     True ->
       html.div([attribute.class("w-12 flex justify-center")], [
         button("btn-info", icons.plus(), UserClickedAddConverter),
@@ -715,19 +766,36 @@ fn converter_row(
         ),
       ])
 
-    True -> html.div([attribute.class("w-12")], [])
+    True -> element.none()
   }
 
   html.div(
     [
       attribute.class(
-        "grid grid-cols-[3rem_1fr_3rem] items-center gap-4 w-full max-w-fit",
+        "grid grid-cols-[3rem_1fr_3rem] items-center gap-x-4 w-full max-w-fit",
       ),
     ],
     [
-      left_column,
-      converter_elem,
-      right_column,
+      html.div(
+        [
+          attribute.class("col-start-1 row-start-2 md:row-start-1"),
+        ],
+        [left_column],
+      ),
+      html.div(
+        [
+          attribute.class(
+            "col-span-3 col-start-1 row-start-1 min-w-0 md:col-span-1 md:col-start-2",
+          ),
+        ],
+        [converter_elem],
+      ),
+      html.div(
+        [
+          attribute.class("col-start-3 row-start-2 md:row-start-1"),
+        ],
+        [right_column],
+      ),
     ],
   )
 }

@@ -14,12 +14,10 @@ import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
 import server/utils/logger.{type Logger}
 import shared/numbers/positive_float
-import shared/rates/rate_response.{RateResponse} as shared_rate_response
+import shared/rates/rate_response.{type RateResponse, RateResponse}
 import shared/subscriptions/subscription_id.{type SubscriptionId}
-import shared/subscriptions/subscription_response.{
-  type SubscriptionResponse, SubscriptionResponse,
-}
 import shared/websocket_request.{Subscribe, Unsubscribe}
+import shared/websocket_response.{SubscriptionFailed, SubscriptionUpdate}
 
 pub type State {
   State(
@@ -108,37 +106,48 @@ pub fn handler(
         }
 
         Error(_) -> {
-          let _ = mist.send_text_frame(conn, "Failed to decode request")
+          let response =
+            websocket_response.ProtocolError
+            |> websocket_response.encode
+            |> json.to_string
+          let _ = mist.send_text_frame(conn, response)
           mist.continue(state)
         }
       }
     }
 
     Custom(#(subscription_id, rate_result)) -> {
-      let response_str = case rate_result {
+      let response = case rate_result {
         Ok(rate_resp) -> {
-          let subscription_resp =
-            SubscriptionResponse(subscription_id, rate_resp)
+          log_rate_response_success(logger, subscription_id, rate_resp)
 
-          log_subscription_response_success(logger, subscription_resp)
-
-          subscription_resp
-          |> subscription_response.encode
-          |> json.to_string
+          SubscriptionUpdate(subscription_id, rate_resp)
         }
 
         Error(err) -> {
           log_rate_response_error(logger, subscription_id, err)
 
           case err {
-            CurrencyNotFound(_, id) ->
-              "Currency id " <> int.to_string(id) <> " not found"
-
-            CmcError(..) -> "Unexpected error getting rate"
+            CurrencyNotFound(request, id) ->
+              SubscriptionFailed(
+                subscription_id,
+                request,
+                websocket_response.CurrencyNotFound(id),
+              )
+            CmcError(request, _) ->
+              SubscriptionFailed(
+                subscription_id,
+                request,
+                websocket_response.RateUnavailable,
+              )
           }
         }
       }
 
+      let response_str =
+        response
+        |> websocket_response.encode
+        |> json.to_string
       let _ = mist.send_text_frame(conn, response_str)
       mist.continue(state)
     }
@@ -177,14 +186,12 @@ fn log_socket_closed(logger: Logger) -> Nil {
   |> logger.debug("Socket closed")
 }
 
-fn log_subscription_response_success(
+fn log_rate_response_success(
   logger: Logger,
-  subscription_resp: SubscriptionResponse,
+  subscription_id: SubscriptionId,
+  rate_response: RateResponse,
 ) -> Nil {
-  let SubscriptionResponse(
-    subscription_id,
-    RateResponse(from, to, rate, source, timestamp),
-  ) = subscription_resp
+  let RateResponse(from, to, rate, source, timestamp) = rate_response
 
   logger
   |> logger.with("subscription_id", subscription_id.to_string(subscription_id))
@@ -196,10 +203,7 @@ fn log_subscription_response_success(
       |> option.map(positive_float.to_string)
       |> option.unwrap(""),
   )
-  |> logger.with(
-    "rate_response.source",
-    shared_rate_response.source_to_string(source),
-  )
+  |> logger.with("rate_response.source", rate_response.source_to_string(source))
   |> logger.with("rate_response.timestamp", int.to_string(timestamp))
   |> logger.debug("Successfully fetched subscription rate")
 }
