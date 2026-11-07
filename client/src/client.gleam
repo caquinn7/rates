@@ -279,10 +279,19 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               let finalized_edit =
                 option.is_none(rate)
                 && converter.has_pending_amount_edit(converter)
-              let model =
-                converter
-                |> converter.with_rate(rate)
-                |> model_with_converter(model, _)
+              let updated_converter = converter.with_rate(converter, rate)
+              let restored_left_amount =
+                option.is_none(converter.get_parsed_amount(converter, Left))
+                && option.is_some(converter.get_parsed_amount(
+                  updated_converter,
+                  Left,
+                ))
+              let model = model_with_converter(model, updated_converter)
+
+              case restored_left_amount {
+                True -> encode_state_in_url(model)
+                False -> Nil
+              }
 
               let effect =
                 effect.from(fn(dispatch) {
@@ -664,15 +673,28 @@ fn schedule_state_snapshot() -> Effect(Msg) {
 }
 
 fn encode_state_in_url(model: Model) {
-  let encoded_state =
-    model
-    |> model_to_client_state
-    |> client_state.encode
+  // Saved amounts are left-side amounts. Keep the last valid URL while a
+  // right-side amount cannot yet be converted into one.
+  let missing_left_amount =
+    list.any(model.converters, fn(converter) {
+      converter.last_edited == Right
+      && option.is_some(converter.get_parsed_amount(converter, Right))
+      && option.is_none(converter.get_parsed_amount(converter, Left))
+    })
+  case missing_left_amount {
+    True -> Nil
+    False -> {
+      let encoded_state =
+        model
+        |> model_to_client_state
+        |> client_state.encode
 
-  let updated_url =
-    window.get_url_with_updated_query_param("state", encoded_state)
+      let updated_url =
+        window.get_url_with_updated_query_param("state", encoded_state)
 
-  history.replace_state(dynamic.nil(), Some(updated_url))
+      history.replace_state(dynamic.nil(), Some(updated_url))
+    }
+  }
 }
 
 fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
