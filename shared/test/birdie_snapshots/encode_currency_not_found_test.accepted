@@ -1,0 +1,7 @@
+---
+version: 2.0.2
+title: encode_currency_not_found_test
+file: ./test/shared/websocket_response_test.gleam
+test_name: encode_currency_not_found_test
+---
+{"type":"subscription_error","id":"converter-1","rate_request":{"from":1,"to":2781},"error":{"code":"currency_not_found","currency_id":2781}}

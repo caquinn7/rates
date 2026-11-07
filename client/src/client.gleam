@@ -38,11 +38,16 @@ import shared/client_state.{ClientState, ConverterState}
 import shared/currency.{type Currency}
 import shared/numbers/non_negative_float
 import shared/page_data.{type PageData}
+import shared/rates/rate_request.{type RateRequest, RateRequest}
 import shared/rates/rate_response.{RateResponse}
 import shared/subscriptions/subscription_id
-import shared/subscriptions/subscription_response.{SubscriptionResponse}
+import shared/websocket_response.{
+  ProtocolError, SubscriptionFailed, SubscriptionUpdate,
+}
 
 const converter_id_prefix = "converter"
+
+const loading_indicator_delay_ms = 300
 
 pub type Model {
   Model(
@@ -50,6 +55,8 @@ pub type Model {
     converters: List(Converter),
     socket: Option(WebSocket),
     reconnect_attempts: Int,
+    protocol_error: Bool,
+    next_loading_token: Int,
   )
 }
 
@@ -95,6 +102,8 @@ pub fn model_from_page_data(
     converters:,
     socket: None,
     reconnect_attempts: 0,
+    protocol_error: False,
+    next_loading_token: 1,
   ))
 }
 
@@ -190,6 +199,7 @@ pub type Msg {
   ApiReturnedMatchedCurrencies(Result(List(Currency), rsvp.Error(String)))
   AppScheduledReconnection
   AppScheduledRateChangeIndicatorReset(String, Side)
+  AppScheduledLoadingIndicator(String, Int)
   AppScheduledStateSnapshot
 }
 
@@ -206,7 +216,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     FromWebSocket(OnOpen(socket)) -> {
-      let model = Model(..model, socket: Some(socket), reconnect_attempts: 0)
+      let model =
+        Model(
+          ..model,
+          socket: Some(socket),
+          reconnect_attempts: 0,
+          protocol_error: False,
+        )
 
       let effect =
         model.converters
@@ -223,28 +239,38 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     FromWebSocket(OnTextMessage(msg)) -> {
-      case json.parse(msg, subscription_response.decoder()) {
+      case json.parse(msg, websocket_response.decoder()) {
         Error(_) -> {
           echo "failed to decode conversion response from server: " <> msg
-          #(model, effect.none())
+          #(Model(..model, protocol_error: True), effect.none())
         }
 
-        Ok(SubscriptionResponse(sub_id, rate_response)) -> {
+        Ok(ProtocolError) -> #(
+          Model(..model, protocol_error: True),
+          effect.none(),
+        )
+
+        Ok(SubscriptionFailed(sub_id, request, error)) -> {
+          let model = Model(..model, protocol_error: False)
+          let target = matching_converter(model, sub_id, request)
+          case target {
+            Ok(converter) -> #(
+              model_with_converter(
+                model,
+                converter.with_rate_error(converter, error),
+              ),
+              effect.none(),
+            )
+            Error(_) -> #(model, effect.none())
+          }
+        }
+
+        Ok(SubscriptionUpdate(sub_id, rate_response)) -> {
+          let model = Model(..model, protocol_error: False)
           let RateResponse(from, to, rate, _source, _timestamp) = rate_response
 
-          let target_converter = {
-            use converter <- result.try(
-              list.find(model.converters, fn(converter) {
-                converter.id == subscription_id.to_string(sub_id)
-              }),
-            )
-
-            let current_request = converter.to_rate_request(converter)
-            case current_request.from == from && current_request.to == to {
-              False -> Error(Nil)
-              True -> Ok(converter)
-            }
-          }
+          let target_converter =
+            matching_converter(model, sub_id, RateRequest(from, to))
 
           case target_converter {
             Error(_) -> #(model, effect.none())
@@ -253,10 +279,19 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               let finalized_edit =
                 option.is_none(rate)
                 && converter.has_pending_amount_edit(converter)
-              let model =
-                converter
-                |> converter.with_rate(rate)
-                |> model_with_converter(model, _)
+              let updated_converter = converter.with_rate(converter, rate)
+              let restored_left_amount =
+                option.is_none(converter.get_parsed_amount(converter, Left))
+                && option.is_some(converter.get_parsed_amount(
+                  updated_converter,
+                  Left,
+                ))
+              let model = model_with_converter(model, updated_converter)
+
+              case restored_left_amount {
+                True -> encode_state_in_url(model)
+                False -> Nil
+              }
 
               let effect =
                 effect.from(fn(dispatch) {
@@ -292,6 +327,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         case converter.update(target_converter, converter_msg) {
           #(converter, converter_effect) -> {
             let model = model_with_converter(model, converter)
+            let #(model, loading_effect) = case converter_effect {
+              converter.RequestRate ->
+                schedule_loading_indicator(model, converter)
+              _ -> #(model, effect.none())
+            }
 
             let converter_effect = case converter_effect {
               converter.NoEffect -> effect.none()
@@ -375,7 +415,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               _ -> effect.none()
             }
 
-            #(model, effect.batch([converter_effect, snapshot_effect]))
+            #(
+              model,
+              effect.batch([converter_effect, loading_effect, snapshot_effect]),
+            )
           }
         }
       })
@@ -391,14 +434,17 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           "1",
           None,
         )
+      let new_converter = converter.waiting_for_rate(new_converter)
 
       let model =
         Model(
           ..model,
           converters: list.append(model.converters, [new_converter]),
         )
+      let #(model, loading_effect) =
+        schedule_loading_indicator(model, new_converter)
 
-      let effect = case model.socket {
+      let subscribe_effect = case model.socket {
         None -> {
           echo "could not request rate. socket not initialized."
           effect.none()
@@ -414,7 +460,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
       let _ = encode_state_in_url(model)
 
-      #(model, effect)
+      #(model, effect.batch([subscribe_effect, loading_effect]))
     }
 
     UserClickedDeleteConverter(converter_id) -> {
@@ -541,10 +587,80 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.none())
     }
 
+    AppScheduledLoadingIndicator(converter_id, expected_token) -> {
+      let target =
+        list.find(model.converters, fn(converter) {
+          converter.id == converter_id
+        })
+      let model = case target {
+        Error(_) -> model
+        Ok(converter) ->
+          case converter.rate_status {
+            converter.Waiting(token, _) if token == expected_token ->
+              model_with_converter(
+                model,
+                converter.Converter(
+                  ..converter,
+                  rate_status: converter.Waiting(token, True),
+                ),
+              )
+            _ -> model
+          }
+      }
+      #(model, effect.none())
+    }
+
     AppScheduledStateSnapshot -> {
       encode_state_in_url(model)
       #(model, effect.none())
     }
+  }
+}
+
+fn schedule_loading_indicator(
+  model: Model,
+  target: Converter,
+) -> #(Model, Effect(Msg)) {
+  case target.rate_status {
+    converter.Waiting(_, _) -> {
+      // Model-wide tokens distinguish requests even when a deleted converter ID
+      // is reused before its loading timer fires.
+      let token = model.next_loading_token
+      let target =
+        converter.Converter(
+          ..target,
+          rate_status: converter.Waiting(token, False),
+        )
+      let model = model_with_converter(model, target)
+      let model = Model(..model, next_loading_token: token + 1)
+      let effect =
+        effect.from(fn(dispatch) {
+          let _ =
+            window.set_timeout(
+              fn() { dispatch(AppScheduledLoadingIndicator(target.id, token)) },
+              loading_indicator_delay_ms,
+            )
+          Nil
+        })
+      #(model, effect)
+    }
+    _ -> #(model, effect.none())
+  }
+}
+
+fn matching_converter(
+  model: Model,
+  id: subscription_id.SubscriptionId,
+  request: RateRequest,
+) -> Result(Converter, Nil) {
+  use converter <- result.try(
+    list.find(model.converters, fn(converter) {
+      converter.id == subscription_id.to_string(id)
+    }),
+  )
+  case converter.to_rate_request(converter) == request {
+    True -> Ok(converter)
+    False -> Error(Nil)
   }
 }
 
@@ -557,15 +673,28 @@ fn schedule_state_snapshot() -> Effect(Msg) {
 }
 
 fn encode_state_in_url(model: Model) {
-  let encoded_state =
-    model
-    |> model_to_client_state
-    |> client_state.encode
+  // Saved amounts are left-side amounts. Keep the last valid URL while a
+  // right-side amount cannot yet be converted into one.
+  let missing_left_amount =
+    list.any(model.converters, fn(converter) {
+      converter.last_edited == Right
+      && option.is_some(converter.get_parsed_amount(converter, Right))
+      && option.is_none(converter.get_parsed_amount(converter, Left))
+    })
+  case missing_left_amount {
+    True -> Nil
+    False -> {
+      let encoded_state =
+        model
+        |> model_to_client_state
+        |> client_state.encode
 
-  let updated_url =
-    window.get_url_with_updated_query_param("state", encoded_state)
+      let updated_url =
+        window.get_url_with_updated_query_param("state", encoded_state)
 
-  history.replace_state(dynamic.nil(), Some(updated_url))
+      history.replace_state(dynamic.nil(), Some(updated_url))
+    }
+  }
 }
 
 fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
@@ -592,9 +721,22 @@ fn schedule_reconnection(reconnect_attempts: Int) -> Effect(Msg) {
   })
 }
 
-fn view(model: Model) -> Element(Msg) {
+pub fn view(model: Model) -> Element(Msg) {
   element.fragment([
     header(model),
+    case model.protocol_error {
+      True ->
+        html.div(
+          [
+            attribute.role("alert"),
+            attribute.class(
+              "mx-auto max-w-4xl px-4 py-3 text-sm text-base-content",
+            ),
+          ],
+          [html.text("Unable to update live rates. Reload the page.")],
+        )
+      False -> element.none()
+    },
     main_content(model),
   ])
 }
@@ -698,7 +840,7 @@ fn converter_row(
     |> element.map(FromConverter(converter.id, _))
 
   let left_column = case show_add {
-    False -> html.div([attribute.class("w-12")], [])
+    False -> element.none()
     True ->
       html.div([attribute.class("w-12 flex justify-center")], [
         button("btn-info", icons.plus(), UserClickedAddConverter),
@@ -715,19 +857,36 @@ fn converter_row(
         ),
       ])
 
-    True -> html.div([attribute.class("w-12")], [])
+    True -> element.none()
   }
 
   html.div(
     [
       attribute.class(
-        "grid grid-cols-[3rem_1fr_3rem] items-center gap-4 w-full max-w-fit",
+        "grid grid-cols-[3rem_1fr_3rem] items-center gap-x-4 w-full max-w-fit",
       ),
     ],
     [
-      left_column,
-      converter_elem,
-      right_column,
+      html.div(
+        [
+          attribute.class("col-start-1 row-start-2 md:row-start-1"),
+        ],
+        [left_column],
+      ),
+      html.div(
+        [
+          attribute.class(
+            "col-span-3 col-start-1 row-start-1 min-w-0 md:col-span-1 md:col-start-2",
+          ),
+        ],
+        [converter_elem],
+      ),
+      html.div(
+        [
+          attribute.class("col-start-3 row-start-2 md:row-start-1"),
+        ],
+        [right_column],
+      ),
     ],
   )
 }

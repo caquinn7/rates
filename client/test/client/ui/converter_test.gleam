@@ -6,10 +6,11 @@ import client/ui/auto_resize_input.{InputEvent}
 import client/ui/button_dropdown.{ArrowDown, ArrowUp, Enter, Other}
 import client/ui/converter.{
   AmountCommitDue, AmountCommitted, Converter, ConverterInput, CurrencySelector,
-  Decreased, EmptyCurrencyList, FocusOnCurrencyFilter, Increased, NoChange,
-  NoEffect, RequestCurrencies, RequestRate, ScheduleAmountCommit, ScrollToOption,
-  SelectedCurrencyNotFound, UserClickedCurrencySelector, UserEnteredAmount,
-  UserFilteredCurrencies, UserFocusedAmount, UserPressedKeyInCurrencySelector,
+  Current, Decreased, EmptyCurrencyList, FocusOnCurrencyFilter, Increased,
+  NoChange, NoEffect, NotTracked, RequestCurrencies, RequestRate,
+  ScheduleAmountCommit, ScrollToOption, SelectedCurrencyNotFound,
+  UserClickedCurrencySelector, UserEnteredAmount, UserFilteredCurrencies,
+  UserFocusedAmount, UserPressedKeyInCurrencySelector,
 }
 import gleam/list
 import gleam/option.{None, Some}
@@ -90,6 +91,7 @@ pub fn with_master_currency_list_updates_master_list_test() {
       #(empty_converter_input(), empty_converter_input()),
       Some(positive_float.from_float_unsafe(100.0)),
       Right,
+      Current,
     )
 
   let new_currencies = [
@@ -1806,6 +1808,7 @@ fn empty_converter() {
     inputs: #(empty_converter_input(), empty_converter_input()),
     rate: None,
     last_edited: Left,
+    rate_status: NotTracked,
   )
 }
 
