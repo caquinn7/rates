@@ -1,6 +1,7 @@
 import client/currency/collection.{type CurrencyCollection} as currency_collection
 import client/currency/filtering as currency_filtering
 import client/currency/formatting as currency_formatting
+import client/currency/parsing as currency_parsing
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
 import client/ui/button_dropdown.{
@@ -478,7 +479,7 @@ pub fn with_amount(
     })
   }
 
-  let inputs = case non_negative_float.parse(raw_amount) {
+  let inputs = case currency_parsing.parse_amount(raw_amount) {
     Error(_) -> map_failed_parse()
     Ok(parsed) -> map_successful_parse(parsed)
   }
@@ -799,7 +800,7 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
         None -> #(converter, NoEffect)
         Some(edit) if input_event.value == edit.draft -> #(converter, NoEffect)
         Some(_) -> {
-          let draft = case non_negative_float.parse(input_event.value) {
+          let draft = case currency_parsing.parse_amount(input_event.value) {
             Ok(_) -> string.replace(input_event.value, ",", "")
             Error(_) -> input_event.value
           }

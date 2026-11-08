@@ -244,6 +244,104 @@ pub fn seeded_amounts_keep_existing_formatting_until_edited_test() {
   assert draft_text(focus(original, Left), Left) == "1.23456789"
 }
 
+pub fn signed_amounts_are_invalid_on_both_sides_test() {
+  list.each([Left, Right], fn(edited_side) {
+    list.each([False, True], fn(commit_before_blur) {
+      list.each(
+        [
+          "+1",
+          "-1",
+          "+0.00",
+          "-0.00",
+          "+1,234.56",
+          "-1,234.56",
+          "+1.0e3",
+          "-1.0e3",
+        ],
+        fn(text) {
+          let #(pending, revision) =
+            enter_text(
+              focus(new_mixed_converter(), edited_side),
+              edited_side,
+              text,
+            )
+          let current = case commit_before_blur {
+            True -> commit_draft(pending, edited_side, revision)
+            False -> pending
+          }
+          assert draft_text(current, edited_side) == text
+          let #(blurred, _) =
+            converter.update(
+              current,
+              UserBlurredAmount(edited_side, input_event(text)),
+            )
+          assert amount_input(blurred, edited_side).raw == text
+          assert amount_input(blurred, edited_side).parsed == None
+          assert amount_input(blurred, edited_side).entered_text == None
+          assert amount_input(blurred, side.opposite_side(edited_side)).raw
+            == ""
+          assert amount_input(blurred, side.opposite_side(edited_side)).parsed
+            == None
+          assert_rendered_amount(blurred, edited_side, text)
+        },
+      )
+    })
+  })
+}
+
+pub fn correcting_a_signed_amount_restores_conversion_and_retains_zeros_test() {
+  list.each([Left, Right], fn(edited_side) {
+    list.each([False, True], fn(commit_before_blur) {
+      list.each(["+1.2300", "-1.2300"], fn(signed) {
+        let #(pending, _) =
+          enter_text(
+            focus(new_mixed_converter(), edited_side),
+            edited_side,
+            signed,
+          )
+        let #(invalid, _) =
+          converter.update(
+            pending,
+            UserBlurredAmount(edited_side, input_event(signed)),
+          )
+        let #(corrected, revision) =
+          enter_text(focus(invalid, edited_side), edited_side, "1.2300")
+        let corrected = case commit_before_blur {
+          True -> commit_draft(corrected, edited_side, revision)
+          False -> corrected
+        }
+        let #(blurred, _) =
+          converter.update(
+            corrected,
+            UserBlurredAmount(edited_side, input_event("1.2300")),
+          )
+        assert amount_input(blurred, edited_side).raw == "1.2300"
+        assert amount_input(blurred, edited_side).entered_text == Some("1.2300")
+        assert_parsed_amount(blurred, edited_side, 1.23)
+        let converted = case edited_side {
+          Left -> 2.46
+          Right -> 0.615
+        }
+        assert_parsed_amount(
+          blurred,
+          side.opposite_side(edited_side),
+          converted,
+        )
+        assert_rendered_amount(blurred, edited_side, "1.2300")
+        let refocused = focus(blurred, edited_side)
+        assert draft_text(refocused, edited_side) == "1.2300"
+        assert_rendered_amount(refocused, edited_side, "1.2300")
+        let #(reblurred, _) =
+          converter.update(
+            refocused,
+            UserBlurredAmount(edited_side, input_event("1.2300")),
+          )
+        assert amount_input(reblurred, edited_side).raw == "1.2300"
+      })
+    })
+  })
+}
+
 pub fn focus_reveals_ungrouped_value_without_changing_driver_test() {
   let original = new_converter()
   let cases = [#(Left, "1000"), #(Right, "2000")]

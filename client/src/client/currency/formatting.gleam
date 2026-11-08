@@ -4,25 +4,19 @@ import gleam/string
 import shared/currency.{type Currency, Crypto, Fiat}
 import shared/numbers/non_negative_float.{type NonNegativeFloat}
 
-/// Formats a validated user entry without rounding or removing fractional zeros.
+/// Formats a validated unsigned entry without rounding or removing fractional zeros.
 /// Scientific notation is kept as entered, without comma grouping.
 pub fn format_entered_amount(text: String) -> String {
   let text = string.replace(text, ",", "")
   let is_scientific_notation = string.contains(string.lowercase(text), "e")
   use <- bool.guard(is_scientific_notation, text)
 
-  let #(sign, unsigned) = case text {
-    "+" <> digits -> #("+", digits)
-    "-" <> digits -> #("-", digits)
-    _ -> #("", text)
-  }
-  let formatted = case string.split(unsigned, ".") {
+  case string.split(text, ".") {
     ["", fraction] -> "0." <> fraction
     [integer, ""] -> add_comma_grouping(integer)
     [integer, fraction] -> add_comma_grouping(integer) <> "." <> fraction
-    _ -> add_comma_grouping(unsigned)
+    _ -> add_comma_grouping(text)
   }
-  sign <> formatted
 }
 
 /// Formats a `NonNegativeFloat` amount as a human-readable string with appropriate
