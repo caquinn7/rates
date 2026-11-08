@@ -18,7 +18,7 @@ pub fn set_supported_pairs_overwrites_previous_pairs_test() {
   assert !pairs.exists("a")
 }
 
-pub fn exists_returns_false_when_no_symbols_have_been_set() {
+pub fn exists_returns_false_when_no_symbols_have_been_set_test() {
   pairs.clear()
   assert !pairs.exists("a")
 }
@@ -37,7 +37,7 @@ pub fn exists_returns_false_when_symbol_not_found_test() {
   assert !pairs.exists("a")
 }
 
-pub fn count_returns_zero_when_no_symbols_have_been_set() {
+pub fn count_returns_zero_when_no_symbols_have_been_set_test() {
   pairs.clear()
   assert 0 == pairs.count()
 }
