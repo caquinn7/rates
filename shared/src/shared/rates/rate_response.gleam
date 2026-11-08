@@ -9,6 +9,7 @@ pub type RateResponse {
     to: Int,
     rate: Option(PositiveFloat),
     source: Source,
+    /// Provider quote/event time in Unix milliseconds.
     timestamp: Int,
   )
 }

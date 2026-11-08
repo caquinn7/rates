@@ -28,7 +28,6 @@ pub type StrategyConfig {
   StrategyConfig(
     check_for_kraken_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
     request_cmc_conversion: RequestCmcConversion,
-    get_current_time_ms: fn() -> Int,
     behavior: StrategyBehavior,
   )
 }
@@ -116,9 +115,6 @@ fn execute_cmc_strategy(
   config: StrategyConfig,
 ) -> Result(RateResponse, RateError) {
   rate_request
-  |> cmc_rate_handler.get_rate(
-    config.request_cmc_conversion,
-    config.get_current_time_ms,
-  )
+  |> cmc_rate_handler.get_rate(config.request_cmc_conversion)
   |> result.map_error(CmcError(rate_request, _))
 }

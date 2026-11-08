@@ -13,8 +13,10 @@ import server/currencies/internal/currency_store.{type CurrencyStore}
 import server/dependencies.{type Dependencies, Dependencies}
 import server/env_config.{type EnvConfig}
 import server/integrations/coin_market_cap/client.{
-  type CmcListResponse, type CmcRequestError,
+  type CmcConversionParameters, type CmcListResponse, type CmcRequestError,
+  type CmcResponse,
 }
+import server/integrations/coin_market_cap/cmc_conversion.{type CmcConversion}
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   type CmcCryptoCurrency,
 }
@@ -22,7 +24,7 @@ import server/integrations/coin_market_cap/cmc_fiat_currency.{
   type CmcFiatCurrency,
 }
 import server/integrations/coin_market_cap/factories as cmc_factories
-import server/integrations/kraken/client as kraken_client
+import server/integrations/kraken/client.{type KrakenClient} as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
 import server/rates/internal/kraken_interface
@@ -32,8 +34,8 @@ import server/web/router
 
 pub fn main() {
   let env_config = case env_config.load() {
-    Error(msg) -> panic as msg
     Ok(c) -> c
+    Error(msg) -> panic as { "failed to load env_config: " <> msg }
   }
 
   let logger = configure_logging(env_config.log_level)
@@ -68,55 +70,24 @@ pub fn main() {
   )
 
   let assert Ok(kraken_client) = {
+    let logger = logger.with(logger, "source", "kraken")
     let create_price_store = fn() {
       let assert Ok(store) = price_store.new()
       store
     }
-
-    kraken_client.new(
-      logger.with(logger, "source", "kraken"),
-      create_price_store,
-    )
+    kraken_client.new(logger, create_price_store)
   }
 
   wait_for_kraken_symbols(time.monotonic_time_ms(), 10_000)
 
-  let dependencies = {
-    let currency_repository = currency_repository.new(currency_store)
-
-    let assert Ok(price_store) = price_store.get_store()
-      as "tried to get reference to price store before it was created"
-
-    let currency_symbol_cache = {
-      let on_fetch_failed = fn(err) {
-        logger
-        |> logger.with("source", "server")
-        |> logger.with("error", string.inspect(err))
-        |> logger.error("Error getting cryptos from CMC")
-      }
-
-      currency_symbol_cache_factory.create(
-        currency_repository,
-        request_cmc_cryptos,
-        on_fetch_failed,
-      )
-    }
-
-    Dependencies(
-      currency_repository:,
-      currency_symbol_cache:,
-      subscription_refresh_interval_ms: 10_000,
-      kraken_interface: kraken_interface.new(
-        kraken_client,
-        price_store,
-        pairs.exists,
-      ),
-      request_cmc_cryptos:,
-      request_cmc_conversion:,
-      get_current_time_ms: time.system_time_ms,
-      logger:,
+  let dependencies =
+    build_dependencies(
+      currency_store,
+      logger,
+      request_cmc_cryptos,
+      kraken_client,
+      request_cmc_conversion,
     )
-  }
 
   start_server(env_config, dependencies)
 }
@@ -155,11 +126,6 @@ fn fetch_and_store_currencies(
     )
 
   case currencies_result {
-    Error(err) -> {
-      let msg = "error getting currencies: " <> string.inspect(err)
-      panic as msg
-    }
-
     Ok(currencies) -> {
       currency_store.insert(currency_store, currencies)
 
@@ -168,6 +134,8 @@ fn fetch_and_store_currencies(
       |> logger.with("count", int.to_string(list.length(currencies)))
       |> logger.info("fetched currencies from cmc")
     }
+    Error(err) ->
+      panic as { "error getting currencies: " <> string.inspect(err) }
   }
 }
 
@@ -185,6 +153,50 @@ fn wait_for_kraken_symbols(start_time: Int, timeout_ms: Int) -> Nil {
       }
     }
   }
+}
+
+fn build_dependencies(
+  currency_store: CurrencyStore,
+  logger: Logger,
+  request_cmc_cryptos: fn(Option(String)) ->
+    Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
+  kraken_client: KrakenClient,
+  request_cmc_conversion: fn(CmcConversionParameters) ->
+    Result(CmcResponse(CmcConversion), CmcRequestError),
+) -> Dependencies {
+  let currency_repository = currency_repository.new(currency_store)
+
+  let assert Ok(price_store) = price_store.get_store()
+    as "tried to get reference to price store before it was created"
+
+  let currency_symbol_cache = {
+    let on_fetch_failed = fn(err) {
+      logger
+      |> logger.with("source", "server")
+      |> logger.with("error", string.inspect(err))
+      |> logger.error("Error getting cryptos from CMC")
+    }
+
+    currency_symbol_cache_factory.create(
+      currency_repository,
+      request_cmc_cryptos,
+      on_fetch_failed,
+    )
+  }
+
+  Dependencies(
+    currency_repository:,
+    currency_symbol_cache:,
+    subscription_refresh_interval_ms: 10_000,
+    kraken_interface: kraken_interface.new(
+      kraken_client,
+      price_store,
+      pairs.exists,
+    ),
+    request_cmc_cryptos:,
+    request_cmc_conversion:,
+    logger:,
+  )
 }
 
 fn start_server(env_config: EnvConfig, deps: Dependencies) -> Nil {

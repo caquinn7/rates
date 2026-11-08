@@ -54,7 +54,6 @@ fn scheduled_subscriber_factory(deps: Dependencies, updates) {
             get_currency: deps.currency_repository.get_by_id,
             kraken_interface: deps.kraken_interface,
             request_cmc_conversion: deps.request_cmc_conversion,
-            get_current_time_ms: deps.get_current_time_ms,
           ),
           subscription_manager: manager,
           logger: deps.logger,
@@ -101,7 +100,6 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) { panic },
-      get_current_time_ms: fn() { panic },
       logger: logger.new(),
     )
   let subscriber_factory = factories.create_rate_subscriber_factory(deps)
@@ -167,13 +165,12 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
           "BTC",
           "Bitcoin",
           positive_float.from_float_unsafe(1.0),
-          dict.insert(dict.new(), "2781", QuoteItem(Some(expected_price))),
+          dict.insert(dict.new(), "2781", QuoteItem(Some(expected_price), 100)),
         )
         |> Some
         |> CmcResponse(CmcStatus(0, None), _)
         |> Ok
       },
-      get_current_time_ms: fn() { 100 },
       logger: logger.new(),
     )
   let subscriber_factory = factories.create_rate_subscriber_factory(deps)
@@ -239,13 +236,12 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
           "BTC",
           "Bitcoin",
           positive_float.from_float_unsafe(1.0),
-          dict.insert(dict.new(), "2781", QuoteItem(Some(expected_price))),
+          dict.insert(dict.new(), "2781", QuoteItem(Some(expected_price), 100)),
         )
         |> Some
         |> CmcResponse(CmcStatus(0, None), _)
         |> Ok
       },
-      get_current_time_ms: fn() { 100 },
       logger: logger.new(),
     )
   let subscriber_factory = factories.create_rate_subscriber_factory(deps)
@@ -323,13 +319,12 @@ pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
               "BTC",
               "Bitcoin",
               positive_float.from_float_unsafe(1.0),
-              dict.insert(dict.new(), "2781", QuoteItem(Some(cmc_price))),
+              dict.insert(dict.new(), "2781", QuoteItem(Some(cmc_price), 100)),
             )
             |> Some
             |> CmcResponse(CmcStatus(0, None), _)
             |> Ok
           },
-          get_current_time_ms: fn() { 100 },
         ),
         subscription_manager: manager,
         logger: logger.new(),
@@ -401,7 +396,6 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) { panic },
-      get_current_time_ms: fn() { panic },
       logger: logger.new(),
     )
   let subscriber_factory = factories.create_rate_subscriber_factory(deps)
@@ -462,7 +456,6 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
         |> CmcResponse(CmcStatus(1001, Some("error")), _)
         |> Ok
       },
-      get_current_time_ms: fn() { 100 },
       logger: logger.new(),
     )
   let subscriber_factory = factories.create_rate_subscriber_factory(deps)
@@ -519,7 +512,6 @@ pub fn subscribe_schedules_get_latest_rate_test() {
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) { panic },
-      get_current_time_ms: fn() { panic },
       logger: logger.new(),
     )
   let updates = process.new_subject()
@@ -595,7 +587,6 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) { panic },
-      get_current_time_ms: fn() { panic },
       logger: logger.new(),
     )
   let updates = process.new_subject()
@@ -688,13 +679,16 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
           "BTC",
           "Bitcoin",
           positive_float.from_float_unsafe(1.0),
-          dict.insert(dict.new(), "2781", QuoteItem(Some(expected_cmc_price))),
+          dict.insert(
+            dict.new(),
+            "2781",
+            QuoteItem(Some(expected_cmc_price), 1000),
+          ),
         )
         |> Some
         |> CmcResponse(CmcStatus(0, None), _)
         |> Ok
       },
-      get_current_time_ms: fn() { 1000 },
       logger: logger.new(),
     )
   let updates = process.new_subject()
@@ -762,7 +756,6 @@ pub fn stop_unsubscribes_from_kraken_test() {
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) { panic },
-      get_current_time_ms: fn() { panic },
       logger: logger.new(),
     )
   let subscriber_factory = factories.create_rate_subscriber_factory(deps)

@@ -18,12 +18,7 @@ pub fn insert_symbol_that_does_not_exist_test() {
   let expected_price = positive_float.from_float_unsafe(90_000.0)
   let expected_timestamp = 1
 
-  price_store.insert_with_timestamp(
-    store,
-    symbol,
-    expected_price,
-    expected_timestamp,
-  )
+  price_store.insert(store, symbol, expected_price, expected_timestamp)
 
   let result = price_store.get_price(store, symbol)
 
@@ -38,13 +33,8 @@ pub fn insert_symbol_that_exists_test() {
   let expected_price = positive_float.from_float_unsafe(100_000.0)
   let expected_timestamp = 2
 
-  price_store.insert_with_timestamp(store, symbol, first_price, 1)
-  price_store.insert_with_timestamp(
-    store,
-    symbol,
-    expected_price,
-    expected_timestamp,
-  )
+  price_store.insert(store, symbol, first_price, 1)
+  price_store.insert(store, symbol, expected_price, expected_timestamp)
 
   let result = price_store.get_price(store, symbol)
 
@@ -60,7 +50,7 @@ pub fn get_store_test() {
   use store <- with_price_store
 
   let price = positive_float.from_float_unsafe(90_000.0)
-  price_store.insert_with_timestamp(store, "BTC/USD", price, 1)
+  price_store.insert(store, "BTC/USD", price, 1)
 
   let assert Ok(retrieved_store) = price_store.get_store()
   assert price_store.get_price(retrieved_store, "BTC/USD")
@@ -84,7 +74,7 @@ pub fn non_owner_can_get_store_and_read_price_test() {
   use store <- with_price_store
 
   let price = positive_float.from_float_unsafe(90_000.0)
-  price_store.insert_with_timestamp(store, "BTC/USD", price, 1)
+  price_store.insert(store, "BTC/USD", price, 1)
 
   let result =
     in_other_process(fn() {
@@ -97,7 +87,7 @@ pub fn non_owner_can_get_store_and_read_price_test() {
 
 pub fn non_owner_cannot_insert_price_test() {
   assert_non_owner_cannot_mutate(fn(store) {
-    price_store.insert_with_timestamp(
+    price_store.insert(
       store,
       "BTC/USD",
       positive_float.from_float_unsafe(100_000.0),
@@ -124,7 +114,7 @@ pub fn owner_exit_removes_table_and_allows_recreation_test() {
     process.spawn(fn() {
       let stop = process.new_subject()
       let assert Ok(store) = price_store.new()
-      price_store.insert_with_timestamp(store, "BTC/USD", price, 1)
+      price_store.insert(store, "BTC/USD", price, 1)
       process.send(ready, stop)
 
       let assert Ok(Nil) = process.receive(stop, 1000)
@@ -151,7 +141,7 @@ pub fn delete_existing_symbol_test() {
   use store <- with_price_store
 
   let symbol = "BTC/USD"
-  price_store.insert_with_timestamp(
+  price_store.insert(
     store,
     symbol,
     positive_float.from_float_unsafe(50_000.0),
@@ -175,7 +165,7 @@ pub fn delete_non_existent_symbol_test() {
   price_store.delete_price(store, "NON_EXISTENT")
 
   // Store should still be functional
-  price_store.insert_with_timestamp(
+  price_store.insert(
     store,
     "BTC/USD",
     positive_float.from_float_unsafe(50_000.0),
@@ -190,8 +180,8 @@ pub fn delete_one_symbol_preserves_others_test() {
   let btc_price = positive_float.from_float_unsafe(50_000.0)
   let eth_price = positive_float.from_float_unsafe(3000.0)
 
-  price_store.insert_with_timestamp(store, "BTC/USD", btc_price, 1)
-  price_store.insert_with_timestamp(store, "ETH/USD", eth_price, 2)
+  price_store.insert(store, "BTC/USD", btc_price, 1)
+  price_store.insert(store, "ETH/USD", eth_price, 2)
 
   price_store.delete_price(store, "BTC/USD")
 
@@ -227,7 +217,7 @@ fn assert_non_owner_cannot_mutate(mutate: fn(PriceStore) -> Nil) {
   use store <- with_price_store
 
   let price = positive_float.from_float_unsafe(90_000.0)
-  price_store.insert_with_timestamp(store, "BTC/USD", price, 1)
+  price_store.insert(store, "BTC/USD", price, 1)
 
   let assert Error(exception.Errored(reason)) =
     in_other_process(fn() { exception.rescue(fn() { mutate(store) }) })

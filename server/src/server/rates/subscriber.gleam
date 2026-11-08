@@ -147,7 +147,6 @@ fn start(
       config.base.get_currency,
       config.base.kraken_interface,
       config.base.request_cmc_conversion,
-      config.base.get_current_time_ms,
     )
   }
 
@@ -220,7 +219,6 @@ fn handle_msg(
   get_currency: fn(Int) -> Result(Currency, Nil),
   kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
-  get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
   case msg {
     Subscribe(rate_request) ->
@@ -231,7 +229,6 @@ fn handle_msg(
         get_currency,
         kraken_interface,
         request_cmc_conversion,
-        get_current_time_ms,
       )
 
     GetLatestRate(scheduled_subscription) ->
@@ -242,7 +239,6 @@ fn handle_msg(
         get_currency,
         kraken_interface,
         request_cmc_conversion,
-        get_current_time_ms,
       )
 
     Stop -> handle_stop(state, kraken_interface.unsubscribe)
@@ -258,7 +254,6 @@ fn handle_subscribe(
   get_currency: fn(Int) -> Result(Currency, Nil),
   kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
-  get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
   let state = cleanup_existing_subscription(state, kraken_interface.unsubscribe)
 
@@ -290,7 +285,6 @@ fn handle_subscribe(
         StrategyConfig(
           check_for_kraken_price: kraken_interface.check_for_price,
           request_cmc_conversion:,
-          get_current_time_ms:,
           behavior: create_subscriber_behavior(subscription_id, state.logger),
         )
 
@@ -331,7 +325,6 @@ fn handle_get_latest_rate(
   get_currency: fn(Int) -> Result(Currency, Nil),
   kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
-  get_current_time_ms: fn() -> Int,
 ) -> Next(State, Msg) {
   let subscription =
     subscription_manager.get_subscription(state.subscription_manager)
@@ -356,7 +349,6 @@ fn handle_get_latest_rate(
         get_currency,
         kraken_interface,
         request_cmc_conversion,
-        get_current_time_ms,
       )
 
     Kraken(rate_request, symbol) -> {
@@ -364,7 +356,6 @@ fn handle_get_latest_rate(
         StrategyConfig(
           check_for_kraken_price: kraken_interface.check_for_price,
           request_cmc_conversion:,
-          get_current_time_ms:,
           behavior: create_subscriber_behavior(subscription_id, state.logger),
         )
       let #(result, should_downgrade) =

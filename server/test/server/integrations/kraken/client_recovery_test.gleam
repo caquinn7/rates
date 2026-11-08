@@ -211,6 +211,8 @@ pub fn unexpected_worker_exit_reconnects_and_preserves_subscription_state_test()
 
   let assert Ok(store) = price_store.get_store()
   let cached = await_price(store, 100.0, 100)
+  assert cached.timestamp == 1_794_146_160_550
+  assert price_store.get_price(store, "BTC/USD") == Ok(cached)
 
   let assert [worker] = monitored_processes(client.pid)
   let assert [socket] = linked_processes(worker)
@@ -226,12 +228,50 @@ pub fn unexpected_worker_exit_reconnects_and_preserves_subscription_state_test()
   assert process.is_alive(client.pid)
   assert price_store.get_price(store, "BTC/USD") == Ok(cached)
 
-  process.send(recovered.control, Send(ticker_json("BTC/USD", 101)))
-  let _ = await_price(store, 101.0, 100)
+  process.send(
+    recovered.control,
+    Send(ticker_json_with_timestamp(
+      "BTC/USD",
+      101,
+      "2026-11-08T13:57:00.999999Z",
+    )),
+  )
+  let fresh = await_price(store, 101.0, 100)
+  assert fresh.timestamp == 1_794_146_220_999
 
   process.send(client.data, Unsubscribe("BTC/USD"))
   let _ =
     await_request(fixture, 1, fn(req) { req == TickerUnsubscribe(["BTC/USD"]) })
+}
+
+pub fn invalid_ticker_timestamps_preserve_cached_prices_test() {
+  use fixture, url <- with_server([])
+  use client, opened <- with_client(fixture, url, config())
+
+  process.send(client.data, Subscribe("BTC/USD"))
+  let _ =
+    await_request(fixture, 0, fn(req) { req == TickerSubscribe(["BTC/USD"]) })
+  process.send(client.data, Subscribe("ETH/USD"))
+  let _ =
+    await_request(fixture, 0, fn(req) { req == TickerSubscribe(["ETH/USD"]) })
+
+  let assert Ok(store) = price_store.get_store()
+  let cached = await_price(store, 100.0, 100)
+  let _ = await_symbol_price(store, "ETH/USD", 100.0, 100)
+
+  [
+    "{\"channel\":\"ticker\",\"type\":\"update\",\"data\":[{\"symbol\":\"BTC/USD\",\"last\":999}]}",
+    "{\"channel\":\"ticker\",\"type\":\"update\",\"data\":[{\"symbol\":\"BTC/USD\",\"last\":999,\"timestamp\":null}]}",
+    ticker_json_with_timestamp("BTC/USD", 999, "invalid"),
+    ticker_json_with_timestamp("BTC/USD", 999, "2026-02-30T00:00:00Z"),
+  ]
+  |> list.each(fn(payload) { process.send(opened.control, Send(payload)) })
+
+  // A valid update on the same socket proves the preceding frames were handled.
+  process.send(opened.control, Send(ticker_json("ETH/USD", 101)))
+  let _ = await_symbol_price(store, "ETH/USD", 101.0, 100)
+  assert price_store.get_price(store, "BTC/USD") == Ok(cached)
+  assert process.is_alive(client.pid)
 }
 
 pub fn shutdown_during_reconnect_handshake_cleans_up_the_attempt_test() {
@@ -284,6 +324,7 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
         connection.Received(TickerResponse(
           "BTC/USD",
           positive_float.from_float_unsafe(999.0),
+          1_794_146_160_999,
         )),
       ),
       ConnectionEvent(
@@ -735,25 +776,29 @@ fn await_attempt(fixture: Fixture, attempt) {
 }
 
 fn await_price(store, expected, retries) {
+  await_symbol_price(store, "BTC/USD", expected, retries)
+}
+
+fn await_symbol_price(store, symbol, expected, retries) {
   let price = positive_float.from_float_unsafe(expected)
-  case price_store.get_price(store, "BTC/USD") {
+  case price_store.get_price(store, symbol) {
     Ok(entry) if entry.price == price -> entry
     _ -> {
       assert retries > 0
       process.sleep(5)
-      await_price(store, expected, retries - 1)
+      await_symbol_price(store, symbol, expected, retries - 1)
     }
   }
 }
 
 fn await_dead(pid, retries) {
   case process.is_alive(pid) {
-    False -> Nil
     True -> {
       assert retries > 0
       process.sleep(5)
       await_dead(pid, retries - 1)
     }
+    False -> Nil
   }
 }
 
@@ -789,11 +834,17 @@ fn ticker_confirmation_json(symbol) {
 }
 
 fn ticker_json(symbol, price) {
+  ticker_json_with_timestamp(symbol, price, "2026-11-08T13:56:00.550875Z")
+}
+
+fn ticker_json_with_timestamp(symbol, price, timestamp) {
   "{\"channel\":\"ticker\",\"type\":\"update\",\"data\":[{\"symbol\":\""
   <> symbol
   <> "\",\"last\":"
   <> int.to_string(price)
-  <> "}]}"
+  <> ",\"timestamp\":\""
+  <> timestamp
+  <> "\"}]}"
 }
 
 const instrument_snapshot =

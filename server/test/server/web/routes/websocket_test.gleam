@@ -196,7 +196,6 @@ fn with_failing_provider(run) {
           request_cmc_conversion: fn(_) {
             Error(HttpError(httpc.InvalidUtf8Response))
           },
-          get_current_time_ms: fn() { 123 },
         ),
         subscription_manager: unwrap(subscription_manager.new(1000)),
         logger: logger.new(),
@@ -288,7 +287,6 @@ fn create_rate_subscriber(id, reply_to, kraken_interface) {
         request_cmc_conversion: fn(_) {
           panic as "Kraken fixture must supply the price"
         },
-        get_current_time_ms: time.system_time_ms,
       ),
       subscription_manager: manager,
       logger: logger.new(),

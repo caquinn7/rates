@@ -22,7 +22,6 @@ pub type Dependencies {
       Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
     request_cmc_conversion: fn(CmcConversionParameters) ->
       Result(CmcResponse(CmcConversion), CmcRequestError),
-    get_current_time_ms: fn() -> Int,
     logger: Logger,
   )
 }
