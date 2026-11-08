@@ -1,7 +1,7 @@
 # rates 💹
 
 A real-time cryptocurrency and fiat currency converter with live WebSocket updates, built with [Gleam](https://gleam.run/).
-Check it out [here](https://rates.fly.dev/?state=v1%3A1-2781%3B1027-2781%3B2010-2781)!
+Check it out at [rates.fly.dev](https://rates.fly.dev/?state=v1%3A1-2781%3B1027-2781%3B2010-2781)!
 
 ![Gleam](https://img.shields.io/badge/gleam-%23ffaff3.svg?style=flat&logo=gleam&logoColor=black)
 ![Erlang](https://img.shields.io/badge/Erlang-white.svg?style=flat&logo=erlang&logoColor=a90533)
@@ -33,7 +33,7 @@ in your shell. Then run from the repo root:
 ```
 
 This builds the client assets, loads `server/.env` if present, and starts the
-server at http://localhost:8080. It does not reinstall npm dependencies. Stop
+server at <http://localhost:8080>. It does not reinstall npm dependencies. Stop
 with Ctrl+C and rerun after making changes.
 
 ## Tests
@@ -53,7 +53,7 @@ This application is structured as a monorepo with three Gleam projects:
 
 ### 📦 Projects
 
-```
+```text
 rates/
 ├── client/    # Lustre SPA with Elm Architecture (compiles to JavaScript)
 ├── server/    # Wisp web framework + Mist web server (compiles to Erlang)
@@ -81,7 +81,7 @@ rates/
 
 ### Rate Flow
 
-```
+```text
 User adds BTC/USD converter
     ↓
 Client subscribes via WebSocket
