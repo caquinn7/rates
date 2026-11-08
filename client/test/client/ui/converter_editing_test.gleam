@@ -1,3 +1,4 @@
+import client/currency/formatting
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input.{type InputEvent, InputEvent, Selection}
 import client/ui/converter.{
@@ -7,9 +8,241 @@ import client/ui/converter.{
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
-import shared/currency.{Crypto}
+import lustre/element
+import shared/currency.{Crypto, Fiat}
 import shared/numbers/non_negative_float
 import shared/numbers/positive_float
+import shared/websocket_response.{RateUnavailable}
+
+pub fn entered_digits_survive_blur_and_refocus_for_crypto_and_fiat_test() {
+  let cases = [
+    #("1.23456789", "1.23456789", "1.23456789", 1.23456789),
+    #("1234.567890", "1,234.567890", "1234.567890", 1234.56789),
+    #("1.2300", "1.2300", "1.2300", 1.23),
+    #("0.", "0", "0", 0.0),
+    #(".5000", "0.5000", "0.5000", 0.5),
+    #(
+      "0.123456789123456789",
+      "0.123456789123456789",
+      "0.123456789123456789",
+      0.12345678912345678,
+    ),
+    #(
+      "9007199254740993",
+      "9,007,199,254,740,993",
+      "9007199254740993",
+      9_007_199_254_740_992.0,
+    ),
+    #("1.2300e10", "1.2300e10", "1.2300e10", 12_300_000_000.0),
+  ]
+
+  list.each([Left, Right], fn(edited_side) {
+    list.each([False, True], fn(commit_before_blur) {
+      list.each(cases, fn(test_case) {
+        let #(text, display, retained, value) = test_case
+        let focused = focus(new_mixed_converter(), edited_side)
+        let #(pending, revision) = enter_text(focused, edited_side, text)
+        let pending = case commit_before_blur {
+          True -> commit_draft(pending, edited_side, revision)
+          False -> pending
+        }
+        assert draft_text(pending, edited_side) == text
+        assert_rendered_amount(pending, edited_side, text)
+
+        let #(blurred, _) =
+          converter.update(
+            pending,
+            UserBlurredAmount(edited_side, input_event(text)),
+          )
+        assert amount_input(blurred, edited_side).raw == display
+        assert amount_input(blurred, edited_side).entered_text == Some(retained)
+        assert_parsed_amount(blurred, edited_side, value)
+        assert_rendered_amount(blurred, edited_side, display)
+
+        let calculated_side = side.opposite_side(edited_side)
+        let converted = case edited_side {
+          Left -> value *. 2.0
+          Right -> value /. 2.0
+        }
+        assert_parsed_amount(blurred, calculated_side, converted)
+        assert_calculated_display(blurred, calculated_side)
+
+        let _ =
+          list.fold([1, 2, 3], blurred, fn(current, _) {
+            let refocused = focus(current, edited_side)
+            assert draft_text(refocused, edited_side) == retained
+            assert_rendered_amount(refocused, edited_side, retained)
+            let #(reblurred, effect) =
+              converter.update(
+                refocused,
+                UserBlurredAmount(edited_side, input_event(retained)),
+              )
+            assert effect == NoEffect
+            assert reblurred.last_edited == edited_side
+            assert amount_input(reblurred, edited_side).raw == display
+            assert_parsed_amount(reblurred, edited_side, value)
+            reblurred
+          })
+      })
+    })
+  })
+}
+
+pub fn entered_digits_survive_live_rates_errors_and_recovery_test() {
+  list.each([Left, Right], fn(edited_side) {
+    let focused = focus(new_mixed_converter(), edited_side)
+    let #(pending, revision) = enter_text(focused, edited_side, "1.2345678900")
+    let committed = commit_draft(pending, edited_side, revision)
+    let #(blurred, _) =
+      converter.update(
+        committed,
+        UserBlurredAmount(edited_side, input_event("1.2345678900")),
+      )
+    let rate_updated =
+      converter.with_rate(blurred, Some(positive_float.from_float_unsafe(3.0)))
+    let failed = converter.with_rate_error(rate_updated, RateUnavailable)
+    let recovered =
+      converter.with_rate(failed, Some(positive_float.from_float_unsafe(4.0)))
+
+    [rate_updated, failed, recovered]
+    |> list.each(fn(current) {
+      assert amount_input(current, edited_side).raw == "1.2345678900"
+      assert amount_input(current, edited_side).entered_text
+        == Some("1.2345678900")
+      assert_parsed_amount(current, edited_side, 1.23456789)
+      assert_calculated_display(current, side.opposite_side(edited_side))
+    })
+  })
+}
+
+pub fn finalizing_edits_for_currency_changes_or_rate_loss_preserves_digits_test() {
+  list.each([Left, Right], fn(edited_side) {
+    list.each([False, True], fn(commit_before_change) {
+      let focused = focus(new_mixed_converter(), edited_side)
+      let #(pending, revision) = enter_text(focused, edited_side, "1234.567890")
+      let pending = case commit_before_change {
+        True -> commit_draft(pending, edited_side, revision)
+        False -> pending
+      }
+      let currency_changed =
+        converter.with_selected_currency(
+          pending,
+          edited_side,
+          Crypto(3, "Other", "OTH", None),
+        )
+      let rate_lost = converter.with_rate(pending, None)
+
+      list.each([currency_changed, rate_lost], fn(current) {
+        assert amount_input(current, edited_side).active_edit == None
+        assert amount_input(current, edited_side).raw == "1,234.567890"
+        assert amount_input(current, edited_side).entered_text
+          == Some("1234.567890")
+        assert converter.update(current, AmountCommitDue(edited_side, revision))
+          == #(current, NoEffect)
+
+        let recovered =
+          converter.with_rate(
+            current,
+            Some(positive_float.from_float_unsafe(3.0)),
+          )
+        assert amount_input(recovered, edited_side).raw == "1,234.567890"
+        assert draft_text(focus(recovered, edited_side), edited_side)
+          == "1234.567890"
+        assert_calculated_display(recovered, side.opposite_side(edited_side))
+      })
+    })
+  })
+}
+
+pub fn editing_the_calculated_side_replaces_the_previous_entered_text_test() {
+  list.each([Left, Right], fn(edited_side) {
+    let focused = focus(new_mixed_converter(), edited_side)
+    let #(pending, _) = enter_text(focused, edited_side, "1.2300")
+    let #(entered, _) =
+      converter.update(
+        pending,
+        UserBlurredAmount(edited_side, input_event("1.2300")),
+      )
+    let calculated_side = side.opposite_side(edited_side)
+    let inspected = focus(entered, calculated_side)
+    assert inspected.last_edited == edited_side
+    let #(unmodified, _) =
+      converter.update(
+        inspected,
+        UserBlurredAmount(
+          calculated_side,
+          input_event(draft_text(inspected, calculated_side)),
+        ),
+      )
+    assert unmodified.last_edited == edited_side
+    assert amount_input(unmodified, edited_side).entered_text == Some("1.2300")
+
+    let focused = focus(unmodified, calculated_side)
+    let #(pending, _) = enter_text(focused, calculated_side, "5.6700")
+    let #(reversed, _) =
+      converter.update(
+        pending,
+        UserBlurredAmount(calculated_side, input_event("5.6700")),
+      )
+    assert reversed.last_edited == calculated_side
+    assert amount_input(reversed, calculated_side).raw == "5.6700"
+    assert amount_input(reversed, calculated_side).entered_text
+      == Some("5.6700")
+    assert_calculated_display(reversed, edited_side)
+    let assert Some(parsed) = amount_input(reversed, edited_side).parsed
+    assert draft_text(focus(reversed, edited_side), edited_side)
+      == non_negative_float.to_string(parsed)
+  })
+}
+
+pub fn replacing_or_clearing_an_amount_discards_retained_text_test() {
+  list.each([Left, Right], fn(edited_side) {
+    let focused = focus(new_mixed_converter(), edited_side)
+    let #(pending, _) = enter_text(focused, edited_side, "1.2300")
+    let #(entered, _) =
+      converter.update(
+        pending,
+        UserBlurredAmount(edited_side, input_event("1.2300")),
+      )
+
+    list.each(["2", "", "1,00"], fn(replacement) {
+      let replaced = converter.with_amount(entered, edited_side, replacement)
+      assert amount_input(replaced, edited_side).entered_text == None
+      assert amount_input(replaced, side.opposite_side(edited_side)).entered_text
+        == None
+    })
+
+    list.each(["", "1,00"], fn(text) {
+      let #(pending, _) =
+        enter_text(focus(entered, edited_side), edited_side, text)
+      let #(cleared, _) =
+        converter.update(
+          pending,
+          UserBlurredAmount(edited_side, input_event(text)),
+        )
+      assert amount_input(cleared, edited_side).raw == text
+      assert amount_input(cleared, edited_side).parsed == None
+      assert amount_input(cleared, edited_side).entered_text == None
+      assert amount_input(cleared, side.opposite_side(edited_side)).raw == ""
+    })
+  })
+}
+
+pub fn seeded_amounts_keep_existing_formatting_until_edited_test() {
+  let assert Ok(original) =
+    converter.new(
+      "editing-test",
+      [Crypto(1, "Bitcoin", "BTC", None), Fiat(2, "US Dollar", "USD", "$")],
+      #(1, 2),
+      "1.23456789",
+      Some(positive_float.from_float_unsafe(2.0)),
+    )
+  assert amount_input(original, Left).raw == "1.2346"
+  assert amount_input(original, Left).entered_text == None
+  assert amount_input(original, Right).raw == "2.47"
+  assert amount_input(original, Right).entered_text == None
+  assert draft_text(focus(original, Left), Left) == "1.23456789"
+}
 
 pub fn focus_reveals_ungrouped_value_without_changing_driver_test() {
   let original = new_converter()
@@ -265,7 +498,7 @@ pub fn committed_draft_and_selection_survive_live_rates_test() {
       )
 
     assert effect == NoEffect
-    assert amount_input(blurred, edited_side).raw == "120"
+    assert amount_input(blurred, edited_side).raw == "120.00"
   })
 }
 
@@ -367,6 +600,18 @@ fn new_converter() -> Converter {
   converter
 }
 
+fn new_mixed_converter() -> Converter {
+  let assert Ok(converter) =
+    converter.new(
+      "editing-test",
+      [Crypto(1, "Bitcoin", "BTC", None), Fiat(2, "US Dollar", "USD", "$")],
+      #(1, 2),
+      "1000",
+      Some(positive_float.from_float_unsafe(2.0)),
+    )
+  converter
+}
+
 fn input_event(text: String) -> InputEvent {
   let end = string.length(text)
   InputEvent(value: text, selection_start: end, selection_end: end)
@@ -416,4 +661,29 @@ fn assert_parsed_amount(
 ) -> Nil {
   let assert Some(parsed) = amount_input(converter, side).parsed
   assert non_negative_float.unwrap(parsed) == expected
+}
+
+fn assert_rendered_amount(
+  converter: Converter,
+  side: Side,
+  text: String,
+) -> Nil {
+  let assert Ok(#(_, input)) =
+    string.split_once(
+      element.to_string(converter.view(converter)),
+      "id=\"amount-input-editing-test-" <> side.to_string(side) <> "\"",
+    )
+  let assert Ok(#(attributes, _)) = string.split_once(input, ">")
+  assert string.contains(attributes, "value=\"" <> text <> "\"")
+}
+
+fn assert_calculated_display(converter: Converter, side: Side) -> Nil {
+  let input = converter.get_converter_input(converter, side)
+  let assert Some(amount) = input.amount_input.parsed
+  assert input.amount_input.raw
+    == formatting.format_currency_amount(
+      input.currency_selector.selected_currency,
+      amount,
+    )
+  assert input.amount_input.entered_text == None
 }

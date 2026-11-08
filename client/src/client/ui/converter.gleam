@@ -51,6 +51,7 @@ pub type AmountInput {
   AmountInput(
     raw: String,
     parsed: Option(NonNegativeFloat),
+    entered_text: Option(String),
     border_color: Option(RateChangeColor),
     active_edit: Option(AmountEditSession),
     revision: Int,
@@ -70,7 +71,14 @@ pub fn new_amount_input(
   parsed: Option(NonNegativeFloat),
   border_color: Option(RateChangeColor),
 ) -> AmountInput {
-  AmountInput(raw:, parsed:, border_color:, active_edit: None, revision: 0)
+  AmountInput(
+    raw:,
+    parsed:,
+    entered_text: None,
+    border_color:,
+    active_edit: None,
+    revision: 0,
+  )
 }
 
 pub type CurrencySelector {
@@ -221,7 +229,12 @@ fn clear_calculated_amount(converter: Converter) -> Converter {
     fn(input) {
       ConverterInput(
         ..input,
-        amount_input: AmountInput(..input.amount_input, raw: "", parsed: None),
+        amount_input: AmountInput(
+          ..input.amount_input,
+          raw: "",
+          parsed: None,
+          entered_text: None,
+        ),
       )
     },
   )
@@ -263,6 +276,7 @@ fn with_rate_with_custom_glow(
             ..input.amount_input,
             raw: "price not tracked",
             parsed: None,
+            entered_text: None,
             border_color: None,
           ),
         )
@@ -303,6 +317,7 @@ fn with_rate_with_custom_glow(
                 ..converter_input.amount_input,
                 raw: "price not tracked",
                 parsed: None,
+                entered_text: None,
                 border_color: None,
               )
 
@@ -314,6 +329,7 @@ fn with_rate_with_custom_glow(
                   amount,
                 ),
                 parsed: Some(amount),
+                entered_text: None,
                 border_color: color_from_rate_change(previous_rate, rate),
               )
           }
@@ -367,6 +383,7 @@ pub fn with_amount(
           ..input.amount_input,
           raw: raw_amount,
           parsed: None,
+          entered_text: None,
         ),
       )
     })
@@ -374,7 +391,12 @@ pub fn with_amount(
     |> map_converter_inputs(side.opposite_side(side), fn(input) {
       ConverterInput(
         ..input,
-        amount_input: AmountInput(..input.amount_input, raw: "", parsed: None),
+        amount_input: AmountInput(
+          ..input.amount_input,
+          raw: "",
+          parsed: None,
+          entered_text: None,
+        ),
       )
     })
   }
@@ -395,6 +417,7 @@ pub fn with_amount(
           ..input.amount_input,
           raw: raw_display,
           parsed: Some(parsed_amount),
+          entered_text: None,
         ),
       )
     })
@@ -428,7 +451,12 @@ pub fn with_amount(
 
       let amount_input = case converted_amount {
         None ->
-          AmountInput(..opposite_input.amount_input, raw: "", parsed: None)
+          AmountInput(
+            ..opposite_input.amount_input,
+            raw: "",
+            parsed: None,
+            entered_text: None,
+          )
 
         Some(converted) -> {
           let raw_display =
@@ -441,6 +469,7 @@ pub fn with_amount(
             ..opposite_input.amount_input,
             raw: raw_display,
             parsed: Some(converted),
+            entered_text: None,
           )
         }
       }
@@ -641,6 +670,30 @@ pub fn has_pending_amount_edit(converter: Converter) -> Bool {
   })
 }
 
+fn commit_amount_edit(
+  converter: Converter,
+  side: Side,
+  text: String,
+) -> Converter {
+  let converter = with_amount(converter, side, text)
+  case get_parsed_amount(converter, side) {
+    Some(_) -> {
+      let raw = currency_formatting.format_entered_amount(text)
+      converter_with_mapped_inputs(converter, side, fn(input) {
+        ConverterInput(
+          ..input,
+          amount_input: AmountInput(
+            ..input.amount_input,
+            raw:,
+            entered_text: Some(string.replace(raw, ",", "")),
+          ),
+        )
+      })
+    }
+    None -> converter
+  }
+}
+
 fn finish_amount_edit(
   converter: Converter,
   side: Side,
@@ -654,7 +707,7 @@ fn finish_amount_edit(
       // also report the display text before the focus rewrite reaches the DOM.
       let changed = edit.pending || { text != edit.draft && text != amount.raw }
       let converter = case changed {
-        True -> with_amount(converter, side, text)
+        True -> commit_amount_edit(converter, side, text)
         False -> converter
       }
 
@@ -713,9 +766,10 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
       let converter =
         converter_with_mapped_inputs(converter, side, fn(input) {
           let amount = input.amount_input
-          let draft = case amount.parsed {
-            None -> amount.raw
-            Some(value) -> editing_string(value)
+          let draft = case amount.entered_text, amount.parsed {
+            Some(text), _ -> text
+            None, None -> amount.raw
+            None, Some(value) -> editing_string(value)
           }
           let revision = amount.revision + 1
 
@@ -795,7 +849,7 @@ pub fn update(converter: Converter, msg: Msg) -> #(Converter, Effect) {
       let amount = get_converter_input(converter, side).amount_input
       case amount.active_edit {
         Some(edit) if edit.pending && amount.revision == revision -> {
-          let converter = with_amount(converter, side, edit.draft)
+          let converter = commit_amount_edit(converter, side, edit.draft)
           let converter =
             converter_with_mapped_inputs(converter, side, fn(input) {
               ConverterInput(
