@@ -16,13 +16,36 @@ pub type RequestCmcConversion =
   fn(CmcConversionParameters) ->
     Result(CmcResponse(CmcConversion), CmcRequestError)
 
+/// Failures encountered while validating a rate request, requesting a CoinMarketCap
+/// conversion, or interpreting its response.
 pub type RateRequestError {
+  /// A source or target currency ID is not positive. Carries the validation
+  /// message; no provider request is made.
   ValidationError(String)
+
+  /// CoinMarketCap rejected the source or target currency ID. Carries the
+  /// corresponding ID from the rate request.
   CurrencyNotFound(Int)
+
+  /// The HTTP request or JSON decoding failed. Carries the underlying CMC client
+  /// error, including decoding failures for invalid provider timestamps.
   RequestFailed(CmcRequestError)
+
+  /// A decoded response has an unhandled status, missing conversion data, or no
+  /// quote for the requested target currency. Carries the decoded response.
   UnexpectedResponse(CmcResponse(CmcConversion))
 }
 
+/// Requests a CoinMarketCap conversion for one unit of the source currency into
+/// the target currency using `request_conversion`.
+///
+/// Both currency IDs must be positive; validation happens before requesting.
+/// A successful response uses the requested quote's `last_updated` timestamp in
+/// Unix milliseconds. A null quote price is preserved as `rate: None`.
+///
+/// Missing conversion data or a missing target quote returns `UnexpectedResponse`.
+/// Validation, request, decoding, and other response failures are represented by
+/// `RateRequestError`.
 pub fn get_rate(
   rate_request: RateRequest,
   request_conversion: RequestCmcConversion,
