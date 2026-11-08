@@ -8,6 +8,5 @@ pub type RateServiceConfig {
     get_currency: fn(Int) -> Result(Currency, Nil),
     kraken_interface: KrakenInterface,
     request_cmc_conversion: RequestCmcConversion,
-    get_current_time_ms: fn() -> Int,
   )
 }

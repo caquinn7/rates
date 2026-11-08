@@ -135,7 +135,6 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
       request_cmc_conversion: fn(_) {
         panic as "Should not call CMC on Kraken success"
       },
-      get_current_time_ms: fn() { 1000 },
       behavior: StrategyBehavior(
         on_kraken_success: fn() { Nil },
         on_kraken_failure: fn(_, _) { panic as "Kraken failure not expected" },
@@ -151,6 +150,37 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
   assert response.rate == Some(expected_price)
   assert response.source == rate_response.Kraken
   assert response.timestamp == 1000
+  assert !should_downgrade
+}
+
+pub fn inverse_kraken_rates_preserve_the_provider_timestamp_test() {
+  let assert Ok(symbol) =
+    kraken_symbol.new(#("USD", "BTC"), fn(symbol) { symbol == "BTC/USD" })
+  let config =
+    StrategyConfig(
+      check_for_kraken_price: fn(_) {
+        Ok(PriceEntry(
+          positive_float.from_float_unsafe(50_000.0),
+          1_794_146_160_550,
+        ))
+      },
+      request_cmc_conversion: fn(_) { panic as "CMC must not be used" },
+      behavior: StrategyBehavior(
+        on_kraken_success: fn() { Nil },
+        on_kraken_failure: fn(_, _) { panic as "Kraken failure not expected" },
+      ),
+    )
+
+  let #(result, should_downgrade) =
+    rate_source_strategy.execute_strategy(
+      KrakenStrategy(symbol),
+      RateRequest(2781, 1),
+      config,
+    )
+
+  let assert Ok(response) = result
+  assert response.rate == Some(positive_float.from_float_unsafe(0.00002))
+  assert response.timestamp == 1_794_146_160_550
   assert !should_downgrade
 }
 
@@ -183,7 +213,7 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
         "BTC",
         "Bitcoin",
         positive_float.from_float_unsafe(1.0),
-        dict.from_list([#("2", QuoteItem(Some(expected_price)))]),
+        dict.from_list([#("2", QuoteItem(Some(expected_price), 1000))]),
       )),
     ))
   }
@@ -192,7 +222,6 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
     StrategyConfig(
       check_for_kraken_price: fn(_) { Error(Nil) },
       request_cmc_conversion:,
-      get_current_time_ms: fn() { 1000 },
       behavior: StrategyBehavior(
         on_kraken_success: fn() { panic as "Kraken success not expected" },
         on_kraken_failure: fn(_, _) { Nil },
@@ -223,7 +252,7 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
         "BTC",
         "Bitcoin",
         positive_float.from_float_unsafe(1.0),
-        dict.from_list([#("2", QuoteItem(Some(expected_price)))]),
+        dict.from_list([#("2", QuoteItem(Some(expected_price), 1000))]),
       )),
     ))
   }
@@ -232,7 +261,6 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
     StrategyConfig(
       check_for_kraken_price: fn(_) { Error(Nil) },
       request_cmc_conversion: cmc_get_rate,
-      get_current_time_ms: fn() { 1000 },
       behavior: StrategyBehavior(
         on_kraken_success: fn() {
           panic as "Should not be called for CMC strategy"
@@ -285,7 +313,6 @@ pub fn execute_strategy_returns_error_when_cmc_fails_test() {
         panic as "Should not call Kraken for CMC strategy"
       },
       request_cmc_conversion: request_cmc_conversion,
-      get_current_time_ms: fn() { 1000 },
       behavior: StrategyBehavior(
         on_kraken_success: fn() { Nil },
         on_kraken_failure: fn(_, _) { Nil },

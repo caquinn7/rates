@@ -1,6 +1,7 @@
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/option.{type Option}
+import server/utils/time
 import shared/numbers/positive_float.{type PositiveFloat}
 
 pub type CmcConversion {
@@ -14,7 +15,8 @@ pub type CmcConversion {
 }
 
 pub type QuoteItem {
-  QuoteItem(price: Option(PositiveFloat))
+  /// The quote's last update time in Unix milliseconds.
+  QuoteItem(price: Option(PositiveFloat), last_updated: Int)
 }
 
 pub fn decoder() -> Decoder(CmcConversion) {
@@ -45,5 +47,6 @@ pub fn decoder() -> Decoder(CmcConversion) {
 
 pub fn quote_item_decoder() -> Decoder(QuoteItem) {
   use price <- decode.field("price", decode.optional(positive_float.decoder()))
-  decode.success(QuoteItem(price))
+  use last_updated <- decode.field("last_updated", time.rfc3339_ms_decoder())
+  decode.success(QuoteItem(price, last_updated))
 }

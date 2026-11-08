@@ -16,27 +16,40 @@ pub type RequestCmcConversion =
   fn(CmcConversionParameters) ->
     Result(CmcResponse(CmcConversion), CmcRequestError)
 
+/// Failures encountered while validating a rate request, requesting a CoinMarketCap
+/// conversion, or interpreting its response.
 pub type RateRequestError {
+  /// A source or target currency ID is not positive. Carries the validation
+  /// message; no provider request is made.
   ValidationError(String)
+
+  /// CoinMarketCap rejected the source or target currency ID. Carries the
+  /// corresponding ID from the rate request.
   CurrencyNotFound(Int)
+
+  /// The HTTP request or JSON decoding failed. Carries the underlying CMC client
+  /// error, including decoding failures for invalid provider timestamps.
   RequestFailed(CmcRequestError)
+
+  /// A decoded response has an unhandled status, missing conversion data, or no
+  /// quote for the requested target currency. Carries the decoded response.
   UnexpectedResponse(CmcResponse(CmcConversion))
 }
 
+/// Requests a CoinMarketCap conversion for one unit of the source currency into
+/// the target currency using `request_conversion`.
+///
+/// Both currency IDs must be positive; validation happens before requesting.
+/// A successful response uses the requested quote's `last_updated` timestamp in
+/// Unix milliseconds. A null quote price is preserved as `rate: None`.
+///
+/// Missing conversion data or a missing target quote returns `UnexpectedResponse`.
+/// Validation, request, decoding, and other response failures are represented by
+/// `RateRequestError`.
 pub fn get_rate(
   rate_request: RateRequest,
   request_conversion: RequestCmcConversion,
-  get_current_time_ms: fn() -> Int,
 ) -> Result(RateResponse, RateRequestError) {
-  let validate_currency_id = fn(i) {
-    case i > 0 {
-      False ->
-        Error(ValidationError("Invalid currency id: " <> int.to_string(i)))
-
-      True -> Ok(i)
-    }
-  }
-
   use from_id <- result.try(validate_currency_id(rate_request.from))
   use to_id <- result.try(validate_currency_id(rate_request.to))
 
@@ -47,13 +60,19 @@ pub fn get_rate(
   )
 
   cmc_response
-  |> map_cmc_response(rate_request, get_current_time_ms)
+  |> map_cmc_response(rate_request)
+}
+
+fn validate_currency_id(i: Int) -> Result(Int, RateRequestError) {
+  case i > 0 {
+    True -> Ok(i)
+    False -> Error(ValidationError("Invalid currency id: " <> int.to_string(i)))
+  }
 }
 
 fn map_cmc_response(
   cmc_response: CmcResponse(CmcConversion),
   rate_request: RateRequest,
-  get_current_time_ms: fn() -> Int,
 ) -> Result(RateResponse, RateRequestError) {
   let CmcResponse(CmcStatus(err_code, err_msg), data) = cmc_response
 
@@ -65,18 +84,18 @@ fn map_cmc_response(
       Error(CurrencyNotFound(rate_request.to))
 
     0, _, Some(conversion) -> {
-      let rate =
+      use quote_item <- result.try(
         conversion.quote
         |> dict.get(int.to_string(rate_request.to))
-        |> option.from_result
-        |> option.then(fn(quote_item) { quote_item.price })
+        |> result.replace_error(UnexpectedResponse(cmc_response)),
+      )
 
       Ok(RateResponse(
         from: conversion.id,
         to: rate_request.to,
-        rate:,
+        rate: quote_item.price,
         source: CoinMarketCap,
-        timestamp: get_current_time_ms(),
+        timestamp: quote_item.last_updated,
       ))
     }
 

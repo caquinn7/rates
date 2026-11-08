@@ -1,8 +1,14 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 
+/// A request for the conversion rate of one unit of `from` into `to`.
 pub type RateRequest {
-  RateRequest(from: Int, to: Int)
+  RateRequest(
+    /// Source currency ID.
+    from: Int,
+    /// Target currency ID.
+    to: Int,
+  )
 }
 
 pub fn encode(rate_request: RateRequest) -> Json {

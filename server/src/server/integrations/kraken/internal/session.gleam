@@ -566,8 +566,8 @@ fn receive_message(state: State, message: KrakenResponse) -> State {
         )
 
       let downtime = case state.disconnected_at {
-        None -> 0
         Some(started) -> time.monotonic_time_ms() - started
+        None -> 0
       }
 
       state.logger
@@ -600,11 +600,11 @@ fn receive_message(state: State, message: KrakenResponse) -> State {
       }
     }
 
-    TickerResponse(symbol, price), Ready(_, _) -> {
+    TickerResponse(symbol, price, timestamp), Ready(_, _) -> {
       case
         subscription_counter.is_actively_subscribed(state.subscriptions, symbol)
       {
-        True -> price_store.insert(state.price_store, symbol, price)
+        True -> price_store.insert(state.price_store, symbol, price, timestamp)
         False -> Nil
       }
       state

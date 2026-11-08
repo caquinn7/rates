@@ -49,7 +49,6 @@ pub fn new(config: Config) -> Result(RateResolver, StartError) {
       config.base.get_currency,
       config.base.kraken_interface,
       config.base.request_cmc_conversion,
-      config.base.get_current_time_ms,
     )
   }
 
@@ -73,7 +72,6 @@ fn handle_msg(
   get_currency: fn(Int) -> Result(Currency, Nil),
   kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
-  get_current_time_ms: fn() -> Int,
 ) -> Next(Nil, Msg) {
   case msg {
     GetRate(reply_to, rate_request) -> {
@@ -98,7 +96,6 @@ fn handle_msg(
             StrategyConfig(
               check_for_kraken_price: kraken_interface.check_for_price,
               request_cmc_conversion:,
-              get_current_time_ms:,
               behavior: create_resolver_behavior(
                 kraken_interface.unsubscribe,
                 strategy,

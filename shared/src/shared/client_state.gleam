@@ -95,23 +95,6 @@ pub fn decode_converter_states(
 pub fn decode_converter_state(
   encoded: String,
 ) -> Result(ConverterState, DecodeError) {
-  let parse_currency_id = fn(str) {
-    str
-    |> int.parse
-    |> result.replace_error(InvalidCurrencyId)
-  }
-
-  let parse_amount = fn(str) {
-    str
-    |> float.parse
-    |> result.lazy_or(fn() {
-      str
-      |> int.parse
-      |> result.map(int.to_float)
-    })
-    |> result.replace_error(InvalidAmount)
-  }
-
   case split_and_remove_empty_strings(encoded, "-") {
     [from, to] -> {
       use from <- result.try(parse_currency_id(from))
@@ -137,4 +120,21 @@ fn split_and_remove_empty_strings(
   str
   |> string.split(substring)
   |> list.filter(fn(s) { !string.is_empty(s) })
+}
+
+fn parse_amount(str: String) -> Result(Float, DecodeError) {
+  str
+  |> float.parse
+  |> result.lazy_or(fn() {
+    str
+    |> int.parse
+    |> result.map(int.to_float)
+  })
+  |> result.replace_error(InvalidAmount)
+}
+
+fn parse_currency_id(str: String) -> Result(Int, DecodeError) {
+  str
+  |> int.parse
+  |> result.replace_error(InvalidCurrencyId)
 }

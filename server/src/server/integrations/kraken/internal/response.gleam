@@ -2,6 +2,7 @@ import gleam/bool
 import gleam/dynamic/decode.{type Decoder}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import server/utils/time
 import shared/numbers/positive_float.{type PositiveFloat}
 
 /// Messages decoded from Kraken's WebSocket API for instrument discovery,
@@ -14,9 +15,9 @@ pub type KrakenResponse {
   /// Acknowledges a successful ticker subscription for the given symbol.
   TickerSubscribeConfirmation(String)
 
-  /// A symbol and its positive last traded price. The decoder uses the first
-  /// data entry in the message; the session assigns a timestamp when storing it.
-  TickerResponse(String, PositiveFloat)
+  /// A symbol, its positive last traded price, and the provider's ticker timestamp
+  /// in Unix milliseconds. The decoder uses the first data entry in the message.
+  TickerResponse(symbol: String, price: PositiveFloat, timestamp: Int)
 
   /// Reply to a Kraken JSON ping, carrying its request ID so the session can
   /// match the outstanding ping and clear its pong deadline.
@@ -177,23 +178,25 @@ fn ticker_data_decoder() {
   //     "data": [
   //         {
   //             "symbol": "BTC/USD",
-  //             "last": 84524.0,
+  //             "last": 75804.6,
+  //             "timestamp": "2026-11-08T13:56:00.550875Z"
   //         }
   //     ]
   // }
   let ticker_decoder = fn() {
     use symbol <- decode.field("symbol", decode.string)
     use last <- decode.field("last", positive_float.decoder())
-    decode.success(TickerResponse(symbol, last))
+    use timestamp <- decode.field("timestamp", time.rfc3339_ms_decoder())
+    decode.success(TickerResponse(symbol, last, timestamp))
   }
 
   use data <- decode.field("data", decode.list(ticker_decoder()))
   case list.first(data) {
+    Ok(ticker) -> decode.success(ticker)
     Error(_) ->
       decode.failure(
-        TickerResponse("", positive_float.from_float_unsafe(1.0)),
+        TickerResponse("", positive_float.from_float_unsafe(1.0), 0),
         "TickerResponse",
       )
-    Ok(ticker) -> decode.success(ticker)
   }
 }

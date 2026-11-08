@@ -71,13 +71,17 @@ pub fn decode_ticker_subscribe_confirmation_when_success_is_false_test() {
 
 pub fn decode_ticker_response_test() {
   let json_str =
-    "{\"channel\":\"ticker\",\"type\":\"snapshot\",\"data\":[{\"symbol\":\"BTC/USD\",\"bid\":84393.0,\"bid_qty\":0.00915660,\"ask\":84393.1,\"ask_qty\":15.75854797,\"last\":84393.1,\"volume\":662.72278119,\"vwap\":84815.9,\"low\":84343.5,\"high\":85444.0,\"change\":-92.8,\"change_pct\":-0.11}]}"
+    "{\"channel\":\"ticker\",\"type\":\"snapshot\",\"data\":[{\"symbol\":\"BTC/USD\",\"bid\":84393.0,\"bid_qty\":0.00915660,\"ask\":84393.1,\"ask_qty\":15.75854797,\"last\":84393.1,\"volume\":662.72278119,\"vwap\":84815.9,\"low\":84343.5,\"high\":85444.0,\"change\":-92.8,\"change_pct\":-0.11,\"timestamp\":\"2026-11-08T13:56:00.550875Z\"}]}"
 
   json_str
   |> json.parse(response.decoder())
   |> should.be_ok
   |> should.equal(
-    Some(TickerResponse("BTC/USD", positive_float.from_float_unsafe(84_393.1))),
+    Some(TickerResponse(
+      "BTC/USD",
+      positive_float.from_float_unsafe(84_393.1),
+      1_794_146_160_550,
+    )),
   )
 }
 
@@ -145,9 +149,39 @@ pub fn unhandled_message_kinds_are_ignored_without_decoding_their_payloads_test(
 }
 
 pub fn decode_ticker_update_test() {
-  "{\"channel\":\"ticker\",\"type\":\"update\",\"data\":[{\"symbol\":\"BTC/USD\",\"last\":100.0}]}"
+  "{\"channel\":\"ticker\",\"type\":\"update\",\"data\":[{\"symbol\":\"BTC/USD\",\"bid\":75804.6,\"bid_qty\":0.81824116,\"ask\":75804.7,\"ask_qty\":0.00026802,\"last\":75804.6,\"volume\":716.13372226,\"vwap\":75743.9,\"low\":75467.1,\"high\":76096.2,\"change\":-34.1,\"change_pct\":-0.04,\"trades\":51786,\"timestamp\":\"2026-11-08T13:56:00.550875Z\"}]}"
   |> json.parse(response.decoder())
   |> should.equal(
-    Ok(Some(TickerResponse("BTC/USD", positive_float.from_float_unsafe(100.0)))),
+    Ok(
+      Some(TickerResponse(
+        "BTC/USD",
+        positive_float.from_float_unsafe(75_804.6),
+        1_794_146_160_550,
+      )),
+    ),
   )
+}
+
+pub fn reject_missing_null_or_invalid_ticker_timestamps_test() {
+  ["snapshot", "update"]
+  |> list.each(fn(kind) {
+    [
+      "",
+      ",\"timestamp\":null",
+      ",\"timestamp\":123",
+      ",\"timestamp\":\"invalid\"",
+      ",\"timestamp\":\"2026-02-30T00:00:00Z\"",
+    ]
+    |> list.each(fn(timestamp_field) {
+      let payload =
+        "{\"channel\":\"ticker\",\"type\":\""
+        <> kind
+        <> "\",\"data\":[{\"symbol\":\"BTC/USD\",\"last\":100"
+        <> timestamp_field
+        <> "}]}"
+      let assert Error(json.UnableToDecode([error, ..])) =
+        json.parse(payload, response.decoder())
+      assert error.path == ["data", "0", "timestamp"]
+    })
+  })
 }

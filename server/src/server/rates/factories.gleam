@@ -54,6 +54,5 @@ fn rate_service_config(deps: Dependencies) -> RateServiceConfig {
     get_currency: deps.currency_repository.get_by_id,
     kraken_interface: deps.kraken_interface,
     request_cmc_conversion: deps.request_cmc_conversion,
-    get_current_time_ms: deps.get_current_time_ms,
   )
 }

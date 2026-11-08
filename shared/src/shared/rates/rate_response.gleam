@@ -3,12 +3,18 @@ import gleam/json.{type Json}
 import gleam/option.{type Option}
 import shared/numbers/positive_float.{type PositiveFloat}
 
+/// A provider quote for converting one unit of `from` into `to`.
 pub type RateResponse {
   RateResponse(
+    /// Source currency ID.
     from: Int,
+    /// Target currency ID.
     to: Int,
+    /// Amount of target currency per source unit, or `None` when the quote has no price.
     rate: Option(PositiveFloat),
+    /// Provider that supplied the quote.
     source: Source,
+    /// Provider quote/event time in Unix milliseconds, preserved when served from a cache.
     timestamp: Int,
   )
 }

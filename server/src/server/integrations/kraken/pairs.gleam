@@ -4,10 +4,10 @@
 //// of Kraken symbols at application startup. Reads are fast and safe from any process, while writes
 //// should be limited to a single owner (e.g. the Kraken actor) to avoid inconsistency.
 
-import gleam/erlang/atom
+import gleam/erlang/atom.{type Atom}
 import gleam/set.{type Set}
 
-const key = "kraken_pairs"
+const persistent_term_key = "kraken_pairs"
 
 /// Stores the full set of Kraken-supported currency pairs in persistent memory.
 ///
@@ -19,7 +19,7 @@ const key = "kraken_pairs"
 /// pairs.set(symbols)
 /// ```
 pub fn set(symbols: Set(String)) -> Nil {
-  put(key, symbols)
+  put(persistent_term_key, symbols)
   Nil
 }
 
@@ -33,26 +33,26 @@ pub fn set(symbols: Set(String)) -> Nil {
 /// let is_supported = pairs.exists("BTC/USD")
 /// ```
 pub fn exists(symbol: String) -> Bool {
-  key
+  persistent_term_key
   |> get(set.new())
   |> set.contains(symbol)
 }
 
 /// Returns the total number of symbols stored in persistent memory.
 pub fn count() -> Int {
-  key
+  persistent_term_key
   |> get(set.new())
   |> set.size
 }
 
 /// Removes the stored Kraken symbol set from persistent memory.
 pub fn clear() -> Nil {
-  erase(key)
+  erase(persistent_term_key)
   Nil
 }
 
 @external(erlang, "persistent_term", "put")
-fn put(key: String, value: Set(String)) -> atom.Atom
+fn put(key: String, value: Set(String)) -> Atom
 
 @external(erlang, "persistent_term", "get")
 fn get(key: String, default: Set(String)) -> Set(String)

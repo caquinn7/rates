@@ -11,18 +11,17 @@ import gleam/erlang/atom.{type Atom}
 import gleam/list
 import gleam/pair
 import gleam/result
-import server/utils/time
 import shared/numbers/positive_float.{type PositiveFloat}
 
+/// A handle to a protected ETS table of prices and provider timestamps, keyed by
+/// Kraken symbol. Any process may read from the store; only its owner may mutate it.
+/// The handle remains valid until the table is dropped or its owning process exits.
 pub opaque type PriceStore {
   PriceStore(EtsSet(String, PriceEntry))
 }
 
-/// A stored price and its timestamp in Unix milliseconds.
-///
-/// `insert` records local processing time, not Kraken's event time.
-/// `insert_with_timestamp` stores the caller-supplied timestamp unchanged.
 pub type PriceEntry {
+  /// A stored price and its timestamp in Unix milliseconds.
   PriceEntry(price: PositiveFloat, timestamp: Int)
 }
 
@@ -52,10 +51,11 @@ pub fn new() -> Result(PriceStore, Nil) {
   |> result.map(PriceStore)
 }
 
-/// Inserts or replaces a price using the current local system time in Unix milliseconds.
+/// Inserts or replaces a price using the supplied Unix millisecond timestamp unchanged.
 ///
-/// If the symbol already exists in the store, its price is overwritten with the new value.
-/// Only the process that owns the `PriceStore` (i.e. the one that called `new`) may call this.
+/// The last insertion replaces any existing entry for the symbol, even if its
+/// timestamp is older. Timestamps are not compared or validated.
+/// Only the process that owns the store may call this.
 ///
 /// Example:
 /// ```gleam
@@ -63,27 +63,20 @@ pub fn new() -> Result(PriceStore, Nil) {
 /// import shared/numbers/positive_float
 ///
 /// let assert Ok(store) = price_store.new()
-/// let assert Ok(price) = positive_float.new(67_350.25)
-/// price_store.insert(store, "BTC/USD", price)
+/// let assert Ok(price) = positive_float.new(75_804.6)
+/// // Provider quote time in Unix milliseconds.
+/// let timestamp = 1_794_146_160_550
+/// price_store.insert(store, "BTC/USD", price, timestamp)
 /// ```
-pub fn insert(store: PriceStore, symbol: String, price: PositiveFloat) -> Nil {
-  insert_with_timestamp(store, symbol, price, time.system_time_ms())
-}
-
-/// Inserts or replaces a price using the supplied Unix millisecond timestamp unchanged.
-///
-/// The last insertion replaces any existing entry for the symbol, even if its
-/// timestamp is older. Timestamps are not compared or validated.
-/// Only the process that owns the store may call this.
-pub fn insert_with_timestamp(
+pub fn insert(
   store: PriceStore,
   symbol: String,
   price: PositiveFloat,
-  current_time_ms: Int,
+  timestamp: Int,
 ) -> Nil {
   let PriceStore(table) = store
 
-  let price_entry = PriceEntry(price, current_time_ms)
+  let price_entry = PriceEntry(price, timestamp)
   table.insert(table, [#(symbol, price_entry)])
 }
 
@@ -94,8 +87,17 @@ pub fn insert_with_timestamp(
 ///
 /// Example:
 /// ```gleam
-/// let assert Ok(store) = price_store.get_store()
-/// let result = price_store.get_price(store, "BTC/USD")
+/// import server/integrations/kraken/price_store.{PriceEntry}
+/// import shared/numbers/positive_float
+///
+/// let assert Ok(store) = price_store.new()
+/// let assert Ok(price) = positive_float.new(75_804.6)
+/// let timestamp = 1_794_146_160_550
+/// price_store.insert(store, "BTC/USD", price, timestamp)
+///
+/// let assert Ok(entry) = price_store.get_price(store, "BTC/USD")
+/// assert entry == PriceEntry(price, timestamp)
+/// assert price_store.get_price(store, "ETH/USD") == Error(Nil)
 /// ```
 pub fn get_price(store: PriceStore, symbol: String) -> Result(PriceEntry, Nil) {
   let PriceStore(table) = store

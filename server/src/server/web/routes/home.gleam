@@ -1,6 +1,7 @@
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -89,10 +90,10 @@ fn fetch_rates(
 ) -> #(List(ConverterState), List(RateResponse)) {
   converters
   |> list.filter_map(fn(converter) {
-    case get_rate(RateRequest(converter.from, converter.to)) {
-      Ok(rate) -> Ok(#(converter, rate))
-      Error(_) -> Error(Nil)
-    }
+    RateRequest(converter.from, converter.to)
+    |> get_rate
+    |> result.map(fn(rate) { #(converter, rate) })
+    |> result.replace_error(Nil)
   })
   |> list.unzip
 }
