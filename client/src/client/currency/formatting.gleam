@@ -43,28 +43,30 @@ pub fn format_currency_amount(
 ) -> String {
   let precision = determine_max_precision(currency, amount)
 
-  let fixed_str = case non_negative_float.to_fixed_string(amount, precision) {
-    Ok(s) -> s
+  let fixed_amount_text = case
+    non_negative_float.to_fixed_string(amount, precision)
+  {
+    Ok(text) -> text
     _ -> non_negative_float.to_string(amount)
   }
 
-  case string.split(fixed_str, ".") {
-    [int_part, frac_part] -> {
-      let int_part = add_comma_grouping(int_part)
-      let trimmed_frac =
-        frac_part
+  case string.split(fixed_amount_text, ".") {
+    [integer_part, fractional_part] -> {
+      let grouped_integer_part = add_comma_grouping(integer_part)
+      let trimmed_fractional_part =
+        fractional_part
         |> string.to_graphemes
         |> list.reverse
-        |> list.drop_while(fn(c) { c == "0" })
+        |> list.drop_while(fn(digit) { digit == "0" })
         |> list.reverse
         |> string.join("")
 
-      case trimmed_frac {
-        "" -> int_part
-        _ -> int_part <> "." <> trimmed_frac
+      case trimmed_fractional_part {
+        "" -> grouped_integer_part
+        _ -> grouped_integer_part <> "." <> trimmed_fractional_part
       }
     }
-    _ -> fixed_str
+    _ -> fixed_amount_text
   }
 }
 
@@ -110,26 +112,26 @@ pub fn determine_max_precision(
   currency: Currency,
   amount: NonNegativeFloat,
 ) -> Int {
-  let eps = 1.0e-12
+  // comparison tolerance
+  let epsilon = 1.0e-12
 
   case currency {
-    Fiat(..) ->
-      non_negative_float.with_value(amount, fn(a) {
-        case a {
-          _ if a <=. eps -> 0
-          // sub-cent fiat needs more precision
-          _ if a +. eps <. 0.01 -> 8
-          _ -> 2
-        }
-      })
-
     Crypto(..) ->
       non_negative_float.with_value(amount, fn(a) {
         case a {
-          _ if a <=. eps -> 0
-          _ if a +. eps >=. 1.0 -> 4
-          _ if a +. eps >=. 0.01 -> 6
+          _ if a <=. epsilon -> 0
+          _ if a +. epsilon >=. 1.0 -> 4
+          _ if a +. epsilon >=. 0.01 -> 6
           _ -> 8
+        }
+      })
+    Fiat(..) ->
+      non_negative_float.with_value(amount, fn(a) {
+        case a {
+          _ if a <=. epsilon -> 0
+          // sub-cent fiat needs more precision
+          _ if a +. epsilon <. 0.01 -> 8
+          _ -> 2
         }
       })
   }
