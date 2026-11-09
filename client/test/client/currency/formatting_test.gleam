@@ -1,4 +1,5 @@
 import client/currency/formatting
+import gleam/list
 import gleam/option.{Some}
 import shared/currency.{Crypto, Fiat}
 import shared/numbers/non_negative_float
@@ -6,6 +7,32 @@ import shared/numbers/non_negative_float
 const fiat = Fiat(2781, "United States Dollar", "USD", "$")
 
 const crypto = Crypto(1, "Bitcoin", "BTC", Some(1))
+
+pub fn format_entered_amount_preserves_decimal_digits_test() {
+  let cases = [
+    #("1.23456789", "1.23456789"),
+    #("1234.567890", "1,234.567890"),
+    #("1.2300", "1.2300"),
+    #("0.", "0"),
+    #(".5000", "0.5000"),
+    #("0.00000000000000000001", "0.00000000000000000001"),
+    #("0.123456789123456789", "0.123456789123456789"),
+    #("9007199254740993", "9,007,199,254,740,993"),
+    #("1,234,567.8900", "1,234,567.8900"),
+  ]
+
+  list.each(cases, fn(test_case) {
+    let #(entered, expected) = test_case
+    assert formatting.format_entered_amount(entered) == expected
+  })
+}
+
+pub fn format_entered_amount_preserves_scientific_notation_test() {
+  ["1.2300e10", "1.0e-310", "1234.500E+10"]
+  |> list.each(fn(text) {
+    assert formatting.format_entered_amount(text) == text
+  })
+}
 
 // format_currency_amount - trailing zero removal logic
 
