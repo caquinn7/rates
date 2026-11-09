@@ -2,7 +2,6 @@ import gleam/bool
 import gleam/float
 import gleam/function
 import gleam/int
-import gleam/list
 import gleam/result
 import gleam/string
 import shared/internal/numbers as number_ops
@@ -39,44 +38,17 @@ pub fn from_float_unsafe(f: Float) -> NonNegativeFloat {
   }
 }
 
-/// Parses a string into a `NonNegativeFloat`, validating formatting and non-negativity.
+/// Parses a finite, non-negative number using dot-decimal Gleam float or integer syntax.
+/// Leading signs are accepted; negative values are rejected and negative zero
+/// is normalized to positive zero.
 ///
-/// Accepts:
-/// - Optional commas in the integer portion (e.g., `"1,000.25"`)
-/// - Leading decimal points (e.g., `".5"` becomes `"0.5"`)
-/// - Trailing decimal points (e.g., `"1."` becomes `"1.0"`)
-/// - Scientific notation (e.g., `"1.0e10"`)
-///
-/// Rejects:
-/// - Invalid comma grouping (e.g., `"1,2,3"`)
-/// - Multiple decimal points or commas outside the integer portion
-/// - Negative values or non-numeric input
+/// Scientific notation requires a complete float, such as `"1.0e-3"`.
+/// Grouped numbers and incomplete decimals, such as `"1,000"`, `".5"`, and
+/// `"123."`, are rejected.
 pub fn parse(str: String) -> Result(NonNegativeFloat, Nil) {
-  // Validate the original decimal structure before normalizing either end.
-  use #(int_part, frac_part) <- result.try(case string.split(str, ".") {
-    [i] -> Ok(#(i, ""))
-    ["", ""] -> Error(Nil)
-    ["", f] -> Ok(#("0", f))
-    [i, f] -> Ok(#(i, f))
-    _ -> Error(Nil)
-  })
-  use <- bool.guard(string.contains(frac_part, ","), Error(Nil))
-  use <- bool.guard(
-    string.contains(str, ",") && !is_valid_comma_grouping(int_part),
-    Error(Nil),
-  )
+  // Erlang also accepts decimal commas; require the same syntax on both runtimes.
+  use <- bool.guard(string.contains(str, ","), Error(Nil))
 
-  int_part
-  |> string.replace(",", "")
-  |> string.append(case frac_part == "" {
-    True -> ""
-    False -> "." <> frac_part
-  })
-  |> parse_float
-  |> result.try(new)
-}
-
-fn parse_float(str: String) -> Result(Float, Nil) {
   str
   |> float.parse
   |> result.lazy_or(fn() {
@@ -84,23 +56,7 @@ fn parse_float(str: String) -> Result(Float, Nil) {
     |> int.parse
     |> result.try(number_ops.safe_int_to_float)
   })
-}
-
-fn is_valid_comma_grouping(int_str: String) -> Bool {
-  let assert [head, ..tail] = string.split(int_str, ",")
-  let head = case head {
-    "+" <> digits | "-" <> digits -> digits
-    _ -> head
-  }
-
-  is_digits(head)
-  && string.length(head) <= 3
-  && list.all(tail, fn(chunk) { string.length(chunk) == 3 && is_digits(chunk) })
-}
-
-fn is_digits(str: String) -> Bool {
-  str != ""
-  && list.all(string.to_graphemes(str), string.contains("0123456789", _))
+  |> result.try(new)
 }
 
 /// Applies a function to the inner float value of a `NonNegativeFloat` and returns the result.

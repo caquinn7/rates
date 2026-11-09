@@ -30,99 +30,83 @@ pub fn new_returns_error_if_not_a_finite_number_test() {
   let infinity = non_negative_float.unwrap(non_negative_float.max) *. 2.0
   let nan = infinity /. infinity
 
-  assert non_negative_float.new(infinity) == Error(Nil)
-  assert non_negative_float.new(nan) == Error(Nil)
+  list.each([infinity, nan], fn(value) {
+    assert non_negative_float.new(value) == Error(Nil)
+  })
 }
 
 pub fn new_returns_ok_if_greater_than_or_equal_to_zero_test() {
-  let assert Ok(_) = non_negative_float.new(0.0)
-  let assert Ok(_) = non_negative_float.new(0.1)
-  let assert Ok(_) = non_negative_float.new(1.0)
-  let assert Ok(_) = non_negative_float.new(1000.0)
+  list.each([0.0, 0.1, 1.0, 1000.0], fn(value) {
+    let assert Ok(_) = non_negative_float.new(value)
+  })
 }
 
 // parse
 
 pub fn parse_accepts_basic_numbers_test() {
-  let assert Ok(n1) = non_negative_float.parse("123")
-  assert non_negative_float.unwrap(n1) == 123.0
-
-  let assert Ok(n2) = non_negative_float.parse("123.45")
-  assert non_negative_float.unwrap(n2) == 123.45
-
-  let assert Ok(n3) = non_negative_float.parse("0")
-  assert non_negative_float.unwrap(n3) == 0.0
+  list.each(
+    [#("123", 123.0), #("123.45", 123.45), #("0", 0.0), #("0.0", 0.0)],
+    fn(test_case) {
+      let #(text, expected) = test_case
+      let assert Ok(value) = non_negative_float.parse(text)
+      assert non_negative_float.unwrap(value) == expected
+    },
+  )
 }
 
-pub fn parse_accepts_edge_case_formats_test() {
-  let assert Ok(n1) = non_negative_float.parse(".5")
-  assert non_negative_float.unwrap(n1) == 0.5
-
-  let assert Ok(n2) = non_negative_float.parse("123.")
-  assert non_negative_float.unwrap(n2) == 123.0
-
-  let assert Ok(n3) = non_negative_float.parse("0.0")
-  assert non_negative_float.unwrap(n3) == 0.0
-}
-
-pub fn parse_accepts_comma_separated_input_test() {
-  let assert Ok(n1) = non_negative_float.parse("1,000")
-  assert non_negative_float.unwrap(n1) == 1000.0
-
-  let assert Ok(n2) = non_negative_float.parse("1,234.56")
-  assert non_negative_float.unwrap(n2) == 1234.56
+pub fn parse_rejects_grouped_numbers_and_partial_decimals_test() {
+  list.each(
+    [".5", "123.", "0.", "1,000", "1,234.56", "+1,234.56", "-0,000"],
+    fn(text) {
+      assert non_negative_float.parse(text) == Error(Nil)
+    },
+  )
 }
 
 pub fn parse_accepts_scientific_notation_test() {
-  let assert Ok(n) = non_negative_float.parse("1.0e10")
-  assert non_negative_float.unwrap(n) == 10_000_000_000.0
+  list.each(
+    [
+      #("1.0e10", 10_000_000_000.0),
+      #("1.0e-3", 0.001),
+      #("1.0E+3", 1000.0),
+    ],
+    fn(pair) {
+      let #(text, expected) = pair
+      let assert Ok(value) = non_negative_float.parse(text)
+      assert non_negative_float.unwrap(value) == expected
+    },
+  )
 }
 
 pub fn parse_rejects_invalid_input_test() {
-  let assert Error(_) = non_negative_float.parse("abc")
-  let assert Error(_) = non_negative_float.parse("")
-  let assert Error(_) = non_negative_float.parse(" ")
-  let assert Error(_) = non_negative_float.parse("12.3.4")
-  let assert Error(_) = non_negative_float.parse("1,2,3")
-  let assert Error(_) = non_negative_float.parse(".")
-  let assert Error(_) = non_negative_float.parse(",")
-  let assert Error(_) = non_negative_float.parse("1,")
-  let assert Error(_) = non_negative_float.parse(",,1")
-  let assert Error(_) = non_negative_float.parse("1e10")
+  list.each(
+    ["abc", "", " ", "12.3.4", "1,2,3", ".", ",", "1,", ",,1", "1e10"],
+    fn(text) {
+      let assert Error(_) = non_negative_float.parse(text)
+    },
+  )
 }
 
 pub fn parse_rejects_negative_numbers_test() {
-  let assert Error(_) = non_negative_float.parse("-1")
-  let assert Error(_) = non_negative_float.parse("-0.01")
-  let assert Error(_) = non_negative_float.parse("-1,234.56")
-}
-
-pub fn parse_rejects_multiple_decimal_points_before_normalizing_test() {
-  ["1.2.", "1..", "..", "1.0e2."]
-  |> list.each(fn(input) {
-    assert non_negative_float.parse(input) == Error(Nil)
+  list.each(["-1", "-0.01", "-1.0e3"], fn(text) {
+    let assert Error(_) = non_negative_float.parse(text)
   })
 }
 
-pub fn parse_rejects_malformed_comma_groups_test() {
-  [
-    ",123", "+,123", "-,123", "1,", "1,,234", "1234,567", "12,34", "1,234.5,6",
-    "1.2,345", "1,a23",
-  ]
-  |> list.each(fn(input) {
-    assert non_negative_float.parse(input) == Error(Nil)
+pub fn parse_rejects_non_finite_numbers_test() {
+  list.each(["NaN", "Infinity", "-Infinity", "1.0e309"], fn(text) {
+    assert non_negative_float.parse(text) == Error(Nil)
   })
 }
 
-pub fn parse_accepts_signed_and_grouped_numbers_test() {
+pub fn parse_accepts_signed_numeric_text_test() {
   [
     #("+1", 1.0),
-    #("+123,456", 123_456.0),
-    #("+1,234.56", 1234.56),
-    #("1,234,567", 1_234_567.0),
+    #("+123456", 123_456.0),
+    #("+1234.56", 1234.56),
+    #("+1.0e3", 1000.0),
     #("-0", 0.0),
     #("-0.0", 0.0),
-    #("-0,000", 0.0),
   ]
   |> list.each(fn(pair) {
     let #(input, expected) = pair
@@ -132,10 +116,20 @@ pub fn parse_accepts_signed_and_grouped_numbers_test() {
   })
 }
 
+pub fn parse_normalizes_negative_zero_test() {
+  let assert Ok(positive_zero) = non_negative_float.new(0.0)
+  list.each(["-0", "-0.0", "-0.0e3"], fn(text) {
+    let assert Ok(zero) = non_negative_float.parse(text)
+    assert zero == positive_zero
+    assert <<non_negative_float.unwrap(zero):float>> == <<0.0:float>>
+  })
+}
+
 pub fn parse_returns_error_for_oversized_integers_test() {
   let oversized = "1" <> string.repeat("0", 309)
-  assert non_negative_float.parse(oversized) == Error(Nil)
-  assert non_negative_float.parse("-" <> oversized) == Error(Nil)
+  list.each([oversized, "-" <> oversized], fn(text) {
+    assert non_negative_float.parse(text) == Error(Nil)
+  })
 }
 
 pub fn parse_accepts_large_in_range_integer_test() {
@@ -397,27 +391,31 @@ pub fn is_greater_than_returns_false_when_first_value_is_less_than_second_test()
 // to_fixed_string
 
 pub fn to_fixed_string_formats_correctly_test() {
-  let n = non_negative_float.from_float_unsafe(1234.5678)
-  let assert Ok("1234.57") = non_negative_float.to_fixed_string(n, 2)
-
-  let assert Ok("1234.568") = non_negative_float.to_fixed_string(n, 3)
-  let assert Ok("1234.567800") = non_negative_float.to_fixed_string(n, 6)
+  let value = non_negative_float.from_float_unsafe(1234.5678)
+  list.each(
+    [#(2, "1234.57"), #(3, "1234.568"), #(6, "1234.567800")],
+    fn(test_case) {
+      let #(precision, expected) = test_case
+      assert non_negative_float.to_fixed_string(value, precision)
+        == Ok(expected)
+    },
+  )
 }
 
 pub fn to_fixed_string_precision_zero_test() {
-  let n1 = non_negative_float.from_float_unsafe(1234.5678)
-  let assert Ok("1235") = non_negative_float.to_fixed_string(n1, 0)
-
-  let n2 = non_negative_float.from_float_unsafe(0.0)
-  let assert Ok("0") = non_negative_float.to_fixed_string(n2, 0)
+  list.each([#(1234.5678, "1235"), #(0.0, "0")], fn(test_case) {
+    let #(amount, expected) = test_case
+    let value = non_negative_float.from_float_unsafe(amount)
+    assert non_negative_float.to_fixed_string(value, 0) == Ok(expected)
+  })
 }
 
 pub fn to_fixed_string_invalid_precision_test() {
-  let n = non_negative_float.from_float_unsafe(123.45)
-
-  let assert Error(InvalidPrecision) = non_negative_float.to_fixed_string(n, -1)
-  let assert Error(InvalidPrecision) =
-    non_negative_float.to_fixed_string(n, 101)
+  let value = non_negative_float.from_float_unsafe(123.45)
+  list.each([-1, 101], fn(precision) {
+    let assert Error(InvalidPrecision) =
+      non_negative_float.to_fixed_string(value, precision)
+  })
 }
 
 pub fn to_fixed_string_handles_large_values_at_all_supported_precisions_test() {
@@ -451,11 +449,11 @@ pub fn to_fixed_string_handles_large_values_at_all_supported_precisions_test() {
 }
 
 pub fn to_fixed_string_formats_zero_and_tiny_values_at_max_precision_test() {
-  let zero = non_negative_float.from_float_unsafe(0.0)
-  let tiny = non_negative_float.from_float_unsafe(1.0e-310)
   let expected = "0." <> string.repeat("0", 100)
-  assert non_negative_float.to_fixed_string(zero, 100) == Ok(expected)
-  assert non_negative_float.to_fixed_string(tiny, 100) == Ok(expected)
+  list.each([0.0, 1.0e-310], fn(amount) {
+    let value = non_negative_float.from_float_unsafe(amount)
+    assert non_negative_float.to_fixed_string(value, 100) == Ok(expected)
+  })
 }
 
 // generators

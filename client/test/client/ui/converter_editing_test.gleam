@@ -1,4 +1,5 @@
 import client/currency/formatting
+import client/currency/parsing
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input.{type InputEvent, InputEvent, Selection}
 import client/ui/converter.{
@@ -461,7 +462,7 @@ pub fn focus_preserves_full_stored_precision_and_magnitude_test() {
       let original = converter.with_amount(new_converter(), edited_side, text)
       let focused = focus(original, edited_side)
       let editing_text = draft_text(focused, edited_side)
-      let assert Ok(parsed_draft) = non_negative_float.parse(editing_text)
+      let assert Ok(parsed_draft) = parsing.parse_amount(editing_text)
 
       assert Some(parsed_draft) == amount_input(original, edited_side).parsed
 
