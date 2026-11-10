@@ -1,15 +1,50 @@
+import { toList } from "../gleam.mjs";
+
 let activeBrowser;
 
 export function withBrowser(run) {
-  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
-  const previousHistory = Object.getOwnPropertyDescriptor(globalThis, "history");
+  const previousGlobals = ["window", "history", "document", "WebSocket"].map(
+    name => [name, Object.getOwnPropertyDescriptor(globalThis, name)],
+  );
   const previousBrowser = activeBrowser;
-  const browser = { url: new URL("https://rates.test/"), writes: 0 };
+  const browser = {
+    url: new URL("https://rates.test/"),
+    writes: 0,
+    now: 0,
+    nextTimerId: 1,
+    timers: [],
+    messages: [],
+    sent: [],
+    sockets: [],
+  };
   activeBrowser = browser;
 
   Object.defineProperty(globalThis, "window", {
     configurable: true,
-    value: { get location() { return browser.url; } },
+    value: {
+      get location() { return browser.url; },
+      setTimeout(callback, delay) {
+        const id = browser.nextTimerId++;
+        browser.timers.push({ id, due: browser.now + delay, callback });
+        return id;
+      },
+    },
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: { get URL() { return browser.url.href; } },
+  });
+  Object.defineProperty(globalThis, "WebSocket", {
+    configurable: true,
+    value: class {
+      constructor(url) {
+        this.url = url;
+        browser.sockets.push(this);
+      }
+      send(message) {
+        browser.sent.push(message);
+      }
+    },
   });
   Object.defineProperty(globalThis, "history", {
     configurable: true,
@@ -24,8 +59,9 @@ export function withBrowser(run) {
   try {
     return run();
   } finally {
-    restoreGlobal("window", previousWindow);
-    restoreGlobal("history", previousHistory);
+    for (const [name, descriptor] of previousGlobals) {
+      restoreGlobal(name, descriptor);
+    }
     activeBrowser = previousBrowser;
   }
 }
@@ -47,5 +83,39 @@ export function urlWriteCount() {
 }
 
 export function socket() {
-  return { send() { } };
+  const browser = activeBrowser;
+  return { send(message) { browser.sent.push(message); } };
+}
+
+export function recordMessage(message) {
+  activeBrowser.messages.push(message);
+}
+
+export function takeMessages() {
+  return toList(activeBrowser.messages.splice(0));
+}
+
+export function sentMessages() {
+  return toList(activeBrowser.sent);
+}
+
+export function openSocket() {
+  activeBrowser.sockets.at(-1).onopen({});
+}
+
+export function pendingTimerCount() {
+  return activeBrowser.timers.length;
+}
+
+export function advanceTime(milliseconds) {
+  const browser = activeBrowser;
+  const target = browser.now + milliseconds;
+  while (true) {
+    browser.timers.sort((a, b) => a.due - b.due || a.id - b.id);
+    if (!browser.timers.length || browser.timers[0].due > target) break;
+    const timer = browser.timers.shift();
+    browser.now = timer.due;
+    timer.callback();
+  }
+  browser.now = target;
 }

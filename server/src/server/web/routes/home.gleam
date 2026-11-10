@@ -1,7 +1,6 @@
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/result
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -48,25 +47,20 @@ pub fn resolve_page_data(
   }
 
   let client_state = case client_state {
-    None -> ClientState([default_converter])
     Some(state) -> state
+    None -> ClientState([default_converter])
   }
 
   let currencies = currency_repository.get_all()
 
-  let #(converters, rates) = {
-    let valid_converters = {
-      let validated =
-        filter_valid_converters(client_state.converters, currencies)
-
-      case validated {
-        [] -> [default_converter]
-        _ -> validated
-      }
+  let converters = {
+    let validated = filter_valid_converters(client_state.converters, currencies)
+    case validated {
+      [] -> [default_converter]
+      _ -> validated
     }
-
-    fetch_rates(valid_converters, get_rate)
   }
+  let rates = fetch_rates(converters, get_rate)
 
   Ok(PageData(currencies:, rates:, converters:))
 }
@@ -79,22 +73,19 @@ fn filter_valid_converters(
     list.any(currencies, fn(currency) { currency.id == id })
   }
 
-  use converter <- list.filter(converters)
-  currency_exists(converter.from) && currency_exists(converter.to)
+  list.filter(converters, fn(converter) {
+    currency_exists(converter.from) && currency_exists(converter.to)
+  })
 }
 
 fn fetch_rates(
   converters: List(ConverterState),
   get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
-) -> #(List(ConverterState), List(RateResponse)) {
+) -> List(RateResponse) {
   converters
   |> list.filter_map(fn(converter) {
-    RateRequest(converter.from, converter.to)
-    |> get_rate
-    |> result.map(fn(rate) { #(converter, rate) })
-    |> result.replace_error(Nil)
+    get_rate(RateRequest(converter.from, converter.to))
   })
-  |> list.unzip
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {
