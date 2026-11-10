@@ -19,27 +19,19 @@ pub fn get(
   get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
   client_state: Option(ClientState),
 ) -> Response {
-  case resolve_page_data(currency_repository, get_rate, client_state) {
-    Ok(page_data) -> {
-      let page_data_json =
-        page_data
-        |> page_data.encode
-        |> json.to_string
-
-      page_data_json
-      |> page_scaffold
-      |> element.to_document_string
-      |> wisp.html_body(wisp.response(200), _)
-    }
-    Error(_) -> wisp.internal_server_error()
-  }
+  resolve_page_data(currency_repository, get_rate, client_state)
+  |> page_data.encode
+  |> json.to_string
+  |> page_scaffold
+  |> element.to_document_string
+  |> wisp.html_body(wisp.response(200), _)
 }
 
 pub fn resolve_page_data(
   currency_repository: CurrencyRepository,
   get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
   client_state: Option(ClientState),
-) -> Result(PageData, Nil) {
+) -> PageData {
   let default_converter = {
     let btc_id = 1
     let usd_id = 2781
@@ -62,7 +54,7 @@ pub fn resolve_page_data(
   }
   let rates = fetch_rates(converters, get_rate)
 
-  Ok(PageData(currencies:, rates:, converters:))
+  PageData(currencies:, rates:, converters:)
 }
 
 fn filter_valid_converters(

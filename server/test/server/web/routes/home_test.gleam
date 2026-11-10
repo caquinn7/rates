@@ -33,8 +33,7 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
     ))
   }
 
-  let assert Ok(page_data) =
-    home.resolve_page_data(currency_repository, get_rate, None)
+  let page_data = home.resolve_page_data(currency_repository, get_rate, None)
 
   assert page_data.currencies == currencies
 
@@ -73,7 +72,7 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
       ConverterState(from: 2, to: 3, amount: 10.0),
     ])
 
-  let assert Ok(page_data) =
+  let page_data =
     home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
   assert page_data.currencies == currencies
@@ -136,7 +135,7 @@ pub fn resolve_page_data_keeps_converters_when_some_rate_requests_fail_test() {
       ConverterState(from: 1, to: 3, amount: 15.0),
     ])
 
-  let assert Ok(page_data) =
+  let page_data =
     home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
   // All converter states should be included
@@ -179,7 +178,7 @@ pub fn failed_rate_requests_preserve_saved_and_default_converters_test() {
   list.each(cases, fn(test_case) {
     let #(state, expected_converters) = test_case
     let get_rate = fn(_) { Error(Nil) }
-    let assert Ok(data) = home.resolve_page_data(repository, get_rate, state)
+    let data = home.resolve_page_data(repository, get_rate, state)
     assert data.currencies == currencies
     assert data.converters == expected_converters
     assert data.rates == []
@@ -242,7 +241,7 @@ pub fn resolve_page_data_does_not_fetch_rates_for_invalid_currency_ids_test() {
       ConverterState(from: 777, to: 666, amount: 20.0),
     ])
 
-  let assert Ok(page_data) =
+  let page_data =
     home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
   // Only converters with valid currency IDs should be included
@@ -285,7 +284,7 @@ pub fn resolve_page_data_uses_default_converter_when_all_converters_invalid_test
       ConverterState(from: 777, to: 666, amount: 20.0),
     ])
 
-  let assert Ok(page_data) =
+  let page_data =
     home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
   // Should fall back to default BTC -> USD converter
