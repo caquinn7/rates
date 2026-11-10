@@ -6,6 +6,7 @@ import shared/rates/rate_response.{type RateResponse}
 
 /// Initial data needed to render the currency exchange rate page.
 /// Includes all available currencies for selection and the current rate displays.
+/// Rates may cover only some converter pairs; missing quotes are fetched over WebSocket.
 pub type PageData {
   PageData(
     currencies: List(Currency),
@@ -31,8 +32,8 @@ pub fn decoder() -> Decoder(PageData) {
   use converters <- decode.field("converters", {
     use encoded_str <- decode.then(decode.string)
     case client_state.decode_converter_states(encoded_str) {
-      Error(_) -> decode.failure([], "ConverterState")
       Ok(states) -> decode.success(states)
+      Error(_) -> decode.failure([], "ConverterState")
     }
   })
   decode.success(PageData(currencies:, rates:, converters:))

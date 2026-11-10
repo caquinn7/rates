@@ -1,11 +1,18 @@
+import gleam/json
+import gleam/list
 import gleam/option.{None, Some}
-import server/currencies/currency_repository.{CurrencyRepository}
+import gleam/string
+import server/currencies/currency_repository.{
+  type CurrencyRepository, CurrencyRepository,
+}
 import server/web/routes/home
 import shared/client_state.{ClientState, ConverterState}
-import shared/currency.{Crypto, Fiat}
+import shared/currency.{type Currency, Crypto, Fiat}
 import shared/numbers/positive_float
+import shared/page_data
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{Kraken, RateResponse}
+import wisp
 
 pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
   let currencies = [
@@ -13,13 +20,7 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(_) { panic },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { currencies },
-    )
+  let currency_repository = test_repository(currencies)
 
   let expected_rate = positive_float.from_float_unsafe(50_000.0)
   let get_rate = fn(req: RateRequest) {
@@ -32,8 +33,7 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
     ))
   }
 
-  let assert Ok(page_data) =
-    home.resolve_page_data(currency_repository, get_rate, None)
+  let page_data = home.resolve_page_data(currency_repository, get_rate, None)
 
   assert page_data.currencies == currencies
 
@@ -53,13 +53,7 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
     Fiat(3, "Euro", "EUR", "€"),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(_) { panic },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { currencies },
-    )
+  let currency_repository = test_repository(currencies)
 
   let expected_rate = positive_float.from_float_unsafe(100.0)
   let get_rate = fn(req: RateRequest) {
@@ -78,7 +72,7 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
       ConverterState(from: 2, to: 3, amount: 10.0),
     ])
 
-  let assert Ok(page_data) =
+  let page_data =
     home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
   assert page_data.currencies == currencies
@@ -96,20 +90,14 @@ pub fn resolve_page_data_with_client_state_uses_provided_converters_test() {
     ]
 }
 
-pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
+pub fn resolve_page_data_keeps_converters_when_some_rate_requests_fail_test() {
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Crypto(2, "Ethereum", "ETH", Some(2)),
     Fiat(3, "Euro", "EUR", "€"),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(_) { panic },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { currencies },
-    )
+  let currency_repository = test_repository(currencies)
 
   let expected_rate_1 = positive_float.from_float_unsafe(100.0)
   let expected_rate_2 = positive_float.from_float_unsafe(200.0)
@@ -147,13 +135,14 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
       ConverterState(from: 1, to: 3, amount: 15.0),
     ])
 
-  let assert Ok(page_data) =
+  let page_data =
     home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
   // All converter states should be included
   assert page_data.converters
     == [
       ConverterState(from: 1, to: 2, amount: 5.0),
+      ConverterState(from: 2, to: 3, amount: 10.0),
       ConverterState(from: 1, to: 3, amount: 15.0),
     ]
 
@@ -165,19 +154,61 @@ pub fn resolve_page_data_filters_out_failed_rate_requests_test() {
     ]
 }
 
+pub fn failed_rate_requests_preserve_saved_and_default_converters_test() {
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", Some(1)),
+    Crypto(1027, "Ethereum", "ETH", Some(2)),
+    Fiat(2781, "United States Dollar", "USD", "$"),
+  ]
+  let repository = test_repository(currencies)
+
+  let saved =
+    ClientState([
+      ConverterState(1027, 2781, 10.0),
+      ConverterState(1, 2781, 0.00000001),
+    ])
+  let cases = [
+    #(Some(saved), saved.converters),
+    #(None, [ConverterState(1, 2781, 1.0)]),
+    #(Some(ClientState([ConverterState(999, 888, 10.0)])), [
+      ConverterState(1, 2781, 1.0),
+    ]),
+  ]
+
+  list.each(cases, fn(test_case) {
+    let #(state, expected_converters) = test_case
+    let get_rate = fn(_) { Error(Nil) }
+    let data = home.resolve_page_data(repository, get_rate, state)
+    assert data.currencies == currencies
+    assert data.converters == expected_converters
+    assert data.rates == []
+
+    let response = home.get(repository, get_rate, state)
+    assert response.status == 200
+    let assert wisp.Text(html) = response.body
+    let assert Ok(#(_, seed_and_rest)) =
+      string.split_once(html, "<script id=\"model\" type=\"application/json\">")
+    let assert Ok(#(seed, _)) = string.split_once(seed_and_rest, "</script>")
+    assert json.parse(seed, page_data.decoder()) == Ok(data)
+  })
+}
+
+fn test_repository(currencies: List(Currency)) -> CurrencyRepository {
+  CurrencyRepository(
+    insert: fn(_) { panic },
+    get_by_id: fn(_) { panic },
+    get_by_symbol: fn(_) { panic },
+    get_all: fn() { currencies },
+  )
+}
+
 pub fn resolve_page_data_does_not_fetch_rates_for_invalid_currency_ids_test() {
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2, "United States Dollar", "USD", "$"),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(_) { panic },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { currencies },
-    )
+  let currency_repository = test_repository(currencies)
 
   let expected_rate_1 = positive_float.from_float_unsafe(100.0)
 
@@ -210,7 +241,7 @@ pub fn resolve_page_data_does_not_fetch_rates_for_invalid_currency_ids_test() {
       ConverterState(from: 777, to: 666, amount: 20.0),
     ])
 
-  let assert Ok(page_data) =
+  let page_data =
     home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
   // Only converters with valid currency IDs should be included
@@ -228,13 +259,7 @@ pub fn resolve_page_data_uses_default_converter_when_all_converters_invalid_test
     Crypto(5, "Ethereum", "ETH", Some(2)),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(_) { panic },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { currencies },
-    )
+  let currency_repository = test_repository(currencies)
 
   let expected_rate = positive_float.from_float_unsafe(50_000.0)
   let get_rate = fn(req: RateRequest) {
@@ -259,7 +284,7 @@ pub fn resolve_page_data_uses_default_converter_when_all_converters_invalid_test
       ConverterState(from: 777, to: 666, amount: 20.0),
     ])
 
-  let assert Ok(page_data) =
+  let page_data =
     home.resolve_page_data(currency_repository, get_rate, Some(client_state))
 
   // Should fall back to default BTC -> USD converter

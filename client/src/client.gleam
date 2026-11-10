@@ -63,36 +63,35 @@ pub type Model {
 pub fn model_from_page_data(
   page_data: PageData,
 ) -> Result(Model, NewConverterError) {
-  let build_converter = fn(rate_response, converter_id, amount) {
-    let RateResponse(from, to, rate, _source, _timestamp) = rate_response
-
-    converter.new(
-      converter_id,
-      page_data.currencies,
-      #(from, to),
-      float.to_string(amount),
-      rate,
-    )
-  }
-
   let converters =
     page_data.converters
     |> list.index_map(fn(converter_state, idx) {
-      page_data.rates
-      |> list.find(fn(rate_resp) {
-        rate_resp.from == converter_state.from
-        && rate_resp.to == converter_state.to
-      })
-      |> result.try(fn(rate_resp) {
-        rate_resp
-        |> build_converter(
-          converter_id_prefix <> "-" <> int.to_string(idx + 1),
-          converter_state.amount,
-        )
-        |> result.map_error(fn(err) {
-          echo "error building converter: " <> string.inspect(err)
-          Nil
+      let seed_rate =
+        list.find(page_data.rates, fn(rate_resp) {
+          rate_resp.from == converter_state.from
+          && rate_resp.to == converter_state.to
         })
+
+      converter.new(
+        converter_id_prefix <> "-" <> int.to_string(idx + 1),
+        page_data.currencies,
+        #(converter_state.from, converter_state.to),
+        float.to_string(converter_state.amount),
+        seed_rate
+          |> result.map(fn(response) { response.rate })
+          |> result.unwrap(None),
+      )
+      |> result.map(fn(converter) {
+        case seed_rate {
+          Ok(RateResponse(rate: None, ..)) ->
+            converter.with_rate(converter, None)
+          Ok(_) -> converter
+          Error(_) -> converter.waiting_for_rate(converter)
+        }
+      })
+      |> result.map_error(fn(err) {
+        echo "error building converter: " <> string.inspect(err)
+        Nil
       })
     })
     |> list.filter_map(function.identity)
@@ -180,14 +179,22 @@ pub fn main() -> Nil {
 
 pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
   let model = case model_from_page_data(flags) {
+    Ok(m) -> m
     Error(err) -> panic as { "error building model: " <> string.inspect(err) }
-    Ok(m) -> {
-      encode_state_in_url(m)
-      m
-    }
   }
 
-  #(model, websocket.init("/ws", FromWebSocket))
+  let #(model, loading_effects) =
+    list.fold(model.converters, #(model, []), fn(acc, target) {
+      let #(model, effects) = acc
+      let #(model, loading_effect) = schedule_loading_indicator(model, target)
+      #(model, [loading_effect, ..effects])
+    })
+  encode_state_in_url(model)
+
+  #(
+    model,
+    effect.batch([websocket.init("/ws", FromWebSocket), ..loading_effects]),
+  )
 }
 
 pub type Msg {

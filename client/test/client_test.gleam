@@ -1,6 +1,7 @@
 import client.{Model}
 import client/side.{Left, Right}
-import client/ui/converter
+import client/ui/converter.{Current, Waiting}
+import gleam/list
 import gleam/option.{None, Some}
 import gleeunit
 import shared/client_state.{ConverterState}
@@ -81,7 +82,7 @@ pub fn model_from_page_data_constructs_model_test() {
   assert converter2.rate == Some(expected_rate_2)
 }
 
-pub fn model_from_page_data_filters_out_converters_without_a_matching_rate_response_test() {
+pub fn model_from_page_data_keeps_converters_without_a_matching_rate_response_test() {
   let currencies = [
     Fiat(1, "United States Dollar", "USD", "$"),
     Crypto(2, "Bitcoin", "BTC", Some(1)),
@@ -126,14 +127,24 @@ pub fn model_from_page_data_filters_out_converters_without_a_matching_rate_respo
 
   let assert Ok(model) = client.model_from_page_data(page_data)
 
-  // Only the first converter should be created since it's the only one with a matching rate
-  let assert [converter1] = model.converters
+  let assert [converter1, converter2, converter3] = model.converters
+  assert client.model_to_client_state(model).converters == converter_states
 
   assert converter1.id == "converter-1"
   assert converter.get_selected_currency_id(converter1, Left) == 1
   assert converter.get_selected_currency_id(converter1, Right) == 2
   assert converter.get_parsed_amount(converter1, Left)
     == Some(non_negative_float.from_float_unsafe(100.0))
+  assert converter1.rate_status == Current
+
+  list.each([converter2, converter3], fn(target) {
+    assert target.rate == None
+    assert target.rate_status == Waiting(0, False)
+    assert converter.get_parsed_amount(target, Right) == None
+    assert converter.get_converter_input(target, Right).amount_input.raw == ""
+  })
+  assert converter2.id == "converter-2"
+  assert converter3.id == "converter-3"
 }
 
 // model_to_client_state
