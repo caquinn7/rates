@@ -1,3 +1,4 @@
+import gleam/bool
 import gleam/float
 import gleam/int
 import gleam/list
@@ -95,34 +96,38 @@ pub fn decode_converter_states(
 pub fn decode_converter_state(
   encoded: String,
 ) -> Result(ConverterState, DecodeError) {
-  case split_and_remove_empty_strings(encoded, "-") {
-    [from, to] -> {
-      use from <- result.try(parse_currency_id(from))
-      use to <- result.try(parse_currency_id(to))
-      Ok(ConverterState(from, to, 1.0))
-    }
+  // Split only the field separators: the amount may contain an exponent sign.
+  use #(from, rest) <- result.try(
+    encoded
+    |> string.split_once("-")
+    |> result.replace_error(UnexpectedInput),
+  )
+  let #(to, amount) =
+    rest
+    |> string.split_once("-")
+    |> result.unwrap(#(rest, ""))
 
-    [from, to, amount] -> {
-      use from <- result.try(parse_currency_id(from))
-      use to <- result.try(parse_currency_id(to))
-      use amount <- result.try(parse_amount(amount))
-      Ok(ConverterState(from, to, amount))
-    }
+  use <- bool.guard(from == "" || to == "", Error(UnexpectedInput))
+  use from <- result.try(parse_currency_id(from))
+  use to <- result.try(parse_currency_id(to))
+  use amount <- result.try(case amount {
+    "" -> Ok(1.0)
+    _ -> parse_amount(amount)
+  })
 
-    _ -> Error(UnexpectedInput)
-  }
-}
-
-fn split_and_remove_empty_strings(
-  str: String,
-  on substring: String,
-) -> List(String) {
-  str
-  |> string.split(substring)
-  |> list.filter(fn(s) { !string.is_empty(s) })
+  Ok(ConverterState(from, to, amount))
 }
 
 fn parse_amount(str: String) -> Result(Float, DecodeError) {
+  // A remaining hyphen must be an exponent sign, not another field separator.
+  let valid_hyphen = case string.split_once(str, "-") {
+    Ok(#(before, after)) ->
+      string.ends_with(string.lowercase(before), "e")
+      && !string.contains(after, "-")
+    Error(_) -> True
+  }
+  use <- bool.guard(!valid_hyphen, Error(UnexpectedInput))
+
   str
   |> float.parse
   |> result.lazy_or(fn() {

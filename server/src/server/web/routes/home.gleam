@@ -21,8 +21,6 @@ pub fn get(
   client_state: Option(ClientState),
 ) -> Response {
   case resolve_page_data(currency_repository, get_rate, client_state) {
-    Error(_) -> wisp.internal_server_error()
-
     Ok(page_data) -> {
       let page_data_json =
         page_data
@@ -34,6 +32,7 @@ pub fn get(
       |> element.to_document_string
       |> wisp.html_body(wisp.response(200), _)
     }
+    Error(_) -> wisp.internal_server_error()
   }
 }
 

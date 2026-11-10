@@ -120,7 +120,6 @@ pub fn handler(
       let response = case rate_result {
         Ok(rate_resp) -> {
           log_rate_response_success(logger, subscription_id, rate_resp)
-
           SubscriptionUpdate(subscription_id, rate_resp)
         }
 
