@@ -22,7 +22,13 @@ pub fn encode_page_data_to_json_test() {
           1_756_654_456,
         ),
       ],
-      [ConverterState(1, 2781, 1.5)],
+      [
+        ConverterState(1, 2781, 1.5),
+        ConverterState(1, 2781, 1.0e-10),
+        ConverterState(1, 2781, 1.0e-8),
+        ConverterState(1, 2781, 1.0e-7),
+        ConverterState(1, 2781, 1.0e-6),
+      ],
     )
 
   let result =
@@ -57,4 +63,12 @@ pub fn decode_page_data_json_test() {
     )
 
   assert json.parse(json, page_data.decoder()) == Ok(expected)
+}
+
+pub fn decode_server_seed_with_small_amount_test() {
+  let json =
+    "{\"currencies\":[{\"type\":\"crypto\",\"id\":1,\"name\":\"Bitcoin\",\"symbol\":\"BTC\",\"rank\":1},{\"type\":\"fiat\",\"id\":2781,\"name\":\"United States Dollar\",\"symbol\":\"USD\",\"sign\":\"$\"}],\"rate\":[{\"from\":1,\"to\":2781,\"rate\":1.0e5,\"source\":\"Kraken\",\"timestamp\":1756654456}],\"converters\":\"1-2781-1.0e-8\"}"
+
+  let assert Ok(decoded) = json.parse(json, page_data.decoder())
+  assert decoded.converters == [ConverterState(1, 2781, 0.00000001)]
 }

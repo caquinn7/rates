@@ -26,6 +26,46 @@ const usd_id = 2781
 
 const converter_id = "converter-1"
 
+pub fn small_amount_survives_url_and_page_data_restoration_test() {
+  use <- with_browser
+  let initial = model_with_left_amount()
+  let assert [target] = initial.converters
+  let initial =
+    initial
+    |> client.model_with_converter(converter.with_amount(
+      target,
+      Left,
+      "0.00000001",
+    ))
+    |> snapshot
+
+  let saved = saved_state()
+  assert saved == ClientState([ConverterState(bitcoin_id, usd_id, 0.00000001)])
+
+  let seed =
+    PageData(
+      currencies: initial.currencies,
+      rates: [rate_response(RateRequest(bitcoin_id, usd_id), Some(rate(2.0)))],
+      converters: saved.converters,
+    )
+    |> page_data.encode
+    |> json.to_string
+
+  let assert Ok(page_data) = json.parse(seed, page_data.decoder())
+  let assert Ok(restored) = client.model_from_page_data(page_data)
+  let assert [restored_converter] = restored.converters
+  assert converter.get_selected_currency_id(restored_converter, Left)
+    == bitcoin_id
+  assert converter.get_selected_currency_id(restored_converter, Right) == usd_id
+  assert converter.get_parsed_amount(restored_converter, Left)
+    == Some(amount(0.00000001))
+  assert converter.get_parsed_amount(restored_converter, Right)
+    == Some(amount(0.00000002))
+
+  let _ = snapshot(restored)
+  assert saved_state() == saved
+}
+
 pub fn right_amount_survives_currency_changes_and_url_restoration_test() {
   use <- with_browser
   let ethereum = Crypto(ethereum_id, "Ethereum", "ETH", Some(2))

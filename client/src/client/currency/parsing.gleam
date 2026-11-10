@@ -44,6 +44,7 @@ fn normalize_amount(text: String) -> Result(String, Nil) {
 
 fn is_valid_comma_grouping(integer_part: String) -> Bool {
   let assert [head, ..tail] = string.split(integer_part, ",")
+
   is_digits(head)
   && string.length(head) <= 3
   && list.all(tail, fn(group) { string.length(group) == 3 && is_digits(group) })
