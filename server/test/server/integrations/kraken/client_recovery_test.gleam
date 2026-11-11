@@ -850,8 +850,8 @@ fn ticker_json_with_timestamp(symbol, price, timestamp) {
 const instrument_snapshot =
   "{\"channel\":\"instrument\",\"type\":\"snapshot\",\"data\":{\"pairs\":[{\"symbol\":\"BTC/USD\",\"base\":\"BTC\",\"quote\":\"USD\"},{\"symbol\":\"ETH/USD\",\"base\":\"ETH\",\"quote\":\"USD\"}]}}"
 
-@external(erlang, "kraken_recovery_test_ffi", "monitored_processes")
+@external(erlang, "process_test_ffi", "monitored_processes")
 fn monitored_processes(pid: Pid) -> List(Pid)
 
-@external(erlang, "kraken_recovery_test_ffi", "linked_processes")
+@external(erlang, "process_test_ffi", "linked_processes")
 fn linked_processes(pid: Pid) -> List(Pid)

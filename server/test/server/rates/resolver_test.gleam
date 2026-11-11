@@ -454,10 +454,10 @@ fn assert_worker_stopped_and_interest_released(
 }
 
 /// Inspect only the test process's links and monitors; no production API is exposed.
-@external(erlang, "kraken_recovery_test_ffi", "linked_processes")
+@external(erlang, "process_test_ffi", "linked_processes")
 fn linked_processes(pid: Pid) -> List(Pid)
 
-@external(erlang, "kraken_recovery_test_ffi", "monitored_processes")
+@external(erlang, "process_test_ffi", "monitored_processes")
 fn monitored_processes(pid: Pid) -> List(Pid)
 
 /// Pause only the test caller, so the resolver must enforce its own deadline.
