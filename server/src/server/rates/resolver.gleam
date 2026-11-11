@@ -23,6 +23,9 @@ import server/utils/time
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
 
+/// A handle to an actor that resolves a single exchange rate.
+/// Create with `new`, then call `get_rate` once with a time budget in milliseconds.
+/// The actor stops after the lookup finishes or its deadline expires.
 pub opaque type RateResolver {
   RateResolver(pid: Pid, subject: Subject(Msg))
 }
@@ -31,27 +34,65 @@ pub type Config {
   Config(base: RateServiceConfig)
 }
 
+/// Failures from resolving a rate within a caller-supplied deadline.
+pub type ResolveError {
+  /// A currency lookup or rate provider failed.
+  LookupFailed(RateError)
+  /// The resolver did not finish within its caller-supplied deadline.
+  TimedOut(RateRequest)
+}
+
+/// The terminal outcome sent by the resolver actor to the `get_rate` caller.
 type Reply {
-  Resolved(Result(RateResponse, RateError))
+  /// A successful quote, lookup failure, or deadline timeout.
+  Resolved(Result(RateResponse, ResolveError))
+
+  /// An unexpected worker exit. Carries the exit reason so `get_rate` can raise
+  /// with the original crash details.
   Crashed(process.ExitReason)
 }
 
+/// Events selected while `get_rate` waits for the resolver's reply.
 type CallEvent {
+  /// A reply received from the resolver actor.
   Answer(Reply)
+
+  /// A process monitor notification that the resolver actor has exited.
   ResolverDown(process.Down)
 }
 
+/// Messages and lifecycle notifications received by the resolver actor.
 type Msg {
+  /// A rate lookup request with a reply subject, currency pair, and absolute
+  /// deadline in monotonic milliseconds.
   GetRate(Subject(Reply), RateRequest, deadline_ms: Int)
+
+  /// A worker request to subscribe to a Kraken symbol, with an acknowledgement
+  /// subject.
   AcquireKraken(KrakenSymbol, Subject(Nil))
+
+  /// A worker request to release this lookup's Kraken subscription.
   ReleaseKraken
-  Completed(Result(RateResponse, RateError))
+
+  /// The lookup worker's result, containing a quote or a resolution error.
+  Completed(Result(RateResponse, ResolveError))
+
+  /// A timer notification that the pending request's deadline has elapsed.
   DeadlineReached
+
+  /// A caller request to cancel the lookup.
   Cancel
+
+  /// A process monitor notification that the lookup worker has exited.
   WorkerDown(process.Down)
+
+  /// A trapped exit notification from the process that started the resolver.
   OwnerExited
 }
 
+/// Request details and resources for an active rate lookup.
+/// Tracks the reply destination, absolute deadline in monotonic milliseconds,
+/// worker, monitor, timer, and any Kraken subscription held for the lookup.
 type Pending {
   Pending(
     reply_to: Subject(Reply),
@@ -99,13 +140,14 @@ pub fn get_rate(
   resolver: RateResolver,
   rate_request: RateRequest,
   timeout: Int,
-) -> Result(RateResponse, RateError) {
-  let RateResolver(pid, subject) = resolver
+) -> Result(RateResponse, ResolveError) {
+  let RateResolver(pid:, subject:) = resolver
   let deadline_ms = time.monotonic_time_ms() + int.max(timeout, 0)
+
   case timeout <= 0 {
     True -> {
       process.send(subject, Cancel)
-      Error(rate_error.TimedOut(rate_request))
+      Error(TimedOut(rate_request))
     }
     False -> {
       let reply_to = process.new_subject()
@@ -128,7 +170,7 @@ pub fn get_rate(
           panic as { "rate resolver exited: " <> string.inspect(down) }
         Error(_) -> {
           process.send(subject, Cancel)
-          Error(rate_error.TimedOut(rate_request))
+          Error(TimedOut(rate_request))
         }
       }
     }
@@ -147,10 +189,7 @@ fn handle_msg(
         None ->
           case remaining_ms(deadline_ms) {
             0 -> {
-              process.send(
-                reply_to,
-                Resolved(Error(rate_error.TimedOut(request))),
-              )
+              process.send(reply_to, Resolved(Error(TimedOut(request))))
               actor.stop()
             }
             remaining -> {
@@ -217,14 +256,19 @@ fn handle_msg(
     WorkerDown(process.ProcessDown(reason:, ..)) ->
       finish(state, Some(Crashed(reason)), config.kraken_interface)
     WorkerDown(down) ->
-      panic as { "unexpected worker monitor: " <> string.inspect(down) }
+      panic as {
+        "expected worker process exit notification, received: "
+        <> string.inspect(down)
+      }
   }
 }
 
+/// Builds a `TimedOut` reply for the pending request, then delegates cleanup and
+/// resolver shutdown to `finish`. With no pending request, no reply is sent.
 fn timed_out(state: State, kraken: KrakenInterface) -> Next(State, Msg) {
   let reply =
     option.map(state.pending, fn(pending) {
-      Resolved(Error(rate_error.TimedOut(pending.request)))
+      Resolved(Error(TimedOut(pending.request)))
     })
   finish(state, reply, kraken)
 }
@@ -250,6 +294,8 @@ fn finish(
   actor.stop()
 }
 
+/// Kills the worker if it is still alive, waits for its exit notification, and
+/// removes the monitor. If already dead, removes the monitor without waiting.
 fn stop_worker(worker: Pid, monitor: Monitor) -> Nil {
   case process.is_alive(worker) {
     True -> {
@@ -265,6 +311,9 @@ fn stop_worker(worker: Pid, monitor: Monitor) -> Nil {
   process.demonitor_process(monitor)
 }
 
+/// Unsubscribes from the Kraken symbol recorded for the pending lookup and clears
+/// it from the returned state. Returns the state unchanged if no subscription
+/// is recorded.
 fn release_interest(state: State, kraken: KrakenInterface) -> State {
   case state.pending {
     Some(Pending(interest: Some(symbol), ..) as pending) -> {
@@ -275,12 +324,19 @@ fn release_interest(state: State, kraken: KrakenInterface) -> State {
   }
 }
 
+/// Selects and executes a Kraken or CoinMarketCap strategy in the worker process.
+/// Coordinates Kraken subscriptions through `controller` and wraps lookup
+/// failures in `LookupFailed`.
+///
+/// `deadline_ms` is an absolute deadline in monotonic milliseconds. It bounds
+/// the subscription acknowledgement wait; the controller enforces the overall
+/// deadline, including time spent in blocking provider calls.
 fn resolve(
   controller: Subject(Msg),
   config: RateServiceConfig,
   request: RateRequest,
   deadline_ms: Int,
-) -> Result(RateResponse, RateError) {
+) -> Result(RateResponse, ResolveError) {
   use strategy <- result.try(
     rate_source_strategy.determine_strategy(
       request,
@@ -289,7 +345,7 @@ fn resolve(
     )
     |> result.map_error(fn(error) {
       let rate_source_strategy.CurrencyNotFound(id) = error
-      rate_error.CurrencyNotFound(request, id)
+      LookupFailed(rate_error.CurrencyNotFound(request, id))
     }),
   )
 
@@ -299,7 +355,7 @@ fn resolve(
       process.send(controller, AcquireKraken(symbol, acknowledge))
 
       process.receive(acknowledge, remaining_ms(deadline_ms))
-      |> result.replace_error(rate_error.TimedOut(request))
+      |> result.replace_error(TimedOut(request))
     }
     _ -> Ok(Nil)
   })
@@ -315,7 +371,7 @@ fn resolve(
     )
   let #(result, _) =
     rate_source_strategy.execute_strategy(strategy, request, strategy_config)
-  result
+  result.map_error(result, LookupFailed)
 }
 
 fn remaining_ms(deadline_ms: Int) -> Int {

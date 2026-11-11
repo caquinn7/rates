@@ -22,9 +22,9 @@ import server/rates/internal/kraken_interface.{
   type KrakenInterface, KrakenInterface,
 }
 import server/rates/internal/kraken_symbol
-import server/rates/rate_error.{CmcError, CurrencyNotFound, TimedOut}
+import server/rates/rate_error.{CmcError, CurrencyNotFound}
 import server/rates/rate_service_config.{RateServiceConfig}
-import server/rates/resolver
+import server/rates/resolver.{LookupFailed, TimedOut}
 import server/utils/time
 import server/web/routes/home
 import shared/client_state.{ClientState, ConverterState}
@@ -91,7 +91,7 @@ pub fn missing_currency_remains_a_currency_error_test() {
     config(kraken(events, False, fn(_) { panic }), fn(_) { panic }),
   )
   assert resolver.get_rate(target, RateRequest(999, 2781), 1000)
-    == Error(CurrencyNotFound(RateRequest(999, 2781), 999))
+    == Error(LookupFailed(CurrencyNotFound(RateRequest(999, 2781), 999)))
   await_dead(controller)
   assert drain(events) == []
 }
@@ -104,10 +104,12 @@ pub fn provider_response_timeout_keeps_its_original_error_test() {
     }),
   )
   assert resolver.get_rate(target, RateRequest(1, 2781), 1000)
-    == Error(CmcError(
-      RateRequest(1, 2781),
-      RequestFailed(HttpError(httpc.ResponseTimeout)),
-    ))
+    == Error(
+      LookupFailed(CmcError(
+        RateRequest(1, 2781),
+        RequestFailed(HttpError(httpc.ResponseTimeout)),
+      )),
+    )
   await_dead(controller)
 }
 
