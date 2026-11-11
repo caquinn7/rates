@@ -23,7 +23,9 @@ import server/rates/internal/kraken_interface.{
 }
 import server/rates/internal/kraken_symbol
 import server/rates/rate_error.{CmcError, CurrencyNotFound}
-import server/rates/rate_service_config.{RateServiceConfig}
+import server/rates/rate_service_config.{
+  type RateServiceConfig, RateServiceConfig,
+}
 import server/rates/resolver.{LookupFailed, TimedOut}
 import server/utils/time
 import server/web/routes/home
@@ -163,9 +165,7 @@ pub fn deadline_also_bounds_strategy_selection_test() {
   let events = process.new_subject()
   let original = config(kraken(events, False, fn(_) { panic }), fn(_) { panic })
   let config =
-    resolver.Config(
-      RateServiceConfig(..original.base, get_currency: fn(_) { block(events) }),
-    )
+    RateServiceConfig(..original, get_currency: fn(_) { block(events) })
   use target, controller <- with_resolver(config)
   assert resolver.get_rate(target, RateRequest(1, 2781), 75)
     == Error(TimedOut(RateRequest(1, 2781)))
@@ -178,11 +178,9 @@ pub fn nonpositive_budgets_do_not_start_lookup_work_test() {
   let events = process.new_subject()
   let original = config(kraken(events, False, fn(_) { panic }), fn(_) { panic })
   let config =
-    resolver.Config(
-      RateServiceConfig(..original.base, get_currency: fn(_) {
-        panic as "lookup must not run"
-      }),
-    )
+    RateServiceConfig(..original, get_currency: fn(_) {
+      panic as "lookup must not run"
+    })
   list.each([0, -1], fn(timeout) {
     use target, controller <- with_resolver(config)
     assert resolver.get_rate(target, RateRequest(1, 2781), timeout)
@@ -309,14 +307,14 @@ fn currencies() -> List(Currency) {
 fn config(
   kraken: KrakenInterface,
   request: RequestCmcConversion,
-) -> resolver.Config {
-  resolver.Config(RateServiceConfig(
+) -> RateServiceConfig {
+  RateServiceConfig(
     get_currency: fn(id) {
       list.find(currencies(), fn(currency) { currency.id == id })
     },
     kraken_interface: kraken,
     request_cmc_conversion: request,
-  ))
+  )
 }
 
 fn kraken(events: Subject(Event), supported: Bool, check) -> KrakenInterface {
@@ -353,7 +351,7 @@ fn block(events: Subject(Event)) -> a {
 }
 
 fn with_resolver(
-  config: resolver.Config,
+  config: RateServiceConfig,
   run: fn(resolver.RateResolver, Pid) -> a,
 ) -> a {
   let previous = linked_processes(process.self())

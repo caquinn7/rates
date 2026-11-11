@@ -22,8 +22,7 @@ pub fn create_rate_resolver(
   deps: Dependencies,
 ) -> fn(RateRequest) -> Result(RateResponse, ResolveError) {
   fn(rate_req) {
-    let resolver_config = rate_resolver.Config(rate_service_config(deps))
-    let assert Ok(resolver) = rate_resolver.new(resolver_config)
+    let assert Ok(resolver) = rate_resolver.new(rate_service_config(deps))
     rate_resolver.get_rate(resolver, rate_req, 5000)
   }
 }

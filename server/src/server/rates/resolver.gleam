@@ -30,10 +30,6 @@ pub opaque type RateResolver {
   RateResolver(pid: Pid, subject: Subject(Msg))
 }
 
-pub type Config {
-  Config(base: RateServiceConfig)
-}
-
 /// Failures from resolving a rate within a caller-supplied deadline.
 pub type ResolveError {
   /// A currency lookup or rate provider failed.
@@ -110,7 +106,7 @@ type State {
 }
 
 /// Starts a one-shot resolver. Call `get_rate` once with the desired time budget.
-pub fn new(config: Config) -> Result(RateResolver, StartError) {
+pub fn new(config: RateServiceConfig) -> Result(RateResolver, StartError) {
   actor.new_with_initialiser(1000, fn(self) {
     // Handle the owner's exit explicitly so its outstanding work is cleaned up.
     process.trap_exits(True)
@@ -126,9 +122,7 @@ pub fn new(config: Config) -> Result(RateResolver, StartError) {
     |> actor.returning(self)
     |> Ok
   })
-  |> actor.on_message(fn(state, message) {
-    handle_msg(state, message, config.base)
-  })
+  |> actor.on_message(fn(state, message) { handle_msg(state, message, config) })
   |> actor.start
   |> result.map(fn(started) { RateResolver(started.pid, started.data) })
 }
