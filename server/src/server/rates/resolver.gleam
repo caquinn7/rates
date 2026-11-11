@@ -232,8 +232,11 @@ fn handle_msg(
       }
     }
 
-    ReleaseKraken ->
-      actor.continue(release_interest(state, config.kraken_interface))
+    ReleaseKraken -> {
+      let pending =
+        option.map(state.pending, release_interest(_, config.kraken_interface))
+      actor.continue(State(..state, pending:))
+    }
 
     Completed(result) ->
       case state.pending {
@@ -276,7 +279,7 @@ fn finish(
   case state.pending {
     Some(pending) -> {
       let _ = process.cancel_timer(pending.timer)
-      let _ = release_interest(state, kraken)
+      let pending = release_interest(pending, kraken)
       stop_worker(pending.worker, pending.monitor)
       case reply {
         Some(reply) -> process.send(pending.reply_to, reply)
@@ -305,16 +308,15 @@ fn stop_worker(worker: Pid, monitor: Monitor) -> Nil {
   process.demonitor_process(monitor)
 }
 
-/// Unsubscribes from the Kraken symbol recorded for the pending lookup and clears
-/// it from the returned state. Returns the state unchanged if no subscription
-/// is recorded.
-fn release_interest(state: State, kraken: KrakenInterface) -> State {
-  case state.pending {
-    Some(Pending(interest: Some(symbol), ..) as pending) -> {
+/// Unsubscribes from the lookup's recorded Kraken symbol and clears `interest`.
+/// Returns the updated lookup, or the original if no subscription is recorded.
+fn release_interest(pending: Pending, kraken: KrakenInterface) -> Pending {
+  case pending.interest {
+    Some(symbol) -> {
       kraken.unsubscribe(symbol)
-      State(..state, pending: Some(Pending(..pending, interest: None)))
+      Pending(..pending, interest: None)
     }
-    _ -> state
+    None -> pending
   }
 }
 
