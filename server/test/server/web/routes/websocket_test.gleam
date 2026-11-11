@@ -16,6 +16,7 @@ import server/integrations/kraken/price_store
 import server/rates/internal/kraken_interface.{KrakenInterface}
 import server/rates/internal/kraken_symbol
 import server/rates/internal/subscription_manager
+import server/rates/rate_error
 import server/rates/rate_service_config.{RateServiceConfig}
 import server/rates/subscriber
 import server/utils/logger
@@ -167,6 +168,33 @@ pub fn provider_failure_can_be_followed_by_a_successful_update_test() {
   assert receive_response(replies) == SubscriptionUpdate(id, rate)
 }
 
+pub fn resolver_timeout_is_rate_unavailable_and_allows_recovery_test() {
+  use url, reply_targets <- with_failing_provider
+  use browser, replies <- with_browser(url)
+
+  browser_subscribe(browser, [#("bitcoin", bitcoin_id)])
+  let id = subscription_id.from_string_unsafe("bitcoin")
+  let request = RateRequest(bitcoin_id, usd_id)
+  assert receive_response(replies)
+    == SubscriptionFailed(id, request, RateUnavailable)
+
+  let reply_to = unwrap(process.receive(reply_targets, 1000))
+  process.send(reply_to, #(id, Error(rate_error.TimedOut(request))))
+  assert receive_response(replies)
+    == SubscriptionFailed(id, request, RateUnavailable)
+
+  let rate =
+    RateResponse(
+      bitcoin_id,
+      usd_id,
+      Some(positive_float.from_float_unsafe(100.0)),
+      CoinMarketCap,
+      123,
+    )
+  process.send(reply_to, #(id, Ok(rate)))
+  assert receive_response(replies) == SubscriptionUpdate(id, rate)
+}
+
 fn receive_response(replies) {
   unwrap(process.receive(replies, 1000))
   |> json.parse(websocket_response.decoder())
@@ -194,7 +222,7 @@ fn with_failing_provider(run) {
             check_for_price: fn(_) { panic },
           ),
           request_cmc_conversion: fn(_) {
-            Error(HttpError(httpc.InvalidUtf8Response))
+            Error(HttpError(httpc.ResponseTimeout))
           },
         ),
         subscription_manager: unwrap(subscription_manager.new(1000)),

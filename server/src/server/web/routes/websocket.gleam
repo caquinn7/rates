@@ -10,7 +10,9 @@ import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
   Shutdown, Text,
 }
-import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
+import server/rates/rate_error.{
+  type RateError, CmcError, CurrencyNotFound, TimedOut,
+}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
 import server/utils/logger.{type Logger}
 import shared/numbers/positive_float
@@ -133,7 +135,7 @@ pub fn handler(
                 request,
                 websocket_response.CurrencyNotFound(id),
               )
-            CmcError(request, _) ->
+            CmcError(request, _) | TimedOut(request) ->
               SubscriptionFailed(
                 subscription_id,
                 request,
@@ -222,6 +224,8 @@ fn log_rate_response_error(
       rate_req,
       "Error getting rate from cmc: " <> string.inspect(rate_req_err),
     )
+
+    TimedOut(rate_req) -> #(rate_req, "Timed out resolving rate")
   }
 
   logger

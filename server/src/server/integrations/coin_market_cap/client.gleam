@@ -115,9 +115,12 @@ pub fn get_conversion(
       #("convert_id", int.to_string(convert_id)),
     ])
 
+  // Leave headroom for Kraken polling and cleanup within the resolver's 5s budget.
+  let timeout_ms = 3000
   use resp <- result.try(
-    req
-    |> httpc.send
+    httpc.configure()
+    |> httpc.timeout(timeout_ms)
+    |> httpc.dispatch(req)
     |> result.map_error(HttpError),
   )
 
