@@ -23,13 +23,6 @@ import server/utils/time
 import shared/rates/rate_request.{type RateRequest}
 import shared/rates/rate_response.{type RateResponse}
 
-/// A handle to an actor that resolves a single exchange rate.
-/// Create with `new`, then call `get_rate` once with a time budget in milliseconds.
-/// The actor stops after the lookup finishes or its deadline expires.
-pub opaque type RateResolver {
-  RateResolver(pid: Pid, subject: Subject(Msg))
-}
-
 /// Failures from resolving a rate within a caller-supplied deadline.
 pub type ResolveError {
   /// A currency lookup or rate provider failed.
@@ -59,10 +52,6 @@ type CallEvent {
 
 /// Messages and lifecycle notifications received by the resolver actor.
 type Msg {
-  /// A rate lookup request with a reply subject, currency pair, and absolute
-  /// deadline in monotonic milliseconds.
-  GetRate(Subject(Reply), RateRequest, deadline_ms: Int)
-
   /// A worker request to subscribe to a Kraken symbol, with an acknowledgement
   /// subject.
   AcquireKraken(KrakenSymbol, Subject(Nil))
@@ -82,8 +71,8 @@ type Msg {
   /// A process monitor notification that the lookup worker has exited.
   WorkerDown(process.Down)
 
-  /// A trapped exit notification from the process that started the resolver.
-  OwnerExited
+  /// A trapped exit notification from the owner or the linked worker.
+  LinkedExited(process.ExitMessage)
 }
 
 /// Request details and resources for an active rate lookup.
@@ -101,57 +90,38 @@ type Pending {
   )
 }
 
-type State {
-  State(self: Subject(Msg), pending: Option(Pending))
-}
-
-/// Starts a one-shot resolver. Call `get_rate` once with the desired time budget.
-pub fn new(config: RateServiceConfig) -> Result(RateResolver, StartError) {
-  actor.new_with_initialiser(1000, fn(self) {
-    // Handle the owner's exit explicitly so its outstanding work is cleaned up.
-    process.trap_exits(True)
-    let selector =
-      process.new_selector()
-      |> process.select(self)
-      |> process.select_monitors(WorkerDown)
-      |> process.select_trapped_exits(fn(_) { OwnerExited })
-
-    State(self, None)
-    |> actor.initialised
-    |> actor.selecting(selector)
-    |> actor.returning(self)
-    |> Ok
-  })
-  |> actor.on_message(fn(state, message) { handle_msg(state, message, config) })
-  |> actor.start
-  |> result.map(fn(started) { RateResolver(started.pid, started.data) })
-}
-
-/// Resolves a rate, returning `TimedOut` when the millisecond budget expires.
-/// Nonpositive budgets time out without starting any provider work.
-/// Unexpected resolver or worker crashes still raise, preserving their details.
+/// Resolves one rate within a millisecond budget, including resolver startup.
+/// Creates a controller and lookup worker internally; both stop after the lookup.
+/// Nonpositive budgets return `TimedOut` without starting either process.
+/// Unexpected startup failures or resolver and worker crashes still raise.
 pub fn get_rate(
-  resolver: RateResolver,
+  config: RateServiceConfig,
   rate_request: RateRequest,
   timeout: Int,
 ) -> Result(RateResponse, ResolveError) {
-  let RateResolver(pid:, subject:) = resolver
-  let deadline_ms = time.monotonic_time_ms() + int.max(timeout, 0)
-
   case timeout <= 0 {
-    True -> {
-      process.send(subject, Cancel)
-      Error(TimedOut(rate_request))
-    }
+    True -> Error(TimedOut(rate_request))
     False -> {
+      let deadline_ms = time.monotonic_time_ms() + timeout
       let reply_to = process.new_subject()
-      let monitor = process.monitor(pid)
+      use started <- result.try(
+        start(config, rate_request, reply_to, deadline_ms)
+        |> result.map_error(fn(error) {
+          case error, remaining_ms(deadline_ms) {
+            actor.InitTimeout, 0 -> TimedOut(rate_request)
+            _, _ ->
+              panic as {
+                "rate resolver failed to start: " <> string.inspect(error)
+              }
+          }
+        }),
+      )
+      let monitor = process.monitor(started.pid)
       let selector =
         process.new_selector()
         |> process.select_map(reply_to, Answer)
         |> process.select_specific_monitor(monitor, ResolverDown)
 
-      process.send(subject, GetRate(reply_to, rate_request, deadline_ms))
       let answer = process.selector_receive(selector, remaining_ms(deadline_ms))
       process.demonitor_process(monitor)
 
@@ -163,7 +133,7 @@ pub fn get_rate(
         Ok(ResolverDown(down)) ->
           panic as { "rate resolver exited: " <> string.inspect(down) }
         Error(_) -> {
-          process.send(subject, Cancel)
+          process.send(started.data, Cancel)
           Error(TimedOut(rate_request))
         }
       }
@@ -171,87 +141,90 @@ pub fn get_rate(
   }
 }
 
-fn handle_msg(
-  state: State,
-  msg: Msg,
+/// Starts the controller with an active lookup and its cleanup resources.
+fn start(
   config: RateServiceConfig,
-) -> Next(State, Msg) {
+  request: RateRequest,
+  reply_to: Subject(Reply),
+  deadline_ms: Int,
+) -> Result(actor.Started(Subject(Msg)), StartError) {
+  actor.new_with_initialiser(int.min(1000, remaining_ms(deadline_ms)), fn(self) {
+    process.trap_exits(True)
+    // Linking also stops the worker if controller startup fails or it crashes.
+    // The monitor supplies worker crash details and confirms cleanup completion.
+    let worker =
+      process.spawn(fn() {
+        let result = case remaining_ms(deadline_ms) {
+          0 -> Error(TimedOut(request))
+          _ -> resolve(self, config, request, deadline_ms)
+        }
+        process.send(self, Completed(result))
+      })
+
+    let selector =
+      process.new_selector()
+      |> process.select(self)
+      |> process.select_monitors(WorkerDown)
+      |> process.select_trapped_exits(LinkedExited)
+
+    Pending(
+      reply_to:,
+      request:,
+      deadline_ms:,
+      worker:,
+      monitor: process.monitor(worker),
+      timer: process.send_after(
+        self,
+        remaining_ms(deadline_ms),
+        DeadlineReached,
+      ),
+      interest: None,
+    )
+    |> actor.initialised
+    |> actor.selecting(selector)
+    |> actor.returning(self)
+    |> Ok
+  })
+  |> actor.on_message(fn(pending, message) {
+    handle_msg(pending, message, config.kraken_interface)
+  })
+  |> actor.start
+}
+
+fn handle_msg(
+  pending: Pending,
+  msg: Msg,
+  kraken: KrakenInterface,
+) -> Next(Pending, Msg) {
   case msg {
-    GetRate(reply_to, request, deadline_ms) -> {
-      case state.pending {
-        Some(_) -> panic as "a rate resolver can only be used once"
-        None ->
-          case remaining_ms(deadline_ms) {
-            0 -> {
-              process.send(reply_to, Resolved(Error(TimedOut(request))))
-              actor.stop()
-            }
-            remaining -> {
-              let worker =
-                process.spawn_unlinked(fn() {
-                  let result = resolve(state.self, config, request, deadline_ms)
-                  process.send(state.self, Completed(result))
-                })
-              let pending =
-                Pending(
-                  reply_to:,
-                  request:,
-                  deadline_ms:,
-                  worker:,
-                  monitor: process.monitor(worker),
-                  timer: process.send_after(
-                    state.self,
-                    remaining,
-                    DeadlineReached,
-                  ),
-                  interest: None,
-                )
-              actor.continue(State(..state, pending: Some(pending)))
-            }
-          }
+    AcquireKraken(symbol, acknowledge) ->
+      case remaining_ms(pending.deadline_ms) {
+        0 -> timed_out(pending, kraken)
+        _ -> {
+          kraken.subscribe(symbol)
+          process.send(acknowledge, Nil)
+          actor.continue(Pending(..pending, interest: Some(symbol)))
+        }
       }
-    }
 
-    AcquireKraken(symbol, acknowledge) -> {
-      case state.pending {
-        Some(pending) ->
-          case remaining_ms(pending.deadline_ms) {
-            0 -> timed_out(state, config.kraken_interface)
-            _ -> {
-              config.kraken_interface.subscribe(symbol)
-              process.send(acknowledge, Nil)
-              actor.continue(
-                State(
-                  ..state,
-                  pending: Some(Pending(..pending, interest: Some(symbol))),
-                ),
-              )
-            }
-          }
-        None -> actor.continue(state)
-      }
-    }
-
-    ReleaseKraken -> {
-      let pending =
-        option.map(state.pending, release_interest(_, config.kraken_interface))
-      actor.continue(State(..state, pending:))
-    }
+    ReleaseKraken -> actor.continue(release_interest(pending, kraken))
 
     Completed(result) ->
-      case state.pending {
-        Some(pending) ->
-          case remaining_ms(pending.deadline_ms) {
-            0 -> timed_out(state, config.kraken_interface)
-            _ -> finish(state, Some(Resolved(result)), config.kraken_interface)
-          }
-        None -> actor.continue(state)
+      case remaining_ms(pending.deadline_ms) {
+        0 -> timed_out(pending, kraken)
+        _ -> finish(pending, Some(Resolved(result)), kraken)
       }
 
-    DeadlineReached -> timed_out(state, config.kraken_interface)
-    Cancel | OwnerExited -> finish(state, None, config.kraken_interface)
+    DeadlineReached -> timed_out(pending, kraken)
+    Cancel -> finish(pending, None, kraken)
+    LinkedExited(exit) ->
+      case exit.pid == pending.worker {
+        // Worker exits are handled by the monitor notification instead.
+        True -> actor.continue(pending)
+        False -> finish(pending, None, kraken)
+      }
     WorkerDown(process.ProcessDown(reason:, ..)) ->
-      finish(state, Some(Crashed(reason)), config.kraken_interface)
+      finish(pending, Some(Crashed(reason)), kraken)
     WorkerDown(down) ->
       panic as {
         "expected worker process exit notification, received: "
@@ -260,32 +233,22 @@ fn handle_msg(
   }
 }
 
-/// Builds a `TimedOut` reply for the pending request, then delegates cleanup and
-/// resolver shutdown to `finish`. With no pending request, no reply is sent.
-fn timed_out(state: State, kraken: KrakenInterface) -> Next(State, Msg) {
-  let reply =
-    option.map(state.pending, fn(pending) {
-      Resolved(Error(TimedOut(pending.request)))
-    })
-  finish(state, reply, kraken)
+/// Builds a `TimedOut` reply, then delegates cleanup and shutdown to `finish`.
+fn timed_out(pending: Pending, kraken: KrakenInterface) -> Next(Pending, Msg) {
+  finish(pending, Some(Resolved(Error(TimedOut(pending.request)))), kraken)
 }
 
 /// Finalizes both successful and failed requests, including cancellation.
 fn finish(
-  state: State,
+  pending: Pending,
   reply: Option(Reply),
   kraken: KrakenInterface,
-) -> Next(State, Msg) {
-  case state.pending {
-    Some(pending) -> {
-      let _ = process.cancel_timer(pending.timer)
-      let pending = release_interest(pending, kraken)
-      stop_worker(pending.worker, pending.monitor)
-      case reply {
-        Some(reply) -> process.send(pending.reply_to, reply)
-        None -> Nil
-      }
-    }
+) -> Next(Pending, Msg) {
+  let _ = process.cancel_timer(pending.timer)
+  let pending = release_interest(pending, kraken)
+  stop_worker(pending.worker, pending.monitor)
+  case reply {
+    Some(reply) -> process.send(pending.reply_to, reply)
     None -> Nil
   }
   actor.stop()

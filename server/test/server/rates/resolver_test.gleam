@@ -53,9 +53,10 @@ pub fn kraken_success_releases_interest_and_preserves_quote_test() {
       }),
       fn(_) { panic as "CMC must not run for a Kraken quote" },
     )
-  use target, controller <- with_resolver(config)
-  assert resolver.get_rate(target, RateRequest(1, 2781), 1000)
+  use lookup_config, get_controller <- with_lookup(config)
+  assert resolver.get_rate(lookup_config, RateRequest(1, 2781), 1000)
     == Ok(RateResponse(1, 2781, Some(price()), Kraken, 123))
+  let controller = get_controller()
   await_dead(controller)
   assert_worker_stopped_and_interest_released(events, controller)
 }
@@ -67,96 +68,103 @@ pub fn fallback_success_releases_interest_exactly_once_test() {
       process.send(events, Worker(process.self()))
       cmc_quote(params.id)
     })
-  use target, controller <- with_resolver(config)
-  assert resolver.get_rate(target, RateRequest(1, 2781), 1000)
+  use lookup_config, get_controller <- with_lookup(config)
+  assert resolver.get_rate(lookup_config, RateRequest(1, 2781), 1000)
     == Ok(RateResponse(1, 2781, Some(price()), CoinMarketCap, 456))
+  let controller = get_controller()
   await_dead(controller)
   assert_worker_stopped_and_interest_released(events, controller)
 }
 
 pub fn cmc_only_success_does_not_acquire_kraken_interest_test() {
   let events = process.new_subject()
-  use target, controller <- with_resolver(
+  use lookup_config, get_controller <- with_lookup(
     config(kraken(events, False, fn(_) { panic }), fn(params) {
       cmc_quote(params.id)
     }),
   )
-  assert resolver.get_rate(target, RateRequest(1, 2781), 1000)
+  assert resolver.get_rate(lookup_config, RateRequest(1, 2781), 1000)
     == Ok(RateResponse(1, 2781, Some(price()), CoinMarketCap, 456))
+  let controller = get_controller()
   await_dead(controller)
   assert drain(events) == []
 }
 
 pub fn missing_currency_remains_a_currency_error_test() {
   let events = process.new_subject()
-  use target, controller <- with_resolver(
+  use lookup_config, get_controller <- with_lookup(
     config(kraken(events, False, fn(_) { panic }), fn(_) { panic }),
   )
-  assert resolver.get_rate(target, RateRequest(999, 2781), 1000)
+  assert resolver.get_rate(lookup_config, RateRequest(999, 2781), 1000)
     == Error(LookupFailed(CurrencyNotFound(RateRequest(999, 2781), 999)))
+  let controller = get_controller()
   await_dead(controller)
   assert drain(events) == []
 }
 
 pub fn provider_response_timeout_keeps_its_original_error_test() {
   let events = process.new_subject()
-  use target, controller <- with_resolver(
+  use lookup_config, get_controller <- with_lookup(
     config(kraken(events, False, fn(_) { panic }), fn(_) {
       Error(HttpError(httpc.ResponseTimeout))
     }),
   )
-  assert resolver.get_rate(target, RateRequest(1, 2781), 1000)
+  assert resolver.get_rate(lookup_config, RateRequest(1, 2781), 1000)
     == Error(
       LookupFailed(CmcError(
         RateRequest(1, 2781),
         RequestFailed(HttpError(httpc.ResponseTimeout)),
       )),
     )
+  let controller = get_controller()
   await_dead(controller)
 }
 
 pub fn blocked_cmc_times_out_stops_worker_and_allows_another_lookup_test() {
   let events = process.new_subject()
   let before_monitors = monitored_processes(process.self())
-  use target, controller <- with_resolver(
+  use lookup_config, get_controller <- with_lookup(
     config(kraken(events, False, fn(_) { panic }), fn(_) { block(events) }),
   )
   let start = time.monotonic_time_ms()
-  assert resolver.get_rate(target, RateRequest(1, 2781), 75)
+  assert resolver.get_rate(lookup_config, RateRequest(1, 2781), 75)
     == Error(TimedOut(RateRequest(1, 2781)))
   assert time.monotonic_time_ms() - start < 1000
+  let controller = get_controller()
   await_dead(controller)
   let assert [Worker(worker)] = drain(events)
   assert !process.is_alive(worker)
   assert monitored_processes(process.self()) == before_monitors
 
-  use next, next_controller <- with_resolver(
+  use next_config, next_controller <- with_lookup(
     config(kraken(events, False, fn(_) { panic }), fn(params) {
       cmc_quote(params.id)
     }),
   )
-  let assert Ok(_) = resolver.get_rate(next, RateRequest(1, 2781), 1000)
-  await_dead(next_controller)
+  let assert Ok(_) = resolver.get_rate(next_config, RateRequest(1, 2781), 1000)
+  await_dead(next_controller())
 }
 
 pub fn timeout_during_kraken_polling_releases_interest_test() {
   let events = process.new_subject()
-  use target, controller <- with_resolver(
+  use lookup_config, get_controller <- with_lookup(
     config(kraken(events, True, fn(_) { block(events) }), fn(_) { panic }),
   )
-  assert resolver.get_rate(target, RateRequest(1, 2781), 75)
+  assert resolver.get_rate(lookup_config, RateRequest(1, 2781), 75)
     == Error(TimedOut(RateRequest(1, 2781)))
+  let controller = get_controller()
   await_dead(controller)
   assert_worker_stopped_and_interest_released(events, controller)
 }
 
 pub fn timeout_during_fallback_does_not_release_interest_twice_test() {
   let events = process.new_subject()
-  use target, controller <- with_resolver(
+  use lookup_config, get_controller <- with_lookup(
     config(kraken(events, True, fn(_) { Error(Nil) }), fn(_) { block(events) }),
   )
-  assert resolver.get_rate(target, RateRequest(1, 2781), 75)
+  assert resolver.get_rate(lookup_config, RateRequest(1, 2781), 75)
     == Error(TimedOut(RateRequest(1, 2781)))
+  let controller = get_controller()
   await_dead(controller)
   assert_worker_stopped_and_interest_released(events, controller)
 }
@@ -166,9 +174,10 @@ pub fn deadline_also_bounds_strategy_selection_test() {
   let original = config(kraken(events, False, fn(_) { panic }), fn(_) { panic })
   let config =
     RateServiceConfig(..original, get_currency: fn(_) { block(events) })
-  use target, controller <- with_resolver(config)
-  assert resolver.get_rate(target, RateRequest(1, 2781), 75)
+  use lookup_config, get_controller <- with_lookup(config)
+  assert resolver.get_rate(lookup_config, RateRequest(1, 2781), 75)
     == Error(TimedOut(RateRequest(1, 2781)))
+  let controller = get_controller()
   await_dead(controller)
   let assert [Worker(worker)] = drain(events)
   assert !process.is_alive(worker)
@@ -181,18 +190,20 @@ pub fn nonpositive_budgets_do_not_start_lookup_work_test() {
     RateServiceConfig(..original, get_currency: fn(_) {
       panic as "lookup must not run"
     })
+  let before_links = linked_processes(process.self())
+  let before_monitors = monitored_processes(process.self())
   list.each([0, -1], fn(timeout) {
-    use target, controller <- with_resolver(config)
-    assert resolver.get_rate(target, RateRequest(1, 2781), timeout)
+    assert resolver.get_rate(config, RateRequest(1, 2781), timeout)
       == Error(TimedOut(RateRequest(1, 2781)))
-    await_dead(controller)
   })
+  assert linked_processes(process.self()) == before_links
+  assert monitored_processes(process.self()) == before_monitors
   assert drain(events) == []
 }
 
 pub fn worker_crashes_are_not_reported_as_timeouts_test() {
   let events = process.new_subject()
-  use target, controller <- with_resolver(
+  use lookup_config, get_controller <- with_lookup(
     config(
       kraken(events, True, fn(_) {
         process.send(events, Worker(process.self()))
@@ -203,11 +214,49 @@ pub fn worker_crashes_are_not_reported_as_timeouts_test() {
   )
   let assert Error(exception.Errored(details)) =
     exception.rescue(fn() {
-      resolver.get_rate(target, RateRequest(1, 2781), 1000)
+      resolver.get_rate(lookup_config, RateRequest(1, 2781), 1000)
     })
   assert string.contains(string.inspect(details), "price provider exploded")
+  let controller = get_controller()
   await_dead(controller)
   assert_worker_stopped_and_interest_released(events, controller)
+}
+
+pub fn strategy_selection_crash_preserves_original_reason_test() {
+  let events = process.new_subject()
+  let original = config(kraken(events, False, fn(_) { panic }), fn(_) { panic })
+  let config =
+    RateServiceConfig(..original, get_currency: fn(_) {
+      process.send(events, Worker(process.self()))
+      panic as "currency lookup exploded"
+    })
+  use lookup_config, get_controller <- with_lookup(config)
+  let assert Error(exception.Errored(details)) =
+    exception.rescue(fn() {
+      resolver.get_rate(lookup_config, RateRequest(1, 2781), 1000)
+    })
+  assert string.contains(string.inspect(details), "currency lookup exploded")
+  await_dead(get_controller())
+  let assert [Worker(worker)] = drain(events)
+  assert !process.is_alive(worker)
+}
+
+pub fn controller_crash_stops_lookup_worker_test() {
+  let events = process.new_subject()
+  use lookup_config, get_controller <- with_lookup(
+    config(kraken(events, False, fn(_) { panic }), fn(_) { block(events) }),
+  )
+  let owner =
+    process.spawn_unlinked(fn() {
+      resolver.get_rate(lookup_config, RateRequest(1, 2781), 10_000)
+    })
+  use <- exception.defer(fn() { process.kill(owner) })
+  let controller = get_controller()
+  let assert Ok(Worker(worker)) = process.receive(events, 1000)
+  process.kill(controller)
+  await_dead(controller)
+  await_dead(owner)
+  await_dead(worker)
 }
 
 pub fn owner_exit_cancels_work_and_releases_interest_test() {
@@ -216,8 +265,7 @@ pub fn owner_exit_cancels_work_and_releases_interest_test() {
     config(kraken(events, True, fn(_) { block(events) }), fn(_) { panic })
   let owner =
     process.spawn_unlinked(fn() {
-      let assert Ok(target) = resolver.new(config)
-      resolver.get_rate(target, RateRequest(1, 2781), 10_000)
+      resolver.get_rate(config, RateRequest(1, 2781), 10_000)
     })
   use <- exception.defer(fn() { process.kill(owner) })
   let assert Ok(Subscribed(controller)) = process.receive(events, 1000)
@@ -235,8 +283,7 @@ pub fn resolver_enforces_its_deadline_even_while_caller_is_suspended_test() {
     config(kraken(events, True, fn(_) { block(events) }), fn(_) { panic })
   let owner =
     process.spawn_unlinked(fn() {
-      let assert Ok(target) = resolver.new(config)
-      let reply = resolver.get_rate(target, RateRequest(1, 2781), 200)
+      let reply = resolver.get_rate(config, RateRequest(1, 2781), 200)
       process.send(replies, reply)
     })
   use <- exception.defer(fn() { process.kill(owner) })
@@ -276,8 +323,9 @@ pub fn resolver_timeout_preserves_home_converters_and_successful_quotes_test() {
       ConverterState(1027, 2781, 20.0),
     ])
   let get_rate = fn(request) {
-    use target, controller <- with_resolver(config)
-    let response = resolver.get_rate(target, request, 75)
+    use lookup_config, get_controller <- with_lookup(config)
+    let response = resolver.get_rate(lookup_config, request, 75)
+    let controller = get_controller()
     await_dead(controller)
     result.replace_error(response, Nil)
   }
@@ -350,21 +398,22 @@ fn block(events: Subject(Event)) -> a {
   panic as "blocked worker unexpectedly resumed"
 }
 
-fn with_resolver(
+/// Records the internal controller while the worker selects a strategy.
+fn with_lookup(
   config: RateServiceConfig,
-  run: fn(resolver.RateResolver, Pid) -> a,
+  run: fn(RateServiceConfig, fn() -> Pid) -> a,
 ) -> a {
-  let previous = linked_processes(process.self())
-  let assert Ok(target) = resolver.new(config)
-  let assert [controller] =
-    list.filter(linked_processes(process.self()), fn(pid) {
-      !list.contains(previous, pid)
+  let controllers = process.new_subject()
+  let observed_config =
+    RateServiceConfig(..config, get_currency: fn(id) {
+      let assert [controller] = linked_processes(process.self())
+      process.send(controllers, controller)
+      config.get_currency(id)
     })
-  use <- exception.defer(fn() {
-    let _ = resolver.get_rate(target, RateRequest(1, 2781), 0)
-    await_dead(controller)
+  run(observed_config, fn() {
+    let assert Ok(controller) = process.receive(controllers, 1000)
+    controller
   })
-  run(target, controller)
 }
 
 fn await_dead(pid: Pid) -> Nil {
