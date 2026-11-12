@@ -1,0 +1,7 @@
+---
+version: 2.0.2
+title: encode_page_data_to_json_without_rates_test
+file: ./test/shared/page_data_test.gleam
+test_name: encode_page_data_to_json_without_rates_test
+---
+{"currencies":[{"type":"crypto","id":1,"name":"Bitcoin","symbol":"BTC","rank":1},{"type":"fiat","id":2781,"name":"United States Dollar","symbol":"USD","sign":"$"}],"converters":[{"from":1,"to":2781,"amount":1.5}]}
