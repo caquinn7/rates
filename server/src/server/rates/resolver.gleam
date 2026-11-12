@@ -5,6 +5,7 @@
 //// responsive to cancellation while the worker runs. Every completion path
 //// releases that interest and stops the worker before the resolver exits.
 
+import gleam/erlang/atom.{type Atom}
 import gleam/erlang/process.{type Monitor, type Pid, type Subject, type Timer}
 import gleam/function
 import gleam/int
@@ -127,11 +128,14 @@ pub fn get_rate(
 
       case answer {
         Ok(Answer(Resolved(result))) -> result
+
         Ok(Answer(Crashed(reason)))
         | Ok(ResolverDown(process.ProcessDown(reason:, ..))) ->
           panic as { "rate resolver exited: " <> string.inspect(reason) }
+
         Ok(ResolverDown(down)) ->
           panic as { "rate resolver exited: " <> string.inspect(down) }
+
         Error(_) -> {
           process.send(started.data, Cancel)
           Error(TimedOut(rate_request))
@@ -151,9 +155,9 @@ fn start(
   actor.new_with_initialiser(int.min(1000, remaining_ms(deadline_ms)), fn(self) {
     process.trap_exits(True)
     // Linking also stops the worker if controller startup fails or it crashes.
-    // The monitor supplies worker crash details and confirms cleanup completion.
-    let worker =
-      process.spawn(fn() {
+    // Install the monitor atomically so even an immediate crash keeps its reason.
+    let #(worker, monitor) =
+      spawn_link_monitor(fn() {
         let result = case remaining_ms(deadline_ms) {
           0 -> Error(TimedOut(request))
           _ -> resolve(self, config, request, deadline_ms)
@@ -172,7 +176,7 @@ fn start(
       request:,
       deadline_ms:,
       worker:,
-      monitor: process.monitor(worker),
+      monitor:,
       timer: process.send_after(
         self,
         remaining_ms(deadline_ms),
@@ -216,15 +220,19 @@ fn handle_msg(
       }
 
     DeadlineReached -> timed_out(pending, kraken)
+
     Cancel -> finish(pending, None, kraken)
+
     LinkedExited(exit) ->
       case exit.pid == pending.worker {
         // Worker exits are handled by the monitor notification instead.
         True -> actor.continue(pending)
         False -> finish(pending, None, kraken)
       }
+
     WorkerDown(process.ProcessDown(reason:, ..)) ->
       finish(pending, Some(Crashed(reason)), kraken)
+
     WorkerDown(down) ->
       panic as {
         "expected worker process exit notification, received: "
@@ -330,9 +338,20 @@ fn resolve(
     )
   let #(result, _) =
     rate_source_strategy.execute_strategy(strategy, request, strategy_config)
+
   result.map_error(result, LookupFailed)
 }
 
 fn remaining_ms(deadline_ms: Int) -> Int {
   int.max(deadline_ms - time.monotonic_time_ms(), 0)
 }
+
+/// Starts a linked worker with its monitor installed before it can run.
+fn spawn_link_monitor(run: fn() -> Nil) -> #(Pid, Monitor) {
+  spawn_opt(run, [atom.create("link"), atom.create("monitor")])
+}
+
+/// The options must include the `monitor` atom so Erlang returns
+/// a PID and monitor pair.
+@external(erlang, "proc_lib", "spawn_opt")
+fn spawn_opt(run: fn() -> Nil, options: List(Atom)) -> #(Pid, Monitor)

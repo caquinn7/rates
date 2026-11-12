@@ -227,7 +227,10 @@ pub fn strategy_selection_crash_preserves_original_reason_test() {
   let original = config(kraken(events, False, fn(_) { panic }), fn(_) { panic })
   let config =
     RateServiceConfig(..original, get_currency: fn(_) {
-      process.send(events, Worker(process.self()))
+      let worker = process.self()
+      process.send(events, Worker(worker))
+      let assert [controller] = linked_processes(worker)
+      assert list.contains(monitored_processes(controller), worker)
       panic as "currency lookup exploded"
     })
   use lookup_config, get_controller <- with_lookup(config)
@@ -239,6 +242,38 @@ pub fn strategy_selection_crash_preserves_original_reason_test() {
   await_dead(get_controller())
   let assert [Worker(worker)] = drain(events)
   assert !process.is_alive(worker)
+}
+
+pub fn worker_crash_reason_survives_delayed_monitor_receive_test() {
+  let replies = process.new_subject()
+  let owner =
+    process.spawn_unlinked(fn() {
+      process.trap_exits(True)
+      let #(worker, monitor) =
+        spawn_opt(fn() { panic as "immediate worker failure" }, [Link, Monitor])
+
+      // Wait for the linked exit first, so the worker is definitely dead before
+      // receiving its monitor notification. A late monitor would report noproc.
+      let assert Ok(exit) =
+        process.new_selector()
+        |> process.select_trapped_exits(fn(exit) { exit })
+        |> process.selector_receive(1000)
+      assert exit.pid == worker
+      let assert Ok(process.ProcessDown(reason:, ..)) =
+        process.new_selector()
+        |> process.select_specific_monitor(monitor, fn(down) { down })
+        |> process.selector_receive(1000)
+      process.demonitor_process(monitor)
+      process.send(replies, #(exit.reason, reason))
+    })
+  use <- exception.defer(fn() { process.kill(owner) })
+  let assert Ok(#(exit_reason, monitor_reason)) = process.receive(replies, 1000)
+  assert exit_reason == monitor_reason
+  assert string.contains(
+    string.inspect(monitor_reason),
+    "immediate worker failure",
+  )
+  await_dead(owner)
 }
 
 pub fn controller_crash_stops_lookup_worker_test() {
@@ -459,6 +494,18 @@ fn linked_processes(pid: Pid) -> List(Pid)
 
 @external(erlang, "process_test_ffi", "monitored_processes")
 fn monitored_processes(pid: Pid) -> List(Pid)
+
+/// Exercises the same atomic spawn operation used by the resolver.
+@external(erlang, "proc_lib", "spawn_opt")
+fn spawn_opt(
+  run: fn() -> Nil,
+  options: List(SpawnOption),
+) -> #(Pid, process.Monitor)
+
+type SpawnOption {
+  Link
+  Monitor
+}
 
 /// Pause only the test caller, so the resolver must enforce its own deadline.
 @external(erlang, "erlang", "suspend_process")
