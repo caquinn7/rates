@@ -26,9 +26,14 @@ import shared/websocket_response.{
   SubscriptionUpdate,
 }
 
-pub fn missing_seed_quotes_preserve_rows_url_and_delayed_loading_test() {
+pub fn startup_preserves_rows_url_and_delayed_loading_test() {
   use <- with_browser
-  let data = page_data([])
+  let encoded =
+    page_data()
+    |> page_data.encode
+    |> json.to_string
+  assert !string.contains(encoded, "\"rate\":")
+  let assert Ok(data) = json.parse(encoded, page_data.decoder())
   let #(initial, effects) = client.init(data)
 
   assert saved_state() == ClientState(data.converters)
@@ -53,57 +58,115 @@ pub fn missing_seed_quotes_preserve_rows_url_and_delayed_loading_test() {
   assert saved_state() == ClientState(data.converters)
 }
 
-pub fn seeded_and_untracked_quotes_do_not_schedule_loading_timers_test() {
+pub fn startup_quotes_settle_rows_independently_test() {
   use <- with_browser
   let data =
-    PageData(
-      ..page_data([quote(1, 2781, Some(rate(2.0))), quote(1027, 2781, None)]),
-      converters: [
-        ConverterState(1, 2781, 10.0),
-        ConverterState(1027, 2781, 20.0),
-        ConverterState(2781, 1, 30.0),
-      ],
-    )
+    PageData(..page_data(), converters: [
+      ConverterState(1, 2781, 10.0),
+      ConverterState(1027, 2781, 20.0),
+      ConverterState(2781, 1, 30.0),
+    ])
   let #(initial, effects) = client.init(data)
-  let assert [seeded, untracked, waiting] = initial.converters
-  assert seeded.rate_status == Current
+  perform(effects)
+  assert pending_timer_count() == 3
+  open_socket()
+  let connected = deliver_messages(initial)
+  let settled =
+    connected
+    |> receive_response(SubscriptionUpdate(
+      subscription_id.from_string_unsafe("converter-1"),
+      quote(1, 2781, Some(rate(2.0))),
+    ))
+    |> receive_response(SubscriptionUpdate(
+      subscription_id.from_string_unsafe("converter-2"),
+      quote(1027, 2781, None),
+    ))
+
+  let assert [current, untracked, waiting] = settled.converters
+  assert current.rate_status == Current
   assert untracked.rate_status == NotTracked
   assert converter.get_converter_input(untracked, Right).amount_input.raw
     == "price not tracked"
-  assert waiting.rate_status == Waiting(1, False)
+  assert waiting.rate_status == Waiting(3, False)
 
-  perform(effects)
-  assert pending_timer_count() == 1
   advance_time(300)
-  let visible = deliver_messages(initial)
-  let assert [still_seeded, still_untracked, still_waiting] = visible.converters
-  assert still_seeded == seeded
+  let visible = deliver_messages(settled)
+  let assert [still_current, still_untracked, still_waiting] =
+    visible.converters
+  assert still_current == current
   assert still_untracked == untracked
-  assert still_waiting.rate_status == Waiting(1, True)
+  assert still_waiting.rate_status == Waiting(3, True)
 }
 
-pub fn websocket_subscribes_all_rows_and_keeps_seeded_rates_on_reconnect_test() {
+pub fn websocket_subscribes_all_rows_and_keeps_received_rates_on_reconnect_test() {
   use <- with_browser
-  let data = page_data([quote(1, 2781, Some(rate(2.0)))])
+  let data = page_data()
   let #(initial, effects) = client.init(data)
   perform(effects)
   open_socket()
   let connected = deliver_messages(initial)
   assert connected.converters == initial.converters
   assert_subscriptions(sent_messages())
+  let loaded =
+    receive_response(
+      connected,
+      SubscriptionUpdate(
+        subscription_id.from_string_unsafe("converter-1"),
+        quote(1, 2781, Some(rate(2.0))),
+      ),
+    )
+  let assert [target, ..] = loaded.converters
+  assert target.rate_status == Current
 
-  let disconnected = update(connected, FromWebSocket(OnClose(GoingAway)))
-  assert disconnected.converters == initial.converters
+  let disconnected = update(loaded, FromWebSocket(OnClose(GoingAway)))
+  assert disconnected.converters == loaded.converters
   let reconnecting = update(disconnected, AppScheduledReconnection)
   open_socket()
   let reconnected = deliver_messages(reconnecting)
-  assert reconnected.converters == initial.converters
+  assert reconnected.converters == loaded.converters
   assert_subscriptions(list.drop(sent_messages(), 3))
+  assert saved_state() == ClientState(data.converters)
+}
+
+pub fn connection_failure_before_first_quote_recovers_without_losing_state_test() {
+  use <- with_browser
+  let data = page_data()
+  let #(initial, effects) = client.init(data)
+  perform(effects)
+
+  let disconnected = update(initial, FromWebSocket(OnClose(GoingAway)))
+  assert disconnected.converters == initial.converters
+  assert saved_state() == ClientState(data.converters)
+  assert sent_messages() == []
+
+  // Include the first retry's maximum positive jitter.
+  advance_time(1250)
+  let reconnecting = deliver_messages(disconnected)
+  assert reconnecting.reconnect_attempts == 1
+  assert has_spinner(reconnecting)
+  assert client.model_to_client_state(reconnecting)
+    == ClientState(data.converters)
+
+  open_socket()
+  let connected = deliver_messages(reconnecting)
+  assert_subscriptions(sent_messages())
+  let loaded =
+    receive_response(
+      connected,
+      SubscriptionUpdate(
+        subscription_id.from_string_unsafe("converter-1"),
+        quote(1, 2781, Some(rate(2.0))),
+      ),
+    )
+  let assert [target, ..] = loaded.converters
+  assert target.rate_status == Current
+  assert converter.get_parsed_amount(target, Right) == Some(amount(0.00000002))
+  assert saved_state() == ClientState(data.converters)
 }
 
 pub fn websocket_failure_then_success_preserves_saved_amounts_test() {
   use <- with_browser
-  let data = page_data([])
+  let data = page_data()
   let #(initial, effects) = client.init(data)
   perform(effects)
   open_socket()
@@ -141,7 +204,7 @@ pub fn fast_startup_responses_ignore_the_initial_loading_timer_test() {
   list.each([Some(rate(2.0)), None], fn(price) {
     use <- with_browser
     let data =
-      PageData(..page_data([]), converters: [ConverterState(1, 2781, 10.0)])
+      PageData(..page_data(), converters: [ConverterState(1, 2781, 10.0)])
     let #(initial, effects) = client.init(data)
     perform(effects)
     let settled =
@@ -161,7 +224,7 @@ pub fn fast_startup_responses_ignore_the_initial_loading_timer_test() {
 pub fn startup_loading_timer_does_not_affect_a_reused_converter_id_test() {
   use <- with_browser
   let data =
-    PageData(..page_data([]), converters: [ConverterState(1, 2781, 10.0)])
+    PageData(..page_data(), converters: [ConverterState(1, 2781, 10.0)])
   let #(initial, effects) = client.init(data)
   perform(effects)
   advance_time(100)
@@ -179,9 +242,9 @@ pub fn startup_loading_timer_does_not_affect_a_reused_converter_id_test() {
   assert target.rate_status == Waiting(2, True)
 }
 
-pub fn all_missing_quotes_still_allow_adding_a_converter_test() {
+pub fn waiting_converters_still_allow_adding_a_converter_test() {
   use <- with_browser
-  let data = page_data([])
+  let data = page_data()
   let #(initial, effects) = client.init(data)
   perform(effects)
   open_socket()
@@ -197,14 +260,13 @@ pub fn all_missing_quotes_still_allow_adding_a_converter_test() {
     == ClientState(list.append(data.converters, [ConverterState(1, 2781, 1.0)]))
 }
 
-fn page_data(rates: List(RateResponse)) -> PageData {
+fn page_data() -> PageData {
   PageData(
     currencies: [
       Crypto(1, "Bitcoin", "BTC", Some(1)),
       Crypto(1027, "Ethereum", "ETH", Some(2)),
       Fiat(2781, "US Dollar", "USD", "$"),
     ],
-    rates:,
     converters: [
       ConverterState(1, 2781, 0.00000001),
       ConverterState(1027, 2781, 20.0),

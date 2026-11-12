@@ -16,7 +16,6 @@ import server/integrations/kraken/price_store
 import server/rates/internal/kraken_interface.{KrakenInterface}
 import server/rates/internal/kraken_symbol
 import server/rates/internal/subscription_manager
-import server/rates/rate_service_config.{RateServiceConfig}
 import server/rates/subscriber
 import server/utils/logger
 import server/utils/retry
@@ -183,20 +182,18 @@ fn with_failing_provider(run) {
     ]
     let config =
       subscriber.Config(
-        base: RateServiceConfig(
-          get_currency: fn(id) {
-            list.find(currencies, fn(currency) { currency.id == id })
-          },
-          kraken_interface: KrakenInterface(
-            get_kraken_symbol: fn(_) { Error(Nil) },
-            subscribe: fn(_) { panic },
-            unsubscribe: fn(_) { panic },
-            check_for_price: fn(_) { panic },
-          ),
-          request_cmc_conversion: fn(_) {
-            Error(HttpError(httpc.ResponseTimeout))
-          },
+        get_currency: fn(id) {
+          list.find(currencies, fn(currency) { currency.id == id })
+        },
+        kraken_interface: KrakenInterface(
+          get_kraken_symbol: fn(_) { Error(Nil) },
+          subscribe: fn(_) { panic },
+          unsubscribe: fn(_) { panic },
+          check_for_price: fn(_) { panic },
         ),
+        request_cmc_conversion: fn(_) {
+          Error(HttpError(httpc.ResponseTimeout))
+        },
         subscription_manager: unwrap(subscription_manager.new(1000)),
         logger: logger.new(),
       )
@@ -279,15 +276,13 @@ fn create_rate_subscriber(id, reply_to, kraken_interface) {
   let manager = unwrap(subscription_manager.new(1000))
   let config =
     subscriber.Config(
-      base: RateServiceConfig(
-        get_currency: fn(id) {
-          list.find(currencies, fn(currency) { currency.id == id })
-        },
-        kraken_interface:,
-        request_cmc_conversion: fn(_) {
-          panic as "Kraken fixture must supply the price"
-        },
-      ),
+      get_currency: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      kraken_interface:,
+      request_cmc_conversion: fn(_) {
+        panic as "Kraken fixture must supply the price"
+      },
       subscription_manager: manager,
       logger: logger.new(),
     )

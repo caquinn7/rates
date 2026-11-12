@@ -12,13 +12,12 @@ import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
 }
 import server/integrations/kraken/price_store.{PriceEntry}
-import server/rates/factories
 import server/rates/internal/kraken_interface.{KrakenInterface}
 import server/rates/internal/kraken_symbol
 import server/rates/internal/subscription_manager
 import server/rates/rate_error.{CmcError, CurrencyNotFound}
-import server/rates/rate_service_config.{RateServiceConfig}
 import server/rates/subscriber
+import server/rates/subscriber_factory
 import server/utils/logger
 import shared/currency.{Crypto, Fiat}
 import shared/numbers/positive_float
@@ -50,11 +49,9 @@ fn scheduled_subscriber_factory(deps: Dependencies, updates) {
         id,
         reply_to,
         subscriber.Config(
-          base: RateServiceConfig(
-            get_currency: deps.currency_repository.get_by_id,
-            kraken_interface: deps.kraken_interface,
-            request_cmc_conversion: deps.request_cmc_conversion,
-          ),
+          get_currency: deps.currency_repository.get_by_id,
+          kraken_interface: deps.kraken_interface,
+          request_cmc_conversion: deps.request_cmc_conversion,
           subscription_manager: manager,
           logger: deps.logger,
         ),
@@ -102,7 +99,7 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
-  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+  let subscriber_factory = subscriber_factory.create(deps)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -173,7 +170,7 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
       },
       logger: logger.new(),
     )
-  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+  let subscriber_factory = subscriber_factory.create(deps)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -244,7 +241,7 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
       },
       logger: logger.new(),
     )
-  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+  let subscriber_factory = subscriber_factory.create(deps)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -308,24 +305,22 @@ pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
       id,
       subject,
       subscriber.Config(
-        base: RateServiceConfig(
-          get_currency: fn(id) {
-            list.find(currencies, fn(currency) { currency.id == id })
-          },
-          kraken_interface: interface,
-          request_cmc_conversion: fn(_) {
-            CmcConversion(
-              1,
-              "BTC",
-              "Bitcoin",
-              positive_float.from_float_unsafe(1.0),
-              dict.insert(dict.new(), "2781", QuoteItem(Some(cmc_price), 100)),
-            )
-            |> Some
-            |> CmcResponse(CmcStatus(0, None), _)
-            |> Ok
-          },
-        ),
+        get_currency: fn(id) {
+          list.find(currencies, fn(currency) { currency.id == id })
+        },
+        kraken_interface: interface,
+        request_cmc_conversion: fn(_) {
+          CmcConversion(
+            1,
+            "BTC",
+            "Bitcoin",
+            positive_float.from_float_unsafe(1.0),
+            dict.insert(dict.new(), "2781", QuoteItem(Some(cmc_price), 100)),
+          )
+          |> Some
+          |> CmcResponse(CmcStatus(0, None), _)
+          |> Ok
+        },
         subscription_manager: manager,
         logger: logger.new(),
       ),
@@ -398,7 +393,7 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
-  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+  let subscriber_factory = subscriber_factory.create(deps)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -458,7 +453,7 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
       },
       logger: logger.new(),
     )
-  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+  let subscriber_factory = subscriber_factory.create(deps)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -758,7 +753,7 @@ pub fn stop_unsubscribes_from_kraken_test() {
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
-  let subscriber_factory = factories.create_rate_subscriber_factory(deps)
+  let subscriber_factory = subscriber_factory.create(deps)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()

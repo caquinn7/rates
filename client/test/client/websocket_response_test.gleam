@@ -294,16 +294,35 @@ fn model_with_two_converters() -> Model {
         Crypto(ethereum_id, "Ethereum", "ETH", None),
         Fiat(usd_id, "US Dollar", "USD", "$"),
       ],
-      rates: [
-        RateResponse(bitcoin_id, usd_id, Some(positive_rate(2.0)), Kraken, 123),
-        RateResponse(ethereum_id, usd_id, Some(positive_rate(3.0)), Kraken, 123),
-      ],
       converters: [
         ConverterState(bitcoin_id, usd_id, 10.0),
         ConverterState(ethereum_id, usd_id, 20.0),
       ],
     )
   let assert Ok(model) = client.model_from_page_data(page_data)
+  let model =
+    model
+    |> receive_response(rate_update(
+      bitcoin_converter_id,
+      RateRequest(bitcoin_id, usd_id),
+      Some(positive_rate(2.0)),
+    ))
+    |> receive_response(rate_update(
+      "converter-2",
+      RateRequest(ethereum_id, usd_id),
+      Some(positive_rate(3.0)),
+    ))
+  // Let the initial quote indicators settle before testing later events.
+  let #(model, _) =
+    client.update(
+      model,
+      client.AppScheduledRateChangeIndicatorReset(bitcoin_converter_id, Right),
+    )
+  let #(model, _) =
+    client.update(
+      model,
+      client.AppScheduledRateChangeIndicatorReset("converter-2", Right),
+    )
   model
 }
 

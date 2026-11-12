@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/erlang/process
 import gleam/option.{None, Some}
 import server/integrations/coin_market_cap/client.{
   type CmcConversionParameters, CmcResponse, CmcStatus,
@@ -9,10 +10,9 @@ import server/integrations/coin_market_cap/cmc_conversion.{
 import server/integrations/kraken/price_store.{PriceEntry}
 import server/rates/internal/kraken_symbol
 import server/rates/internal/rate_source_strategy.{
-  CmcStrategy, CurrencyNotFound, KrakenStrategy, StrategyBehavior,
-  StrategyConfig,
+  CmcStrategy, KrakenStrategy, StrategyConfig,
 }
-import server/rates/rate_error.{CmcError}
+import server/rates/rate_error.{CmcError, CurrencyNotFound}
 import shared/currency.{Crypto, Fiat}
 import shared/numbers/positive_float
 import shared/rates/rate_request.{RateRequest}
@@ -41,7 +41,7 @@ pub fn determine_strategy_returns_currency_not_found_when_first_currency_id_not_
       create_kraken_symbol,
     )
 
-  assert Error(CurrencyNotFound(1)) == result
+  assert Error(CurrencyNotFound(rate_request, 1)) == result
 }
 
 pub fn determine_strategy_returns_currency_not_found_when_second_currency_id_not_found_test() {
@@ -63,7 +63,7 @@ pub fn determine_strategy_returns_currency_not_found_when_second_currency_id_not
       create_kraken_symbol,
     )
 
-  assert Error(CurrencyNotFound(2)) == result
+  assert Error(CurrencyNotFound(rate_request, 2)) == result
 }
 
 pub fn determine_strategy_returns_kraken_strategy_when_symbol_resolved_test() {
@@ -135,10 +135,7 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
       request_cmc_conversion: fn(_) {
         panic as "Should not call CMC on Kraken success"
       },
-      behavior: StrategyBehavior(
-        on_kraken_success: fn() { Nil },
-        on_kraken_failure: fn(_, _) { panic as "Kraken failure not expected" },
-      ),
+      on_kraken_fallback: fn() { panic as "Kraken failure not expected" },
     )
 
   let #(result, should_downgrade) =
@@ -165,10 +162,7 @@ pub fn inverse_kraken_rates_preserve_the_provider_timestamp_test() {
         ))
       },
       request_cmc_conversion: fn(_) { panic as "CMC must not be used" },
-      behavior: StrategyBehavior(
-        on_kraken_success: fn() { Nil },
-        on_kraken_failure: fn(_, _) { panic as "Kraken failure not expected" },
-      ),
+      on_kraken_fallback: fn() { panic as "Kraken failure not expected" },
     )
 
   let #(result, should_downgrade) =
@@ -205,7 +199,9 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
   let assert KrakenStrategy(_) = strategy
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
+  let events = process.new_subject()
   let request_cmc_conversion = fn(conversion_params: CmcConversionParameters) {
+    process.send(events, "CMC requested")
     Ok(CmcResponse(
       CmcStatus(0, None),
       Some(CmcConversion(
@@ -222,10 +218,7 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
     StrategyConfig(
       check_for_kraken_price: fn(_) { Error(Nil) },
       request_cmc_conversion:,
-      behavior: StrategyBehavior(
-        on_kraken_success: fn() { panic as "Kraken success not expected" },
-        on_kraken_failure: fn(_, _) { Nil },
-      ),
+      on_kraken_fallback: fn() { process.send(events, "Kraken fallback") },
     )
 
   let #(result, should_downgrade) =
@@ -238,6 +231,9 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
   assert response.source == rate_response.CoinMarketCap
   assert response.timestamp == 1000
   assert should_downgrade
+  assert process.receive(events, 0) == Ok("Kraken fallback")
+  assert process.receive(events, 0) == Ok("CMC requested")
+  assert process.receive(events, 0) == Error(Nil)
 }
 
 pub fn execute_strategy_returns_cmc_response_when_successful_test() {
@@ -261,14 +257,9 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
     StrategyConfig(
       check_for_kraken_price: fn(_) { Error(Nil) },
       request_cmc_conversion: cmc_get_rate,
-      behavior: StrategyBehavior(
-        on_kraken_success: fn() {
-          panic as "Should not be called for CMC strategy"
-        },
-        on_kraken_failure: fn(_, _) {
-          panic as "Should not be called for CMC strategy"
-        },
-      ),
+      on_kraken_fallback: fn() {
+        panic as "Should not be called for CMC strategy"
+      },
     )
 
   let #(result, should_downgrade) =
@@ -313,10 +304,9 @@ pub fn execute_strategy_returns_error_when_cmc_fails_test() {
         panic as "Should not call Kraken for CMC strategy"
       },
       request_cmc_conversion: request_cmc_conversion,
-      behavior: StrategyBehavior(
-        on_kraken_success: fn() { Nil },
-        on_kraken_failure: fn(_, _) { Nil },
-      ),
+      on_kraken_fallback: fn() {
+        panic as "Should not be called for CMC strategy"
+      },
     )
 
   let #(result, should_downgrade) =

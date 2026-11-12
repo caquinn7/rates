@@ -43,16 +43,23 @@ pub fn small_amount_survives_url_and_page_data_restoration_test() {
   assert saved == ClientState([ConverterState(bitcoin_id, usd_id, 0.00000001)])
 
   let seed =
-    PageData(
-      currencies: initial.currencies,
-      rates: [rate_response(RateRequest(bitcoin_id, usd_id), Some(rate(2.0)))],
-      converters: saved.converters,
-    )
+    PageData(currencies: initial.currencies, converters: saved.converters)
     |> page_data.encode
     |> json.to_string
 
   let assert Ok(page_data) = json.parse(seed, page_data.decoder())
   let assert Ok(restored) = client.model_from_page_data(page_data)
+  let assert [waiting] = restored.converters
+  assert converter.get_parsed_amount(waiting, Left) == Some(amount(0.00000001))
+  assert converter.get_parsed_amount(waiting, Right) == None
+  let restored =
+    receive_response(
+      restored,
+      SubscriptionUpdate(
+        subscription_id.from_string_unsafe(converter_id),
+        rate_response(RateRequest(bitcoin_id, usd_id), Some(rate(2.0))),
+      ),
+    )
   let assert [restored_converter] = restored.converters
   assert converter.get_selected_currency_id(restored_converter, Left)
     == bitcoin_id
@@ -117,9 +124,19 @@ pub fn right_amount_survives_currency_changes_and_url_restoration_test() {
       let assert Ok(restored) =
         client.model_from_page_data(PageData(
           currencies: settled.currencies,
-          rates: [response],
           converters: saved.converters,
         ))
+      let assert [waiting] = restored.converters
+      assert converter.get_parsed_amount(waiting, Left) == Some(amount(25.0))
+      assert converter.get_parsed_amount(waiting, Right) == None
+      let restored =
+        receive_response(
+          restored,
+          SubscriptionUpdate(
+            subscription_id.from_string_unsafe(converter_id),
+            response,
+          ),
+        )
       let assert [restored_converter] = restored.converters
       assert converter.get_parsed_amount(restored_converter, Left)
         == Some(amount(25.0))
@@ -274,11 +291,15 @@ fn model_with_left_amount() -> Model {
           Crypto(ethereum_id, "Ethereum", "ETH", Some(2)),
           Fiat(usd_id, "US Dollar", "USD", "$"),
         ],
-        rates: [rate_response(RateRequest(bitcoin_id, usd_id), Some(rate(2.0)))],
         converters: [ConverterState(bitcoin_id, usd_id, 10.0)],
       ),
     )
+
   Model(..model, socket: Some(socket()))
+  |> receive_response(SubscriptionUpdate(
+    subscription_id.from_string_unsafe(converter_id),
+    rate_response(RateRequest(bitcoin_id, usd_id), Some(rate(2.0))),
+  ))
 }
 
 fn model_with_right_amount() -> Model {

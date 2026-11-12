@@ -28,14 +28,12 @@ import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/kraken_interface.{type KrakenInterface}
 import server/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/rates/internal/rate_source_strategy.{
-  type RateSourceStrategy, type StrategyBehavior, CmcStrategy, KrakenStrategy,
-  StrategyBehavior, StrategyConfig,
+  type RateSourceStrategy, CmcStrategy, KrakenStrategy, StrategyConfig,
 }
 import server/rates/internal/subscription_manager.{
   type Subscription, type SubscriptionManager, Cmc, Kraken,
 }
 import server/rates/rate_error.{type RateError}
-import server/rates/rate_service_config.{type RateServiceConfig}
 import server/utils/logger.{type Logger}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
@@ -50,7 +48,9 @@ pub opaque type RateSubscriber {
 
 pub type Config {
   Config(
-    base: RateServiceConfig,
+    get_currency: fn(Int) -> Result(Currency, Nil),
+    kraken_interface: KrakenInterface,
+    request_cmc_conversion: RequestCmcConversion,
     subscription_manager: SubscriptionManager,
     logger: Logger,
   )
@@ -144,9 +144,9 @@ fn start(
       subscription_id,
       state,
       msg,
-      config.base.get_currency,
-      config.base.kraken_interface,
-      config.base.request_cmc_conversion,
+      config.get_currency,
+      config.kraken_interface,
+      config.request_cmc_conversion,
     )
   }
 
@@ -265,27 +265,18 @@ fn handle_subscribe(
     )
 
   case strategy {
-    Error(rate_source_strategy.CurrencyNotFound(id)) -> {
-      process.send(state.reply_to, #(
-        subscription_id,
-        Error(rate_error.CurrencyNotFound(rate_request, id)),
-      ))
-
-      let state =
-        apply_state_transition(
-          state,
-          ClearSubscription,
-          kraken_interface.unsubscribe,
-        )
-      actor.continue(state)
-    }
-
     Ok(strategy) -> {
       let config =
         StrategyConfig(
           check_for_kraken_price: kraken_interface.check_for_price,
           request_cmc_conversion:,
-          behavior: create_subscriber_behavior(subscription_id, state.logger),
+          on_kraken_fallback: fn() {
+            log_wait_for_kraken_price_timeout(
+              state.logger,
+              subscription_id,
+              rate_request,
+            )
+          },
         )
 
       // Record acquired interest before looking up a price, so an immediate
@@ -313,6 +304,18 @@ fn handle_subscribe(
         apply_state_transition(state, transition, kraken_interface.unsubscribe)
 
       schedule_next_update(state)
+      actor.continue(state)
+    }
+
+    Error(error) -> {
+      process.send(state.reply_to, #(subscription_id, Error(error)))
+
+      let state =
+        apply_state_transition(
+          state,
+          ClearSubscription,
+          kraken_interface.unsubscribe,
+        )
       actor.continue(state)
     }
   }
@@ -356,7 +359,13 @@ fn handle_get_latest_rate(
         StrategyConfig(
           check_for_kraken_price: kraken_interface.check_for_price,
           request_cmc_conversion:,
-          behavior: create_subscriber_behavior(subscription_id, state.logger),
+          on_kraken_fallback: fn() {
+            log_wait_for_kraken_price_timeout(
+              state.logger,
+              subscription_id,
+              rate_request,
+            )
+          },
         )
       let #(result, should_downgrade) =
         rate_source_strategy.execute_strategy(
@@ -452,18 +461,6 @@ fn clear_subscription_from_state(state: State) -> State {
     subscription_manager: subscription_manager.clear_subscription(
       state.subscription_manager,
     ),
-  )
-}
-
-fn create_subscriber_behavior(
-  subscription_id: SubscriptionId,
-  logger: Logger,
-) -> StrategyBehavior {
-  StrategyBehavior(
-    on_kraken_success: fn() { Nil },
-    on_kraken_failure: fn(rate_request, _kraken_symbol) {
-      log_wait_for_kraken_price_timeout(logger, subscription_id, rate_request)
-    },
   )
 }
 

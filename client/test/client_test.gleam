@@ -1,15 +1,13 @@
 import client.{Model}
 import client/side.{Left, Right}
-import client/ui/converter.{Current, Waiting}
+import client/ui/converter.{Waiting}
 import gleam/list
 import gleam/option.{None, Some}
 import gleeunit
 import shared/client_state.{ConverterState}
 import shared/currency.{Crypto, Fiat}
 import shared/numbers/non_negative_float
-import shared/numbers/positive_float
 import shared/page_data.{PageData}
-import shared/rates/rate_response.{Kraken, RateResponse}
 
 pub fn main() {
   gleeunit.main()
@@ -17,134 +15,66 @@ pub fn main() {
 
 // model_from_page_data
 
-pub fn model_from_page_data_constructs_model_test() {
+pub fn model_from_page_data_constructs_waiting_converters_test() {
   let currencies = [
     Fiat(1, "United States Dollar", "USD", "$"),
     Crypto(2, "Bitcoin", "BTC", Some(1)),
     Crypto(3, "Ethereum", "ETH", Some(2)),
   ]
-
   let converter_states = [
     ConverterState(from: 1, to: 2, amount: 100.0),
     ConverterState(from: 2, to: 3, amount: 2.5),
   ]
+  let data = PageData(currencies:, converters: converter_states)
 
-  let expected_rate_1 = positive_float.from_float_unsafe(0.000015)
-  let expected_rate_2 = positive_float.from_float_unsafe(15.5)
+  let assert Ok(model) = client.model_from_page_data(data)
 
-  let rates = [
-    RateResponse(
-      from: 1,
-      to: 2,
-      rate: Some(expected_rate_1),
-      source: Kraken,
-      timestamp: 1_700_000_000,
-    ),
-    RateResponse(
-      from: 2,
-      to: 3,
-      rate: Some(expected_rate_2),
-      source: Kraken,
-      timestamp: 1_700_000_000,
-    ),
-  ]
-
-  let page_data = PageData(currencies:, rates:, converters: converter_states)
-
-  let assert Ok(model) = client.model_from_page_data(page_data)
-
-  // Verify the Model structure
   assert model.currencies == currencies
   assert model.socket == None
   assert model.reconnect_attempts == 0
+  assert client.model_to_client_state(model).converters == converter_states
 
-  // Verify converters were created correctly
   let assert [converter1, converter2] = model.converters
-
-  // Check converter IDs
   assert converter1.id == "converter-1"
   assert converter2.id == "converter-2"
-
-  // Check converter currency selections
   assert converter.get_selected_currency_id(converter1, Left) == 1
   assert converter.get_selected_currency_id(converter1, Right) == 2
   assert converter.get_selected_currency_id(converter2, Left) == 2
   assert converter.get_selected_currency_id(converter2, Right) == 3
-
-  // Check converter amounts
   assert converter.get_parsed_amount(converter1, Left)
     == Some(non_negative_float.from_float_unsafe(100.0))
   assert converter.get_parsed_amount(converter2, Left)
     == Some(non_negative_float.from_float_unsafe(2.5))
 
-  // Check converter rates
-  assert converter1.rate == Some(expected_rate_1)
-  assert converter2.rate == Some(expected_rate_2)
-}
-
-pub fn model_from_page_data_keeps_converters_without_a_matching_rate_response_test() {
-  let currencies = [
-    Fiat(1, "United States Dollar", "USD", "$"),
-    Crypto(2, "Bitcoin", "BTC", Some(1)),
-    Crypto(3, "Ethereum", "ETH", Some(2)),
-    Crypto(4, "Cardano", "ADA", Some(3)),
-  ]
-
-  let converter_states = [
-    ConverterState(from: 1, to: 2, amount: 100.0),
-    ConverterState(from: 2, to: 3, amount: 2.5),
-    ConverterState(from: 3, to: 4, amount: 50.0),
-  ]
-
-  let rates = [
-    // Only RateResponse for first converter (1 -> 2)
-    RateResponse(
-      from: 1,
-      to: 2,
-      rate: Some(positive_float.from_float_unsafe(0.000015)),
-      source: Kraken,
-      timestamp: 1_700_000_000,
-    ),
-    // RateResponse with partial match - from matches but to doesn't
-    RateResponse(
-      from: 2,
-      to: 4,
-      rate: Some(positive_float.from_float_unsafe(10.0)),
-      source: Kraken,
-      timestamp: 1_700_000_000,
-    ),
-    // RateResponse with no match at all
-    RateResponse(
-      from: 4,
-      to: 1,
-      rate: Some(positive_float.from_float_unsafe(25.0)),
-      source: Kraken,
-      timestamp: 1_700_000_000,
-    ),
-  ]
-
-  let page_data = PageData(currencies:, rates:, converters: converter_states)
-
-  let assert Ok(model) = client.model_from_page_data(page_data)
-
-  let assert [converter1, converter2, converter3] = model.converters
-  assert client.model_to_client_state(model).converters == converter_states
-
-  assert converter1.id == "converter-1"
-  assert converter.get_selected_currency_id(converter1, Left) == 1
-  assert converter.get_selected_currency_id(converter1, Right) == 2
-  assert converter.get_parsed_amount(converter1, Left)
-    == Some(non_negative_float.from_float_unsafe(100.0))
-  assert converter1.rate_status == Current
-
-  list.each([converter2, converter3], fn(target) {
+  list.each(model.converters, fn(target) {
     assert target.rate == None
     assert target.rate_status == Waiting(0, False)
     assert converter.get_parsed_amount(target, Right) == None
     assert converter.get_converter_input(target, Right).amount_input.raw == ""
   })
-  assert converter2.id == "converter-2"
-  assert converter3.id == "converter-3"
+}
+
+pub fn model_from_page_data_preserves_duplicate_pairs_and_small_amounts_test() {
+  let converter_states = [
+    ConverterState(1, 2781, 0.00000001),
+    ConverterState(1, 2781, 20.0),
+  ]
+  let data =
+    PageData(
+      currencies: [
+        Crypto(1, "Bitcoin", "BTC", Some(1)),
+        Fiat(2781, "United States Dollar", "USD", "$"),
+      ],
+      converters: converter_states,
+    )
+
+  let assert Ok(model) = client.model_from_page_data(data)
+  let assert [first, second] = model.converters
+  assert first.id == "converter-1"
+  assert second.id == "converter-2"
+  assert client.model_to_client_state(model).converters == converter_states
+  assert first.rate_status == Waiting(0, False)
+  assert second.rate_status == Waiting(0, False)
 }
 
 // model_to_client_state

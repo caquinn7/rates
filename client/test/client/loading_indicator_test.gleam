@@ -102,20 +102,10 @@ fn loading_model(token: Int) -> Model {
           Crypto(1, "Bitcoin", "BTC", None),
           Fiat(2781, "US Dollar", "USD", "$"),
         ],
-        rates: [
-          RateResponse(
-            1,
-            2781,
-            Some(positive_float.from_float_unsafe(2.0)),
-            Kraken,
-            123,
-          ),
-        ],
         converters: [ConverterState(1, 2781, 10.0)],
       ),
     )
   let assert [target] = model.converters
-  let target = converter.waiting_for_rate(target)
   let target = Converter(..target, rate_status: Waiting(token, False))
   client.Model(..model, converters: [target], next_loading_token: token + 1)
 }
