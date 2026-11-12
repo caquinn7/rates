@@ -35,7 +35,6 @@ import server/rates/internal/subscription_manager.{
   type Subscription, type SubscriptionManager, Cmc, Kraken,
 }
 import server/rates/rate_error.{type RateError}
-import server/rates/rate_service_config.{type RateServiceConfig}
 import server/utils/logger.{type Logger}
 import shared/currency.{type Currency}
 import shared/rates/rate_request.{type RateRequest}
@@ -50,7 +49,9 @@ pub opaque type RateSubscriber {
 
 pub type Config {
   Config(
-    base: RateServiceConfig,
+    get_currency: fn(Int) -> Result(Currency, Nil),
+    kraken_interface: KrakenInterface,
+    request_cmc_conversion: RequestCmcConversion,
     subscription_manager: SubscriptionManager,
     logger: Logger,
   )
@@ -144,9 +145,9 @@ fn start(
       subscription_id,
       state,
       msg,
-      config.base.get_currency,
-      config.base.kraken_interface,
-      config.base.request_cmc_conversion,
+      config.get_currency,
+      config.kraken_interface,
+      config.request_cmc_conversion,
     )
   }
 

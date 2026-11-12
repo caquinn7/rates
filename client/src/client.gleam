@@ -66,29 +66,14 @@ pub fn model_from_page_data(
   let converters =
     page_data.converters
     |> list.index_map(fn(converter_state, idx) {
-      let seed_rate =
-        list.find(page_data.rates, fn(rate_resp) {
-          rate_resp.from == converter_state.from
-          && rate_resp.to == converter_state.to
-        })
-
       converter.new(
         converter_id_prefix <> "-" <> int.to_string(idx + 1),
         page_data.currencies,
         #(converter_state.from, converter_state.to),
         float.to_string(converter_state.amount),
-        seed_rate
-          |> result.map(fn(response) { response.rate })
-          |> result.unwrap(None),
+        None,
       )
-      |> result.map(fn(converter) {
-        case seed_rate {
-          Ok(RateResponse(rate: None, ..)) ->
-            converter.with_rate(converter, None)
-          Ok(_) -> converter
-          Error(_) -> converter.waiting_for_rate(converter)
-        }
-      })
+      |> result.map(converter.waiting_for_rate)
       |> result.map_error(fn(err) {
         echo "error building converter: " <> string.inspect(err)
         Nil

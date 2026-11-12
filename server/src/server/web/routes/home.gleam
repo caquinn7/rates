@@ -11,16 +11,13 @@ import shared/client_state.{
 }
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
-import shared/rates/rate_request.{type RateRequest, RateRequest}
-import shared/rates/rate_response.{type RateResponse}
 import wisp.{type Response}
 
 pub fn get(
   currency_repository: CurrencyRepository,
-  get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
   client_state: Option(ClientState),
 ) -> Response {
-  resolve_page_data(currency_repository, get_rate, client_state)
+  resolve_page_data(currency_repository, client_state)
   |> page_data.encode
   |> json.to_string
   |> page_scaffold
@@ -30,7 +27,6 @@ pub fn get(
 
 pub fn resolve_page_data(
   currency_repository: CurrencyRepository,
-  get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
   client_state: Option(ClientState),
 ) -> PageData {
   let default_converter = {
@@ -53,9 +49,7 @@ pub fn resolve_page_data(
       _ -> validated
     }
   }
-  let rates = fetch_rates(converters, get_rate)
-
-  PageData(currencies:, rates:, converters:)
+  PageData(currencies:, converters:)
 }
 
 fn filter_valid_converters(
@@ -68,16 +62,6 @@ fn filter_valid_converters(
 
   list.filter(converters, fn(converter) {
     currency_exists(converter.from) && currency_exists(converter.to)
-  })
-}
-
-fn fetch_rates(
-  converters: List(ConverterState),
-  get_rate: fn(RateRequest) -> Result(RateResponse, Nil),
-) -> List(RateResponse) {
-  converters
-  |> list.filter_map(fn(converter) {
-    get_rate(RateRequest(converter.from, converter.to))
   })
 }
 

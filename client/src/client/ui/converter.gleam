@@ -217,6 +217,7 @@ pub fn with_rate_error(
 
 pub fn waiting_for_rate(converter: Converter) -> Converter {
   let converter = finish_amount_edits(converter)
+
   Converter(..converter, rate: None, rate_status: Waiting(0, False))
   |> clear_calculated_amount
   |> with_glow_cleared(Left)

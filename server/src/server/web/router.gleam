@@ -2,27 +2,22 @@ import gleam/bool
 import gleam/http
 import gleam/http/request
 import gleam/http/response
-import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None}
 import gleam/regexp
 import gleam/result
-import gleam/string
 import mist
 import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/dependencies.{type Dependencies}
 import server/env_config.{type EnvConfig}
-import server/rates/factories as rates_factories
-import server/rates/resolver.{type ResolveError}
-import server/utils/logger.{type Logger}
+import server/rates/subscriber_factory
+import server/utils/logger
 import server/web/routes/home
 import server/web/routes/websocket
 import shared/client_state
 import shared/currency
-import shared/rates/rate_request.{type RateRequest}
-import shared/rates/rate_response.{type RateResponse}
 import wisp
 import wisp/wisp_mist
 
@@ -48,12 +43,7 @@ fn handle_websocket_request(
       logger.with(deps.logger, "source", "websocket"),
     ),
     handler: fn(state, message, conn) {
-      websocket.handler(
-        state,
-        message,
-        conn,
-        rates_factories.create_rate_subscriber_factory(deps),
-      )
+      websocket.handler(state, message, conn, subscriber_factory.create(deps))
     },
     on_close: websocket.on_close,
   )
@@ -70,8 +60,6 @@ fn handle_http_request(
         _,
         deps.currency_repository,
         deps.currency_symbol_cache,
-        rates_factories.create_rate_resolver(deps),
-        deps.logger,
       ),
       env_config.secret_key_base,
     )
@@ -83,8 +71,6 @@ fn route_http_request(
   req: wisp.Request,
   currency_repository: CurrencyRepository,
   currency_symbol_cache: CurrencySymbolCache,
-  get_rate: fn(RateRequest) -> Result(RateResponse, ResolveError),
-  logger: Logger,
 ) -> wisp.Response {
   use req <- middleware(req)
   case wisp.path_segments(req) {
@@ -107,13 +93,7 @@ fn route_http_request(
         }
       }
 
-      let get_rate = fn(rate_req) {
-        rate_req
-        |> get_rate
-        |> result.map_error(log_rate_request_error(logger, rate_req, _))
-      }
-
-      home.get(currency_repository, get_rate, state)
+      home.get(currency_repository, state)
     }
 
     ["api", "currencies"] -> {
@@ -153,19 +133,6 @@ fn route_http_request(
 
     _ -> wisp.not_found()
   }
-}
-
-fn log_rate_request_error(
-  logger: Logger,
-  rate_req: RateRequest,
-  error: ResolveError,
-) -> Nil {
-  logger
-  |> logger.with("source", "router")
-  |> logger.with("rate_request.from", int.to_string(rate_req.from))
-  |> logger.with("rate_request.to", int.to_string(rate_req.to))
-  |> logger.with("error", string.inspect(error))
-  |> logger.error("Error getting rate")
 }
 
 fn middleware(

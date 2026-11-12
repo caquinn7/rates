@@ -71,11 +71,11 @@ rates/
 
 ## How It Works
 
-1. **Initial Load**: Server renders HTML with initial rates embedded as JSON
-2. **Hydration**: Client-side Lustre app loads and hydrates from the seed data
+1. **Initial Load**: Server serves HTML with the currency catalog and converter state embedded as JSON, without fetching rates
+2. **Client Rendering**: The Lustre app renders the converters and waits for quotes, showing loading indicators after a short delay
 3. **WebSocket Connection**: Client establishes WebSocket connection to server
 4. **Subscriptions**: Client sends subscription requests for currency pairs
-5. **Rate Updates**: Server pushes live rate updates through WebSocket
+5. **Rate Updates**: Server sends initial quotes and subsequent updates through WebSocket
 6. **UI Updates**: Client reactively updates the UI with new rates
 7. **State Persistence**: URL updates automatically to persist converter state
 
