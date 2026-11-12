@@ -1,4 +1,4 @@
--module(kraken_recovery_test_ffi).
+-module(process_test_ffi).
 -export([monitored_processes/1, linked_processes/1]).
 
 monitored_processes(Pid) ->

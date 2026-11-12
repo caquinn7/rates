@@ -49,6 +49,12 @@ pub fn get_rate_request_failed_test() {
   assert result == Error(RequestFailed(HttpError(httpc.InvalidUtf8Response)))
 }
 
+pub fn get_rate_response_timeout_is_a_request_error_test() {
+  let request_conversion = fn(_) { Error(HttpError(httpc.ResponseTimeout)) }
+  assert cmc_rate_handler.get_rate(RateRequest(1, 2781), request_conversion)
+    == Error(RequestFailed(HttpError(httpc.ResponseTimeout)))
+}
+
 pub fn get_rate_base_id_not_found_test() {
   let request_conversion = fn(_) {
     Ok(CmcResponse(CmcStatus(400, Some("Invalid value for \"id\": ")), None))

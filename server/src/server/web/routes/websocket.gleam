@@ -217,7 +217,6 @@ fn log_rate_response_error(
       rate_req,
       "Currency id " <> int.to_string(id) <> " not found",
     )
-
     CmcError(rate_req, rate_req_err) -> #(
       rate_req,
       "Error getting rate from cmc: " <> string.inspect(rate_req_err),

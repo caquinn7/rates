@@ -145,7 +145,7 @@ pub fn missing_currency_error_preserves_subscription_and_pair_test() {
     )
 }
 
-pub fn provider_failure_can_be_followed_by_a_successful_update_test() {
+pub fn provider_response_timeout_can_be_followed_by_a_successful_update_test() {
   use url, reply_targets <- with_failing_provider
   use browser, replies <- with_browser(url)
 
@@ -194,7 +194,7 @@ fn with_failing_provider(run) {
             check_for_price: fn(_) { panic },
           ),
           request_cmc_conversion: fn(_) {
-            Error(HttpError(httpc.InvalidUtf8Response))
+            Error(HttpError(httpc.ResponseTimeout))
           },
         ),
         subscription_manager: unwrap(subscription_manager.new(1000)),

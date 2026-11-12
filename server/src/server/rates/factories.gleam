@@ -5,7 +5,7 @@ import server/rates/rate_error.{type RateError}
 import server/rates/rate_service_config.{
   type RateServiceConfig, RateServiceConfig,
 }
-import server/rates/resolver as rate_resolver
+import server/rates/resolver.{type ResolveError} as rate_resolver
 import server/rates/subscriber.{type RateSubscriber} as rate_subscriber
 import server/utils/logger
 import shared/rates/rate_request.{type RateRequest}
@@ -20,11 +20,9 @@ pub type RateSubscriberFactory =
 
 pub fn create_rate_resolver(
   deps: Dependencies,
-) -> fn(RateRequest) -> Result(RateResponse, RateError) {
+) -> fn(RateRequest) -> Result(RateResponse, ResolveError) {
   fn(rate_req) {
-    let resolver_config = rate_resolver.Config(rate_service_config(deps))
-    let assert Ok(resolver) = rate_resolver.new(resolver_config)
-    rate_resolver.get_rate(resolver, rate_req, 5000)
+    rate_resolver.get_rate(rate_service_config(deps), rate_req, 5000)
   }
 }
 
