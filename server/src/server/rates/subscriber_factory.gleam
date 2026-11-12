@@ -1,18 +1,13 @@
 import gleam/erlang/process.{type Subject}
 import server/dependencies.{type Dependencies}
 import server/rates/internal/subscription_manager
-import server/rates/rate_error.{type RateError}
-import server/rates/subscriber.{type RateSubscriber}
+import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult}
 import server/utils/logger
-import shared/rates/rate_response.{type RateResponse}
 import shared/subscriptions/subscription_id.{type SubscriptionId}
 
 pub fn create(
   deps: Dependencies,
-) -> fn(
-  SubscriptionId,
-  Subject(#(SubscriptionId, Result(RateResponse, RateError))),
-) -> RateSubscriber {
+) -> fn(SubscriptionId, Subject(SubscriptionResult)) -> RateSubscriber {
   fn(subscription_id, subject) {
     let assert Ok(subscription_manager) =
       subscription_manager.new(deps.subscription_refresh_interval_ms)

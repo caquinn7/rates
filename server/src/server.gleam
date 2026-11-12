@@ -6,6 +6,7 @@ import gleam/string
 import glight
 import mist
 import server/app_config.{type AppConfig, AppConfig}
+import server/currencies/cmc_currency_handler.{type RequestCmcFiats}
 import server/currencies/currency_fetcher
 import server/currencies/currency_repository
 import server/currencies/currency_symbol_cache_factory
@@ -13,20 +14,16 @@ import server/currencies/internal/currency_store.{type CurrencyStore}
 import server/dependencies.{type Dependencies, Dependencies}
 import server/env_config.{type EnvConfig}
 import server/integrations/coin_market_cap/client.{
-  type CmcConversionParameters, type CmcListResponse, type CmcRequestError,
-  type CmcResponse,
+  type CmcListResponse, type CmcRequestError,
 }
-import server/integrations/coin_market_cap/cmc_conversion.{type CmcConversion}
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   type CmcCryptoCurrency,
-}
-import server/integrations/coin_market_cap/cmc_fiat_currency.{
-  type CmcFiatCurrency,
 }
 import server/integrations/coin_market_cap/factories as cmc_factories
 import server/integrations/kraken/client.{type KrakenClient} as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
+import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/kraken_interface
 import server/utils/logger.{type Logger}
 import server/utils/time
@@ -112,8 +109,7 @@ fn fetch_and_store_currencies(
   app_config: AppConfig,
   request_cmc_cryptos: fn(Option(String)) ->
     Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
-  request_cmc_fiats: fn() ->
-    Result(CmcListResponse(CmcFiatCurrency), CmcRequestError),
+  request_cmc_fiats: RequestCmcFiats,
   currency_store: CurrencyStore,
   logger: Logger,
 ) {
@@ -161,8 +157,7 @@ fn build_dependencies(
   request_cmc_cryptos: fn(Option(String)) ->
     Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
   kraken_client: KrakenClient,
-  request_cmc_conversion: fn(CmcConversionParameters) ->
-    Result(CmcResponse(CmcConversion), CmcRequestError),
+  request_cmc_conversion: RequestCmcConversion,
 ) -> Dependencies {
   let currency_repository = currency_repository.new(currency_store)
 
