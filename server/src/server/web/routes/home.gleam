@@ -1,6 +1,7 @@
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -81,6 +82,9 @@ fn fetch_rates(
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {
+  // Escape '<' for the HTML script context; JSON decoding restores it.
+  let seed_json = string.replace(seed_json, "<", "\\u003c")
+
   html.html(
     [
       attribute.attribute("lang", "en"),
