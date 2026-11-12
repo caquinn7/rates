@@ -48,7 +48,7 @@ pub fn small_amount_survives_url_and_page_data_restoration_test() {
     |> json.to_string
 
   let assert Ok(page_data) = json.parse(seed, page_data.decoder())
-  let assert Ok(restored) = client.model_from_page_data(page_data)
+  let restored = client.model_from_page_data(page_data)
   let assert [waiting] = restored.converters
   assert converter.get_parsed_amount(waiting, Left) == Some(amount(0.00000001))
   assert converter.get_parsed_amount(waiting, Right) == None
@@ -121,7 +121,7 @@ pub fn right_amount_survives_currency_changes_and_url_restoration_test() {
       assert saved
         == ClientState([ConverterState(request.from, request.to, 25.0)])
 
-      let assert Ok(restored) =
+      let restored =
         client.model_from_page_data(PageData(
           currencies: settled.currencies,
           converters: saved.converters,
@@ -283,7 +283,7 @@ pub fn snapshots_wait_until_all_calculated_left_amounts_are_available_test() {
 }
 
 fn model_with_left_amount() -> Model {
-  let assert Ok(model) =
+  let model =
     client.model_from_page_data(
       PageData(
         currencies: [

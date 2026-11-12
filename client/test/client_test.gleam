@@ -27,7 +27,7 @@ pub fn model_from_page_data_constructs_waiting_converters_test() {
   ]
   let data = PageData(currencies:, converters: converter_states)
 
-  let assert Ok(model) = client.model_from_page_data(data)
+  let model = client.model_from_page_data(data)
 
   assert model.currencies == currencies
   assert model.socket == None
@@ -68,7 +68,7 @@ pub fn model_from_page_data_preserves_duplicate_pairs_and_small_amounts_test() {
       converters: converter_states,
     )
 
-  let assert Ok(model) = client.model_from_page_data(data)
+  let model = client.model_from_page_data(data)
   let assert [first, second] = model.converters
   assert first.id == "converter-1"
   assert second.id == "converter-2"

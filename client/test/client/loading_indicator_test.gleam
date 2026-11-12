@@ -95,7 +95,7 @@ pub fn a_timer_for_a_deleted_converter_is_ignored_test() {
 }
 
 fn loading_model(token: Int) -> Model {
-  let assert Ok(model) =
+  let model =
     client.model_from_page_data(
       PageData(
         currencies: [
