@@ -193,6 +193,41 @@ pub fn failed_rate_requests_preserve_saved_and_default_converters_test() {
   })
 }
 
+pub fn get_escapes_script_delimiters_without_changing_page_data_test() {
+  let currencies = [
+    Crypto(
+      1,
+      "Example </script><script>alert(\"seed\")</script> Coin",
+      "BTC</ScRiPt>",
+      Some(1),
+    ),
+    Fiat(2781, "<!--<script>US Dollar", "USD & \"", "<$ & € \\u003c >"),
+  ]
+  let rate =
+    RateResponse(
+      1,
+      2781,
+      Some(positive_float.from_float_unsafe(50_000.0)),
+      Kraken,
+      1_700_000_000,
+    )
+  let state = ClientState([ConverterState(1, 2781, 0.00000001)])
+  let response =
+    home.get(test_repository(currencies), fn(_) { Ok(rate) }, Some(state))
+
+  assert response.status == 200
+  let assert wisp.Text(html) = response.body
+  let assert Ok(#(_, seed_and_rest)) =
+    string.split_once(html, "<script id=\"model\" type=\"application/json\">")
+  let assert Ok(#(seed, rest)) = string.split_once(seed_and_rest, "</script>")
+  let assert Ok(data) = json.parse(seed, page_data.decoder())
+  assert data.currencies == currencies
+  assert data.rates == [rate]
+  assert data.converters == state.converters
+  assert !string.contains(seed, "<")
+  assert string.starts_with(rest, "</head>")
+}
+
 fn test_repository(currencies: List(Currency)) -> CurrencyRepository {
   CurrencyRepository(
     insert: fn(_) { panic },
