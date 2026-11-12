@@ -249,15 +249,28 @@ pub fn waiting_converters_still_allow_adding_a_converter_test() {
   perform(effects)
   open_socket()
   let connected = deliver_messages(initial)
-  let added = update(connected, UserClickedAddConverter)
-  assert list.length(added.converters) == 4
-  assert list.take(added.converters, 3) == connected.converters
-  let assert Ok(last) = list.last(added.converters)
-  assert last.id == "converter-4"
-  assert last.rate_status == Waiting(4, False)
-  assert list.length(sent_messages()) == 4
-  assert saved_state()
-    == ClientState(list.append(data.converters, [ConverterState(1, 2781, 1.0)]))
+
+  // Keep the existing rows and append a converter with the default state.
+  let updated = update(connected, UserClickedAddConverter)
+  let assert [first, second, third, new_converter] = updated.converters
+  assert [first, second, third] == connected.converters
+  assert new_converter.id == "converter-4"
+  assert converter.get_selected_currency_id(new_converter, Left) == 1
+  assert converter.get_selected_currency_id(new_converter, Right) == 2781
+  assert converter.get_parsed_amount(new_converter, Left) == Some(amount(1.0))
+  assert new_converter.rate_status == Waiting(4, False)
+
+  // Send one new subscription after the three startup subscriptions.
+  let assert [_, _, _, subscription_message] = sent_messages()
+  let assert Ok(Subscribe([subscription])) =
+    json.parse(subscription_message, websocket_request.decoder())
+  assert subscription_id.to_string(subscription.id) == "converter-4"
+  assert subscription.rate_request == RateRequest(1, 2781)
+
+  // Persist the new converter alongside the original state.
+  let expected_converters =
+    list.append(data.converters, [ConverterState(1, 2781, 1.0)])
+  assert saved_state() == ClientState(expected_converters)
 }
 
 fn page_data() -> PageData {

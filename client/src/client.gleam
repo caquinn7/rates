@@ -413,12 +413,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     UserClickedAddConverter -> {
+      let ConverterState(from:, to:, amount:) = client_state.default_converter
       let assert Ok(new_converter) =
         converter.new(
           get_next_converter_id(model),
           model.currencies,
-          #(1, 2781),
-          "1",
+          #(from, to),
+          float.to_string(amount),
           None,
         )
       let new_converter = converter.waiting_for_rate(new_converter)

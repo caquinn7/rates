@@ -6,9 +6,7 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import server/currencies/currency_repository.{type CurrencyRepository}
-import shared/client_state.{
-  type ClientState, type ConverterState, ClientState, ConverterState,
-}
+import shared/client_state.{type ClientState, type ConverterState, ClientState}
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
 import wisp.{type Response}
@@ -29,23 +27,16 @@ pub fn resolve_page_data(
   currency_repository: CurrencyRepository,
   client_state: Option(ClientState),
 ) -> PageData {
-  let default_converter = {
-    let btc_id = 1
-    let usd_id = 2781
-    ConverterState(btc_id, usd_id, 1.0)
-  }
-
   let client_state = case client_state {
     Some(state) -> state
-    None -> ClientState([default_converter])
+    None -> ClientState([client_state.default_converter])
   }
 
   let currencies = currency_repository.get_all()
-
   let converters = {
     let validated = filter_valid_converters(client_state.converters, currencies)
     case validated {
-      [] -> [default_converter]
+      [] -> [client_state.default_converter]
       _ -> validated
     }
   }

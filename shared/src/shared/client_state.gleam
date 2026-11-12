@@ -14,6 +14,10 @@ pub type ConverterState {
   ConverterState(from: Int, to: Int, amount: Float)
 }
 
+/// The initial state for fallback and newly added converters: 1 BTC to USD.
+pub const default_converter: ConverterState =
+  ConverterState(from: 1, to: 2781, amount: 1.0)
+
 pub fn encode(state: ClientState) -> String {
   "v1:" <> encode_converter_states(state.converters)
 }
