@@ -299,7 +299,7 @@ fn model_with_two_converters() -> Model {
         ConverterState(ethereum_id, usd_id, 20.0),
       ],
     )
-  let assert Ok(model) = client.model_from_page_data(page_data)
+  let model = client.model_from_page_data(page_data)
   let model =
     model
     |> receive_response(rate_update(

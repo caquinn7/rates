@@ -8,7 +8,7 @@ import client/network/websocket_client
 import client/side.{type Side, Left, Right}
 import client/ui/auto_resize_input
 import client/ui/button_dropdown.{Enter}
-import client/ui/converter.{type Converter, type NewConverterError}
+import client/ui/converter.{type Converter}
 import client/ui/icons
 import client/websocket/websocket.{
   type WebSocket, type WebSocketEvent, InvalidUrl, OnClose, OnOpen,
@@ -60,14 +60,12 @@ pub type Model {
   )
 }
 
-pub fn model_from_page_data(
-  page_data: PageData,
-) -> Result(Model, NewConverterError) {
+pub fn model_from_page_data(page_data: PageData) -> Model {
   let converters =
     page_data.converters
-    |> list.index_map(fn(converter_state, idx) {
+    |> list.index_map(fn(converter_state, i) {
       converter.new(
-        converter_id_prefix <> "-" <> int.to_string(idx + 1),
+        converter_id_prefix <> "-" <> int.to_string(i + 1),
         page_data.currencies,
         #(converter_state.from, converter_state.to),
         float.to_string(converter_state.amount),
@@ -81,14 +79,14 @@ pub fn model_from_page_data(
     })
     |> list.filter_map(function.identity)
 
-  Ok(Model(
+  Model(
     currencies: page_data.currencies,
     converters:,
     socket: None,
     reconnect_attempts: 0,
     protocol_error: False,
     next_loading_token: 1,
-  ))
+  )
 }
 
 pub fn model_with_converter(model: Model, converter: Converter) -> Model {
@@ -163,10 +161,7 @@ pub fn main() -> Nil {
 }
 
 pub fn init(flags: PageData) -> #(Model, Effect(Msg)) {
-  let model = case model_from_page_data(flags) {
-    Ok(m) -> m
-    Error(err) -> panic as { "error building model: " <> string.inspect(err) }
-  }
+  let model = model_from_page_data(flags)
 
   let #(model, loading_effects) =
     list.fold(model.converters, #(model, []), fn(acc, target) {
@@ -418,12 +413,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     UserClickedAddConverter -> {
+      let ConverterState(from:, to:, amount:) = client_state.default_converter
       let assert Ok(new_converter) =
         converter.new(
           get_next_converter_id(model),
           model.currencies,
-          #(1, 2781),
-          "1",
+          #(from, to),
+          float.to_string(amount),
           None,
         )
       let new_converter = converter.waiting_for_rate(new_converter)

@@ -6,9 +6,7 @@ import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
 import server/currencies/currency_repository.{type CurrencyRepository}
-import shared/client_state.{
-  type ClientState, type ConverterState, ClientState, ConverterState,
-}
+import shared/client_state.{type ClientState, type ConverterState, ClientState}
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
 import wisp.{type Response}
@@ -29,23 +27,16 @@ pub fn resolve_page_data(
   currency_repository: CurrencyRepository,
   client_state: Option(ClientState),
 ) -> PageData {
-  let default_converter = {
-    let btc_id = 1
-    let usd_id = 2781
-    ConverterState(btc_id, usd_id, 1.0)
-  }
-
   let client_state = case client_state {
     Some(state) -> state
-    None -> ClientState([default_converter])
+    None -> ClientState([client_state.default_converter])
   }
 
   let currencies = currency_repository.get_all()
-
   let converters = {
     let validated = filter_valid_converters(client_state.converters, currencies)
     case validated {
-      [] -> [default_converter]
+      [] -> [client_state.default_converter]
       _ -> validated
     }
   }
@@ -85,45 +76,6 @@ fn page_scaffold(seed_json: String) -> Element(a) {
           attribute.name("viewport"),
         ]),
         html.title([], "rates 💹"),
-        html.style(
-          [],
-          "@font-face {
-            font-family: 'Roboto Mono';
-            src: url('/static/fonts/roboto-mono/RobotoMono-VariableFont_wght.ttf') format('truetype');
-            font-weight: 400;
-            font-style: normal;
-          }
-
-          @font-face {
-            font-family: 'Roboto Mono';
-            src: url('/static/fonts/roboto-mono/RobotoMono-Italic-VariableFont_wght.ttf') format('truetype');
-            font-weight: 400;
-            font-style: italic;
-          }
-
-          @keyframes glow {
-            0%, 100% {
-              color: inherit;
-              box-shadow: none;
-            }
-            25% {
-              color: var(--glow-color);
-              box-shadow: 0 0 4px var(--glow-color)
-            }
-          }
-
-          .animate-glow {
-            animation: glow 2s ease-in-out;
-          }
-
-          :root {
-            --font-mono: 'Roboto Mono', monospace;
-          }
-
-          body {
-            font-family: var(--font-mono);
-          }",
-        ),
         html.link([
           attribute.rel("stylesheet"),
           attribute.type_("text/css"),

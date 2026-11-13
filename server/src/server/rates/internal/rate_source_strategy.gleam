@@ -97,11 +97,6 @@ fn execute_kraken_strategy(
 ) -> #(Result(RateResponse, RateError), Bool) {
   let kraken_price_result = config.check_for_kraken_price(kraken_symbol)
   case kraken_price_result {
-    Error(_) -> {
-      config.on_kraken_fallback()
-      #(execute_cmc_strategy(rate_request, config), True)
-    }
-
     Ok(price_entry) -> {
       let price =
         kraken_symbol.apply_price_direction(kraken_symbol, price_entry.price)
@@ -116,6 +111,11 @@ fn execute_kraken_strategy(
         )),
         False,
       )
+    }
+
+    Error(_) -> {
+      config.on_kraken_fallback()
+      #(execute_cmc_strategy(rate_request, config), True)
     }
   }
 }
