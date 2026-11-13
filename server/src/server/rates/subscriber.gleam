@@ -20,6 +20,7 @@
 
 import gleam/bool
 import gleam/erlang/process.{type Subject}
+import gleam/erlang/reference.{type Reference}
 import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/otp/actor.{type Initialised, type Next, type StartError}
@@ -31,7 +32,7 @@ import server/rates/internal/rate_source_strategy.{
   type RateSourceStrategy, CmcStrategy, KrakenStrategy, StrategyConfig,
 }
 import server/rates/internal/subscription_manager.{
-  type Subscription, type SubscriptionManager, Cmc, Kraken,
+  type SubscriptionManager, Cmc, Kraken,
 }
 import server/rates/rate_error.{type RateError}
 import server/utils/logger.{type Logger}
@@ -66,7 +67,7 @@ pub type Scheduler =
 
 type Msg {
   Subscribe(RateRequest)
-  GetLatestRate(Subscription)
+  GetLatestRate(Reference)
   Stop
 }
 
@@ -77,6 +78,7 @@ type State {
     subscription_manager: SubscriptionManager,
     logger: Logger,
     scheduler: Option(Scheduler),
+    pending_refresh: Option(Reference),
   )
 }
 
@@ -169,6 +171,7 @@ fn initialiser(
       subscription_manager: config.subscription_manager,
       logger: config.logger,
       scheduler:,
+      pending_refresh: None,
     )
 
   let selector =
@@ -231,11 +234,11 @@ fn handle_msg(
         request_cmc_conversion,
       )
 
-    GetLatestRate(scheduled_subscription) ->
+    GetLatestRate(refresh_token) ->
       handle_get_latest_rate(
         subscription_id,
         state,
-        scheduled_subscription,
+        refresh_token,
         get_currency,
         kraken_interface,
         request_cmc_conversion,
@@ -255,6 +258,7 @@ fn handle_subscribe(
   kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
 ) -> Next(State, Msg) {
+  let state = State(..state, pending_refresh: None)
   let state = cleanup_existing_subscription(state, kraken_interface.unsubscribe)
 
   let strategy =
@@ -303,8 +307,7 @@ fn handle_subscribe(
       let state =
         apply_state_transition(state, transition, kraken_interface.unsubscribe)
 
-      schedule_next_update(state)
-      actor.continue(state)
+      actor.continue(schedule_next_update(state))
     }
 
     Error(error) -> {
@@ -324,22 +327,24 @@ fn handle_subscribe(
 fn handle_get_latest_rate(
   subscription_id: SubscriptionId,
   state: State,
-  scheduled_subscription: Subscription,
+  refresh_token: Reference,
   get_currency: fn(Int) -> Result(Currency, Nil),
   kraken_interface: KrakenInterface,
   request_cmc_conversion: RequestCmcConversion,
 ) -> Next(State, Msg) {
+  // Tokens identify individual refreshes, even when the subscription is unchanged.
+  use <- bool.guard(
+    state.pending_refresh != Some(refresh_token),
+    actor.continue(state),
+  )
+
   let subscription =
     subscription_manager.get_subscription(state.subscription_manager)
 
   use <- bool.guard(option.is_none(subscription), actor.continue(state))
 
   let assert Some(current_subscription) = subscription
-
-  use <- bool.guard(
-    current_subscription != scheduled_subscription,
-    actor.continue(state),
-  )
+  let state = State(..state, pending_refresh: None)
 
   case current_subscription {
     // Retry the preferred source at each fallback refresh. The normal subscribe
@@ -381,8 +386,7 @@ fn handle_get_latest_rate(
       }
       let state =
         apply_state_transition(state, transition, kraken_interface.unsubscribe)
-      schedule_next_update(state)
-      actor.continue(state)
+      actor.continue(schedule_next_update(state))
     }
   }
 }
@@ -458,6 +462,7 @@ fn cleanup_existing_subscription(
 fn clear_subscription_from_state(state: State) -> State {
   State(
     ..state,
+    pending_refresh: None,
     subscription_manager: subscription_manager.clear_subscription(
       state.subscription_manager,
     ),
@@ -487,22 +492,26 @@ fn update_subscription_manager(
   State(..state, subscription_manager:)
 }
 
-fn schedule_next_update(state: State) -> Nil {
-  let assert Some(subscription) =
+fn schedule_next_update(state: State) -> State {
+  let assert Some(_) =
     subscription_manager.get_subscription(state.subscription_manager)
 
+  let refresh_token = reference.new()
   let delay =
     subscription_manager.get_current_interval(state.subscription_manager)
   case state.scheduler {
-    None -> {
-      let _ = process.send_after(state.self, delay, GetLatestRate(subscription))
-      Nil
-    }
     Some(schedule) ->
       schedule(delay, fn() {
-        actor.send(state.self, GetLatestRate(subscription))
+        actor.send(state.self, GetLatestRate(refresh_token))
       })
+    None -> {
+      let _ =
+        process.send_after(state.self, delay, GetLatestRate(refresh_token))
+      Nil
+    }
   }
+
+  State(..state, pending_refresh: Some(refresh_token))
 }
 
 // logging
