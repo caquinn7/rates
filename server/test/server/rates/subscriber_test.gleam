@@ -1,7 +1,7 @@
 import exception
 import gleam/dict
 import gleam/erlang/atom.{type Atom}
-import gleam/erlang/process.{type Subject}
+import gleam/erlang/process.{type Pid, type Subject}
 import gleam/list
 import gleam/option.{None, Some}
 import server/currencies/currency_repository.{CurrencyRepository}
@@ -16,13 +16,13 @@ import server/rates/internal/kraken_interface.{KrakenInterface}
 import server/rates/internal/kraken_symbol
 import server/rates/internal/subscription_manager
 import server/rates/rate_error.{CmcError, CurrencyNotFound}
-import server/rates/subscriber
+import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult}
 import server/rates/subscriber_factory
 import server/utils/logger
 import shared/currency.{Crypto, Fiat}
 import shared/numbers/positive_float
-import shared/rates/rate_request.{RateRequest}
-import shared/rates/rate_response.{CoinMarketCap, Kraken}
+import shared/rates/rate_request.{type RateRequest, RateRequest}
+import shared/rates/rate_response.{type Source, CoinMarketCap, Kraken}
 import shared/subscriptions/subscription_id
 
 type ScheduledUpdate {
@@ -626,6 +626,90 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   subscriber.stop(target)
 }
 
+pub fn repeated_kraken_subscription_ignores_stale_refresh_test() {
+  assert_repeated_subscription_ignores_stale_refresh(Kraken)
+}
+
+pub fn repeated_cmc_subscription_ignores_stale_refresh_test() {
+  assert_repeated_subscription_ignores_stale_refresh(CoinMarketCap)
+}
+
+fn assert_repeated_subscription_ignores_stale_refresh(source) {
+  let fixture = new_refresh_test(source)
+  use <- exception.defer(fn() { subscriber.stop(fixture.target) })
+  let request = RateRequest(1, 2781)
+  let old_refresh = subscribe_and_capture_refresh(fixture, request)
+  let current_refresh = subscribe_and_capture_refresh(fixture, request)
+
+  old_refresh()
+  current_refresh()
+  stop_refresh_test(fixture)
+
+  let _ = await_refresh(fixture, request)
+  assert_no_refresh_activity(fixture)
+}
+
+pub fn returning_to_previous_pair_ignores_stale_refreshes_test() {
+  let fixture = new_refresh_test(Kraken)
+  use <- exception.defer(fn() { subscriber.stop(fixture.target) })
+  let request = RateRequest(1, 2781)
+  let first_refresh = subscribe_and_capture_refresh(fixture, request)
+  let other_refresh =
+    subscribe_and_capture_refresh(fixture, RateRequest(1027, 2781))
+  let current_refresh = subscribe_and_capture_refresh(fixture, request)
+
+  first_refresh()
+  other_refresh()
+  current_refresh()
+  stop_refresh_test(fixture)
+
+  let _ = await_refresh(fixture, request)
+  assert_no_refresh_activity(fixture)
+}
+
+pub fn scheduled_refresh_callback_can_only_be_consumed_once_test() {
+  let fixture = new_refresh_test(Kraken)
+  use <- exception.defer(fn() { subscriber.stop(fixture.target) })
+  let request = RateRequest(1, 2781)
+  let refresh = subscribe_and_capture_refresh(fixture, request)
+
+  refresh()
+  refresh()
+  let next_refresh = await_refresh(fixture, request)
+
+  // Replaying a consumed callback must also be harmless after its successor
+  // has been scheduled, while the successor must still be accepted.
+  refresh()
+  next_refresh()
+  stop_refresh_test(fixture)
+
+  let _ = await_refresh(fixture, request)
+  assert_no_refresh_activity(fixture)
+}
+
+pub fn invalid_request_invalidates_pending_kraken_refresh_test() {
+  assert_invalid_request_invalidates_pending_refresh(Kraken)
+}
+
+pub fn invalid_request_invalidates_pending_cmc_refresh_test() {
+  assert_invalid_request_invalidates_pending_refresh(CoinMarketCap)
+}
+
+fn assert_invalid_request_invalidates_pending_refresh(source) {
+  let fixture = new_refresh_test(source)
+  use <- exception.defer(fn() { subscriber.stop(fixture.target) })
+  let old_refresh = subscribe_and_capture_refresh(fixture, RateRequest(1, 2781))
+  let invalid_request = RateRequest(1, 999)
+
+  subscriber.subscribe(fixture.target, invalid_request)
+  old_refresh()
+  stop_refresh_test(fixture)
+
+  let assert Ok(#(_, Error(error))) = process.receive(fixture.replies, 1000)
+  assert error == CurrencyNotFound(invalid_request, 999)
+  assert_no_refresh_activity(fixture)
+}
+
 pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
@@ -768,6 +852,106 @@ pub fn stop_unsubscribes_from_kraken_test() {
 
   //assert
   let assert Ok(True) = process.receive(unsub_subject, 1000)
+}
+
+type RefreshTest {
+  RefreshTest(
+    target: RateSubscriber,
+    replies: Subject(SubscriptionResult),
+    updates: Subject(ScheduledUpdate),
+    provider_calls: Subject(Source),
+    actor_pids: Subject(Pid),
+    source: Source,
+  )
+}
+
+fn new_refresh_test(source: Source) -> RefreshTest {
+  let replies = process.new_subject()
+  let updates = process.new_subject()
+  let provider_calls = process.new_subject()
+  let actor_pids = process.new_subject()
+  let price = positive_float.from_float_unsafe(100_000.0)
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", Some(1)),
+    Crypto(1027, "Ethereum", "ETH", Some(2)),
+    Fiat(2781, "United States Dollar", "USD", "$"),
+  ]
+  let assert Ok(manager) = subscription_manager.new(1000)
+  let assert Ok(id) = subscription_id.new("refresh-test")
+  let assert Ok(target) =
+    subscriber.new_with_scheduler(
+      id,
+      replies,
+      subscriber.Config(
+        get_currency: fn(id) {
+          process.send(actor_pids, process.self())
+          list.find(currencies, fn(currency) { currency.id == id })
+        },
+        kraken_interface: KrakenInterface(
+          get_kraken_symbol: kraken_symbol.new(_, fn(_) { source == Kraken }),
+          subscribe: fn(_) { Nil },
+          unsubscribe: fn(_) { Nil },
+          check_for_price: fn(_) {
+            process.send(provider_calls, Kraken)
+            Ok(PriceEntry(price, 100))
+          },
+        ),
+        request_cmc_conversion: fn(parameters) {
+          process.send(provider_calls, CoinMarketCap)
+          CmcConversion(
+            parameters.id,
+            "BTC",
+            "Bitcoin",
+            positive_float.from_float_unsafe(1.0),
+            dict.insert(dict.new(), "2781", QuoteItem(Some(price), 100)),
+          )
+          |> Some
+          |> CmcResponse(CmcStatus(0, None), _)
+          |> Ok
+        },
+        subscription_manager: manager,
+        logger: logger.new(),
+      ),
+      record_schedule(updates),
+    )
+  RefreshTest(target, replies, updates, provider_calls, actor_pids, source)
+}
+
+fn subscribe_and_capture_refresh(fixture: RefreshTest, request: RateRequest) {
+  subscriber.subscribe(fixture.target, request)
+  await_refresh(fixture, request)
+}
+
+fn await_refresh(fixture: RefreshTest, request: RateRequest) -> fn() -> Nil {
+  let assert Ok(#(_, Ok(response))) = process.receive(fixture.replies, 1000)
+  assert response.from == request.from
+  assert response.to == request.to
+  assert response.source == fixture.source
+  assert process.receive(fixture.provider_calls, 1000) == Ok(fixture.source)
+  let interval = case fixture.source {
+    Kraken -> 1000
+    CoinMarketCap -> 30_000
+  }
+  await_scheduled_update(fixture.updates, interval)
+}
+
+fn stop_refresh_test(fixture: RefreshTest) -> Nil {
+  let assert Ok(pid) = process.receive(fixture.actor_pids, 1000)
+  let monitor = process.monitor(pid)
+  // Deliveries and Stop come from this test process, so observing termination
+  // ensures all queued deliveries were handled before checking for extras.
+  subscriber.stop(fixture.target)
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+  Nil
+}
+
+fn assert_no_refresh_activity(fixture: RefreshTest) -> Nil {
+  assert process.receive(fixture.replies, 0) == Error(Nil)
+  assert process.receive(fixture.provider_calls, 0) == Error(Nil)
+  assert process.receive(fixture.updates, 0) == Error(Nil)
 }
 
 /// Gets the current value of the counter and increments it using the process dictionary.
