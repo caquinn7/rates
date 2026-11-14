@@ -69,12 +69,12 @@ pub fn create_cmc_subscription_uses_base_interval_when_greater_than_30000_test()
 pub fn switching_from_cmc_to_kraken_restores_base_interval_test() {
   let assert Ok(kraken_symbol) =
     kraken_symbol.new(#("BTC", "USD"), fn(_) { True })
-  let rate_request = RateRequest(1, 2)
+  let rate_request = RateRequest(3, 4)
   let assert Ok(manager) = subscription_manager.new(1000)
 
   let manager =
     manager
-    |> subscription_manager.create_cmc_subscription(rate_request)
+    |> subscription_manager.create_cmc_subscription(RateRequest(1, 2))
     |> subscription_manager.create_kraken_subscription(
       rate_request,
       kraken_symbol,
@@ -83,6 +83,63 @@ pub fn switching_from_cmc_to_kraken_restores_base_interval_test() {
   assert Some(Kraken(rate_request, kraken_symbol))
     == subscription_manager.get_subscription(manager)
   assert 1000 == subscription_manager.get_current_interval(manager)
+}
+
+pub fn switching_from_kraken_to_cmc_replaces_subscription_test() {
+  let assert Ok(kraken_symbol) =
+    kraken_symbol.new(#("BTC", "USD"), fn(_) { True })
+  let rate_request = RateRequest(3, 4)
+  let assert Ok(manager) = subscription_manager.new(1000)
+
+  let manager =
+    manager
+    |> subscription_manager.create_kraken_subscription(
+      RateRequest(1, 2),
+      kraken_symbol,
+    )
+    |> subscription_manager.create_cmc_subscription(rate_request)
+
+  assert Some(Cmc(rate_request))
+    == subscription_manager.get_subscription(manager)
+  assert 30_000 == subscription_manager.get_current_interval(manager)
+}
+
+pub fn replacing_kraken_subscription_updates_request_and_symbol_test() {
+  let assert Ok(previous_symbol) =
+    kraken_symbol.new(#("BTC", "USD"), fn(_) { True })
+  let assert Ok(next_symbol) =
+    kraken_symbol.new(#("ETH", "EUR"), fn(_) { True })
+  let rate_request = RateRequest(3, 4)
+  let assert Ok(manager) = subscription_manager.new(1000)
+
+  let manager =
+    manager
+    |> subscription_manager.create_kraken_subscription(
+      RateRequest(1, 2),
+      previous_symbol,
+    )
+    |> subscription_manager.create_kraken_subscription(
+      rate_request,
+      next_symbol,
+    )
+
+  assert Some(Kraken(rate_request, next_symbol))
+    == subscription_manager.get_subscription(manager)
+  assert 1000 == subscription_manager.get_current_interval(manager)
+}
+
+pub fn replacing_cmc_subscription_updates_request_test() {
+  let rate_request = RateRequest(3, 4)
+  let assert Ok(manager) = subscription_manager.new(50_000)
+
+  let manager =
+    manager
+    |> subscription_manager.create_cmc_subscription(RateRequest(1, 2))
+    |> subscription_manager.create_cmc_subscription(rate_request)
+
+  assert Some(Cmc(rate_request))
+    == subscription_manager.get_subscription(manager)
+  assert 50_000 == subscription_manager.get_current_interval(manager)
 }
 
 pub fn clear_subscription_restores_base_interval_after_cmc_test() {
