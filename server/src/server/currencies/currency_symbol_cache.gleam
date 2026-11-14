@@ -12,10 +12,8 @@
 //// coordinates which symbols need fetching vs. which are already cached.
 
 import gleam/erlang/process.{type Subject}
-import gleam/list
 import gleam/otp/actor.{type Next, type StartError}
 import gleam/result
-import gleam/string
 import shared/currency.{type Currency}
 
 pub opaque type CurrencySymbolCache {
@@ -24,10 +22,6 @@ pub opaque type CurrencySymbolCache {
 
 type Msg {
   GetBySymbol(reply_to: Subject(Result(List(Currency), Nil)), symbol: String)
-  GetBySymbols(
-    reply_to: Subject(Result(List(Currency), Nil)),
-    symbols: List(String),
-  )
 }
 
 type State {
@@ -56,53 +50,15 @@ pub fn get_by_symbol(
   actor.call(subject, 5000, GetBySymbol(_, symbol))
 }
 
-pub fn get_by_symbols(
-  cache: CurrencySymbolCache,
-  symbols: List(String),
-) -> Result(List(Currency), Nil) {
-  let CurrencySymbolCache(subject) = cache
-  actor.call(subject, 5000, GetBySymbols(_, symbols))
-}
-
 fn handle_msg(state: State, msg: Msg) -> Next(State, Msg) {
   let State(get_cached:, fetch_and_cache:) = state
+  let GetBySymbol(reply_to, symbol) = msg
 
-  case msg {
-    GetBySymbol(reply_to, symbol) -> {
-      let result = case get_cached(symbol) {
-        [] -> fetch_and_cache(symbol)
-        currencies -> Ok(currencies)
-      }
-
-      process.send(reply_to, result)
-      actor.continue(state)
-    }
-
-    GetBySymbols(reply_to, []) -> {
-      process.send(reply_to, Ok([]))
-      actor.continue(state)
-    }
-
-    GetBySymbols(reply_to, symbols) -> {
-      let cached_currencies = list.flat_map(symbols, get_cached)
-      let cached_symbols = list.map(cached_currencies, fn(c) { c.symbol })
-      let uncached_symbols =
-        list.filter(symbols, fn(symbol) {
-          !list.contains(cached_symbols, symbol)
-        })
-
-      let result = case uncached_symbols {
-        [] -> Ok(cached_currencies)
-
-        symbols -> {
-          let symbols_str = string.join(symbols, ",")
-          use fetched <- result.map(fetch_and_cache(symbols_str))
-          list.append(cached_currencies, fetched)
-        }
-      }
-
-      process.send(reply_to, result)
-      actor.continue(state)
-    }
+  let result = case get_cached(symbol) {
+    [] -> fetch_and_cache(symbol)
+    currencies -> Ok(currencies)
   }
+
+  process.send(reply_to, result)
+  actor.continue(state)
 }
