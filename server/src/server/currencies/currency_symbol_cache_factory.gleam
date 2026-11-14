@@ -10,10 +10,15 @@ import server/integrations/coin_market_cap/cmc_crypto_currency.{
   type CmcCryptoCurrency,
 }
 
+/// Requests cryptocurrencies with an optional symbol filter. The API key and
+/// result limit are already bound; `None` requests an unfiltered listing.
+pub type RequestCmcCryptosBySymbol =
+  fn(Option(String)) ->
+    Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError)
+
 pub fn create(
   currency_repository: CurrencyRepository,
-  request_cmc_cryptos: fn(Option(String)) ->
-    Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
+  request_cmc_cryptos: RequestCmcCryptosBySymbol,
   on_fetch_failed: fn(FetchError) -> Nil,
 ) -> CurrencySymbolCache {
   let get_cached = currency_repository.get_by_symbol

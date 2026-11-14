@@ -1,22 +1,19 @@
 import gleam/erlang/process
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{None, Some}
 import gleam/string
 import glight
 import mist
 import server/currencies/cmc_currency_handler.{type RequestCmcFiats}
 import server/currencies/currency_fetcher
 import server/currencies/currency_repository.{type CurrencyRepository}
-import server/currencies/currency_symbol_cache_factory
+import server/currencies/currency_symbol_cache_factory.{
+  type RequestCmcCryptosBySymbol,
+}
 import server/currencies/internal/currency_store.{type CurrencyStore}
 import server/env_config
-import server/integrations/coin_market_cap/client.{
-  type CmcListResponse, type CmcRequestError,
-} as cmc_client
-import server/integrations/coin_market_cap/cmc_crypto_currency.{
-  type CmcCryptoCurrency,
-}
+import server/integrations/coin_market_cap/client as cmc_client
 import server/integrations/kraken/client.{type KrakenClient} as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
@@ -29,6 +26,12 @@ import server/services.{type Services, Services}
 import server/utils/logger.{type Logger}
 import server/utils/time
 import server/web/router
+
+const currency_fetch_timeout_ms = 10_000
+
+const kraken_readiness_timeout_ms = 10_000
+
+const subscription_refresh_interval_ms = 10_000
 
 pub fn main() {
   let env_config = case env_config.load() {
@@ -63,16 +66,7 @@ pub fn main() {
     logger,
   )
 
-  let assert Ok(kraken_client) = {
-    let logger = logger.with(logger, "source", "kraken")
-    let create_price_store = fn() {
-      let assert Ok(store) = price_store.new()
-      store
-    }
-    kraken_client.new(logger, create_price_store)
-  }
-
-  wait_for_kraken_symbols(time.monotonic_time_ms(), 10_000)
+  let kraken_client = start_kraken(logger)
 
   let services =
     build_services(
@@ -104,8 +98,7 @@ fn configure_logging(log_level: String) -> Logger {
 
 fn fetch_and_store_currencies(
   supported_fiat_symbols: List(String),
-  request_cmc_cryptos: fn(Option(String)) ->
-    Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
+  request_cmc_cryptos: RequestCmcCryptosBySymbol,
   request_cmc_fiats: RequestCmcFiats,
   currency_store: CurrencyStore,
   logger: Logger,
@@ -115,7 +108,7 @@ fn fetch_and_store_currencies(
       supported_fiat_symbols,
       fn() { request_cmc_cryptos(None) },
       request_cmc_fiats,
-      10_000,
+      currency_fetch_timeout_ms,
     )
 
   case currencies_result {
@@ -132,18 +125,28 @@ fn fetch_and_store_currencies(
   }
 }
 
-fn wait_for_kraken_symbols(start_time: Int, timeout_ms: Int) -> Nil {
-  case pairs.count() > 0 {
-    True -> Nil
-    False -> {
-      let elapsed = time.monotonic_time_ms() - start_time
-      case elapsed >= timeout_ms {
-        True -> panic as "Timeout waiting for Kraken symbols"
-        False -> {
-          process.sleep(100)
-          wait_for_kraken_symbols(start_time, timeout_ms)
-        }
-      }
+fn start_kraken(logger: Logger) -> KrakenClient {
+  let logger = logger.with(logger, "source", "kraken")
+  let create_price_store = fn() {
+    let assert Ok(store) = price_store.new()
+    store
+  }
+  let assert Ok(client) = kraken_client.new(logger, create_price_store)
+
+  wait_for_kraken_symbols(
+    time.monotonic_time_ms() + kraken_readiness_timeout_ms,
+  )
+
+  client
+}
+
+fn wait_for_kraken_symbols(deadline_ms: Int) -> Nil {
+  case pairs.count() > 0, time.monotonic_time_ms() >= deadline_ms {
+    True, _ -> Nil
+    False, True -> panic as "Timeout waiting for Kraken symbols"
+    False, False -> {
+      process.sleep(100)
+      wait_for_kraken_symbols(deadline_ms)
     }
   }
 }
@@ -151,8 +154,7 @@ fn wait_for_kraken_symbols(start_time: Int, timeout_ms: Int) -> Nil {
 fn build_services(
   currency_store: CurrencyStore,
   logger: Logger,
-  request_cmc_cryptos: fn(Option(String)) ->
-    Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
+  request_cmc_cryptos: RequestCmcCryptosBySymbol,
   kraken_client: KrakenClient,
   request_cmc_conversion: RequestCmcConversion,
 ) -> Services {
@@ -173,16 +175,14 @@ fn build_services(
     )
   }
 
-  let create_rate_subscriber = {
-    let subscriber_config =
-      build_subscriber_config(
-        kraken_client,
-        currency_repository,
-        request_cmc_conversion,
-        logger,
-      )
-    subscriber_factory.create(subscriber_config)
-  }
+  let create_rate_subscriber =
+    build_subscriber_config(
+      kraken_client,
+      currency_repository,
+      request_cmc_conversion,
+      logger,
+    )
+    |> subscriber_factory.create
 
   Services(
     currency_repository:,
@@ -198,7 +198,8 @@ fn build_subscriber_config(
   request_cmc_conversion: RequestCmcConversion,
   logger: Logger,
 ) -> subscriber.Config {
-  let assert Ok(subscription_manager) = subscription_manager.new(10_000)
+  let assert Ok(subscription_manager) =
+    subscription_manager.new(subscription_refresh_interval_ms)
 
   let kraken_interface = {
     let assert Ok(price_store) = price_store.get_store()
@@ -212,7 +213,7 @@ fn build_subscriber_config(
     kraken_interface:,
     request_cmc_conversion:,
     subscription_manager:,
-    logger: logger.with(logger, "source", "subscriber"),
+    logger: logger.with_source(logger, "subscriber"),
   )
 }
 

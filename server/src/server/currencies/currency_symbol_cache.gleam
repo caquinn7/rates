@@ -49,18 +49,18 @@ pub fn new(
 }
 
 pub fn get_by_symbol(
-  resolver: CurrencySymbolCache,
+  cache: CurrencySymbolCache,
   symbol: String,
 ) -> Result(List(Currency), Nil) {
-  let CurrencySymbolCache(subject) = resolver
+  let CurrencySymbolCache(subject) = cache
   actor.call(subject, 5000, GetBySymbol(_, symbol))
 }
 
 pub fn get_by_symbols(
-  resolver: CurrencySymbolCache,
+  cache: CurrencySymbolCache,
   symbols: List(String),
 ) -> Result(List(Currency), Nil) {
-  let CurrencySymbolCache(subject) = resolver
+  let CurrencySymbolCache(subject) = cache
   actor.call(subject, 5000, GetBySymbols(_, symbols))
 }
 
