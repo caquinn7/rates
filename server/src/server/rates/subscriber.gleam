@@ -1,24 +1,11 @@
-//// This module implements an actor-based system for fetching and streaming currency exchange rates
+//// Periodically sends exchange-rate results for one client subscription.
 ////
-//// ## Features
+//// Prefers Kraken's live price store and falls back to CoinMarketCap when a pair
+//// or price is unavailable. CMC refreshes retry Kraken selection to allow recovery.
 ////
-//// - **Multi-source support**: Primary data from Kraken WebSocket, fallback to CoinMarketCap API
-//// - **Automatic fallback**: Seamlessly switches between data sources based on availability
-//// - **Rate limiting**: Update frequency capped at 30s for CMC, configurable for Kraken
-//// - **Real-time updates**: WebSocket-based live price feeds when available
-////
-//// ## Data Source Priority
-////
-//// 1. **Kraken WebSocket** (preferred): Real-time, low-latency updates
-//// 2. **CoinMarketCap API** (fallback): Rate-limited but comprehensive coverage
-////
-//// ## Interval Behavior
-////
-//// - **Kraken subscriptions**: Use the configured base interval
-//// - **CMC subscriptions**: Capped at 30 seconds due to API rate limits
-//// - **Transitions**: Automatically restore optimal intervals when switching back to Kraken
+//// Kraken refreshes use the configured base interval. CMC refreshes use that interval
+//// or 30 seconds, whichever is longer. Recovery to Kraken restores the base interval.
 
-import gleam/bool
 import gleam/erlang/process.{type Subject}
 import gleam/erlang/reference.{type Reference}
 import gleam/int
@@ -47,6 +34,9 @@ pub opaque type RateSubscriber {
   RateSubscriber(id: SubscriptionId, subject: Subject(Msg))
 }
 
+/// Dependencies and initial subscription settings for a rate subscriber.
+/// Includes currency lookup, Kraken and CMC access, logging, and a subscription
+/// manager that determines refresh intervals.
 pub type Config {
   Config(
     get_currency: fn(Int) -> Result(Currency, Nil),
@@ -60,17 +50,26 @@ pub type Config {
 pub type SubscriptionResult =
   #(SubscriptionId, Result(RateResponse, RateError))
 
-/// Schedule an update by arranging to invoke its delivery callback after a delay.
+/// Schedules an update by invoking its delivery callback after a delay in milliseconds.
 /// The callback enqueues the update on the actor; it never handles it directly.
 pub type Scheduler =
   fn(Int, fn() -> Nil) -> Nil
 
+/// Messages handled by the rate subscriber actor.
 type Msg {
+  /// Requests a currency pair, replacing any previous subscription.
   Subscribe(RateRequest)
+
+  /// Triggers a scheduled refresh if the reference matches the pending token.
+  /// Stale or previously consumed tokens are ignored.
   GetLatestRate(Reference)
+
+  /// Releases active Kraken interest and stops the actor.
   Stop
 }
 
+/// Fixed subscription identity and provider dependencies shared by message handlers.
+/// Created at startup and reused for the lifetime of the subscriber actor.
 type Context {
   Context(
     subscription_id: SubscriptionId,
@@ -80,44 +79,36 @@ type Context {
   )
 }
 
+/// Runtime state owned by the subscriber actor.
+/// Tracks the active subscription, messaging, logging, and scheduling dependencies.
+/// The pending token permits one scheduled refresh; stale tokens are ignored.
 type State {
   State(
+    /// This actor's inbox, used to enqueue scheduled refresh messages.
     self: Subject(Msg),
+    /// Destination for rate responses and errors tagged with the subscription ID.
     reply_to: Subject(SubscriptionResult),
+    /// Active rate request, selected source, and refresh interval policy.
     subscription_manager: SubscriptionManager,
+    /// Logger for diagnostics, including Kraken price lookup timeouts.
     logger: Logger,
+    /// Scheduling override; `None` uses `process.send_after`.
     scheduler: Option(Scheduler),
+    /// Token identifying the next valid refresh. Old timers may still fire after
+    /// resubscribing; their tokens no longer match and their messages are ignored.
+    /// Consumed before fetching so a callback cannot trigger a second fetch.
+    /// `None` means no refresh is currently valid.
     pending_refresh: Option(Reference),
   )
 }
 
-/// Creates a new RateSubscriber actor that periodically fetches currency rates.
+/// Starts an actor; call `subscribe` to begin fetching a currency pair.
+/// Sends results to `reply_to` as `#(subscription_id, Ok(rate_response))` or
+/// `#(subscription_id, Error(rate_error))`.
 ///
-/// This function initializes a new actor with the provided configuration and starts it.
-/// The actor will handle rate subscription messages and communicate conversion results
-/// back through the provided reply subject as a tuple containing the subscription Id
-/// and the rate response or error.
-///
-/// ## Parameters
-///
-/// - `subscription_id`: Unique identifier for this subscription
-/// - `reply_to`: Subject to send tuples of (subscription_id, rate_response_or_error) back to the caller
-/// - `config`: Configuration containing all necessary dependencies and settings
-///
-/// ## Returns
-///
-/// Returns `Ok(RateSubscriber)` if the actor is successfully created and started,
-/// or `Error(StartError)` if actor initialization fails.
-///
-/// ## Note
-///
-/// When using CoinMarketCap as the data source, the update interval will be
-/// automatically capped at 30 seconds due to API rate limits, regardless of the
-/// configured base interval in the subscription manager.
-///
-/// The reply subject will receive tuples in the format:
-/// `#(subscription_id, Ok(rate_response))` for successful rate fetches
-/// `#(subscription_id, Error(rate_error))` for failed rate fetches
+/// Kraken refreshes use the configured base interval. CMC refreshes wait at least
+/// 30 seconds, retaining longer configured intervals. Returns `Error(StartError)`
+/// if actor initialization fails.
 pub fn new(
   subscription_id: SubscriptionId,
   reply_to: Subject(SubscriptionResult),
@@ -173,13 +164,8 @@ fn initialiser(
       pending_refresh: None,
     )
 
-  let selector =
-    process.new_selector()
-    |> process.select(self)
-
   state
   |> actor.initialised
-  |> actor.selecting(selector)
   |> actor.returning(self)
   |> Ok
 }
@@ -188,28 +174,13 @@ pub fn subscription_id(rate_subscriber: RateSubscriber) {
   rate_subscriber.id
 }
 
-/// Subscribes a rate subscriber to receive updates for a specific rate request.
-///
-/// This function sends a subscription message to the subscriber actor, which will
-/// begin receiving rate updates that match the provided rate request criteria.
-///
-/// ## Parameters
-/// - `subscriber`: The `RateSubscriber` containing the actor subject to send the subscription to
-/// - `rate_request`: The `RateRequest` specifying which currency pair to subscribe to
-///
-/// ## Returns
-/// `Nil` - This function performs a side effect by sending a message to an actor
+/// Queues a request to fetch and periodically refresh a currency pair,
+/// replacing the subscriber's previous request.
 pub fn subscribe(subscriber: RateSubscriber, rate_request: RateRequest) -> Nil {
   actor.send(subscriber.subject, Subscribe(rate_request))
 }
 
-/// Stops a rate subscriber actor by sending a Stop message to it.
-///
-/// ## Parameters
-/// - `subscriber`: The RateSubscriber instance to stop
-///
-/// ## Returns
-/// `Nil` - This function performs a side effect by sending a message to an actor
+/// Queues a stop request, releasing any active Kraken subscription before exit.
 pub fn stop(subscriber: RateSubscriber) -> Nil {
   actor.send(subscriber.subject, Stop)
 }
@@ -217,15 +188,11 @@ pub fn stop(subscriber: RateSubscriber) -> Nil {
 fn handle_msg(context: Context, state: State, msg: Msg) -> Next(State, Msg) {
   case msg {
     Subscribe(rate_request) -> handle_subscribe(context, state, rate_request)
-
     GetLatestRate(refresh_token) ->
       handle_get_latest_rate(context, state, refresh_token)
-
     Stop -> handle_stop(state, context.kraken_interface.unsubscribe)
   }
 }
-
-// message handler functions
 
 fn handle_subscribe(
   context: Context,
@@ -270,32 +237,30 @@ fn handle_get_latest_rate(
   state: State,
   refresh_token: Reference,
 ) -> Next(State, Msg) {
-  // Tokens identify individual refreshes, even when the subscription is unchanged.
-  use <- bool.guard(
-    state.pending_refresh != Some(refresh_token),
-    actor.continue(state),
-  )
-
   let subscription =
     subscription_manager.get_subscription(state.subscription_manager)
 
-  use <- bool.guard(option.is_none(subscription), actor.continue(state))
+  // Tokens identify individual refreshes, even when the subscription is unchanged.
+  case state.pending_refresh, subscription {
+    Some(pending), Some(current_subscription) if pending == refresh_token -> {
+      let state = State(..state, pending_refresh: None)
 
-  let assert Some(current_subscription) = subscription
-  let state = State(..state, pending_refresh: None)
+      case current_subscription {
+        // Retry the preferred source at each fallback refresh. The normal subscribe
+        // path retains interest on success and releases it again if the probe fails.
+        Cmc(rate_request) -> handle_subscribe(context, state, rate_request)
 
-  case current_subscription {
-    // Retry the preferred source at each fallback refresh. The normal subscribe
-    // path retains interest on success and releases it again if the probe fails.
-    Cmc(rate_request) -> handle_subscribe(context, state, rate_request)
+        Kraken(rate_request, symbol) ->
+          fetch_reply_and_reschedule(
+            context,
+            state,
+            rate_request,
+            KrakenStrategy(symbol),
+          )
+      }
+    }
 
-    Kraken(rate_request, symbol) ->
-      fetch_reply_and_reschedule(
-        context,
-        state,
-        rate_request,
-        KrakenStrategy(symbol),
-      )
+    _, _ -> actor.continue(state)
   }
 }
 
@@ -427,11 +392,13 @@ fn schedule_next_update(state: State) -> State {
   let refresh_token = reference.new()
   let delay =
     subscription_manager.get_current_interval(state.subscription_manager)
+
   case state.scheduler {
     Some(schedule) ->
       schedule(delay, fn() {
         actor.send(state.self, GetLatestRate(refresh_token))
       })
+
     None -> {
       let _ =
         process.send_after(state.self, delay, GetLatestRate(refresh_token))
@@ -441,8 +408,6 @@ fn schedule_next_update(state: State) -> State {
 
   State(..state, pending_refresh: Some(refresh_token))
 }
-
-// logging
 
 fn log_wait_for_kraken_price_timeout(
   logger: Logger,

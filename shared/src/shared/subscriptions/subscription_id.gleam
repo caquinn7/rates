@@ -30,7 +30,7 @@ pub fn encode(id: SubscriptionId) -> Json {
 pub fn decoder() -> Decoder(SubscriptionId) {
   use str <- decode.then(decode.string)
   case new(str) {
-    Error(_) -> decode.failure(SubscriptionId(""), "SubscriptionId")
     Ok(id) -> decode.success(id)
+    Error(_) -> decode.failure(SubscriptionId(""), "SubscriptionId")
   }
 }

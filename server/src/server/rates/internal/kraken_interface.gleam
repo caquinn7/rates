@@ -3,27 +3,27 @@ import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
 import server/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/utils/retry
 
+/// Kraken operations used by rate subscribers to resolve pairs, manage subscription
+/// interest, and retrieve prices with provider timestamps.
 pub type KrakenInterface {
   KrakenInterface(
+    /// Resolves source and target symbols to a direct or reversed Kraken pair.
+    /// Returns `Error(Nil)` if neither direction is supported.
     get_kraken_symbol: fn(#(String, String)) -> Result(KrakenSymbol, Nil),
+    /// Asynchronously registers one subscriber's interest in the pair.
     subscribe: fn(KrakenSymbol) -> Nil,
+    /// Asynchronously releases one subscriber's interest in the pair.
+    /// Other subscribers may keep the upstream subscription active.
     unsubscribe: fn(KrakenSymbol) -> Nil,
+    /// Reads the stored price and provider timestamp without applying inversion.
+    /// Returns `Error(Nil)` if no price is available.
     check_for_price: fn(KrakenSymbol) -> Result(PriceEntry, Nil),
   )
 }
 
-/// Creates a KrakenInterface from a Kraken client and price store
-/// 
-/// This factory function encapsulates the construction of the interface,
-/// including symbol conversion logic and price waiting with default retry parameters.
-/// 
-/// ## Parameters
-/// - `client`: The KrakenClient for subscribing/unsubscribing
-/// - `price_store`: The PriceStore for checking prices
-/// - `symbol_exists`: Function to check if a symbol exists in Kraken's supported pairs
-/// 
-/// ## Returns
-/// A fully configured KrakenInterface with default retry settings (5 retries, 50ms delay)
+/// Creates an interface backed by `client` and `price_store`.
+/// Uses `symbol_exists` to resolve supported pairs. Missing prices are retried
+/// up to five times with a 50 ms delay between attempts.
 pub fn new(
   client: KrakenClient,
   price_store: PriceStore,

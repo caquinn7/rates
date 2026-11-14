@@ -24,17 +24,17 @@ pub opaque type NonNegativeFloat {
 /// On the JavaScript runtime, also checks that the value is not `Infinity` or `NaN`.
 pub fn new(f: Float) -> Result(NonNegativeFloat, Nil) {
   case number_ops.is_finite(f) && f >=. 0.0 {
-    False -> Error(Nil)
     True if f <=. 0.0 -> Ok(NonNegativeFloat(0.0))
     True -> Ok(NonNegativeFloat(f))
+    False -> Error(Nil)
   }
 }
 
 /// Panics on invalid input!
 pub fn from_float_unsafe(f: Float) -> NonNegativeFloat {
   case new(f) {
-    Error(_) -> panic as "Expected a non-negative, finite value"
     Ok(n) -> n
+    Error(_) -> panic as "Expected a non-negative, finite value"
   }
 }
 
