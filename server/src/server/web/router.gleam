@@ -10,7 +10,7 @@ import gleam/result
 import mist
 import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache.{type CurrencySymbolCache}
-import server/dependencies.{type Dependencies}
+import server/services.{type Services}
 import server/utils/logger
 import server/web/routes/home
 import server/web/routes/websocket
@@ -22,26 +22,26 @@ import wisp/wisp_mist
 pub fn route_request(
   req: request.Request(mist.Connection),
   secret_key_base: String,
-  deps: Dependencies,
+  services: Services,
 ) -> response.Response(mist.ResponseData) {
   case request.path_segments(req) {
-    ["ws"] -> handle_websocket_request(req, deps)
-    _ -> handle_http_request(req, secret_key_base, deps)
+    ["ws"] -> handle_websocket_request(req, services)
+    _ -> handle_http_request(req, secret_key_base, services)
   }
 }
 
 fn handle_websocket_request(
   req: request.Request(mist.Connection),
-  deps: Dependencies,
+  services: Services,
 ) -> response.Response(mist.ResponseData) {
   mist.websocket(
     req,
     on_init: websocket.on_init(
       _,
-      logger.with(deps.logger, "source", "websocket"),
+      logger.with(services.logger, "source", "websocket"),
     ),
     handler: fn(state, message, conn) {
-      websocket.handler(state, message, conn, deps.create_rate_subscriber)
+      websocket.handler(state, message, conn, services.create_rate_subscriber)
     },
     on_close: websocket.on_close,
   )
@@ -50,14 +50,14 @@ fn handle_websocket_request(
 fn handle_http_request(
   req: request.Request(mist.Connection),
   secret_key_base: String,
-  deps: Dependencies,
+  services: Services,
 ) -> response.Response(mist.ResponseData) {
   let handler =
     wisp_mist.handler(
       route_http_request(
         _,
-        deps.currency_repository,
-        deps.currency_symbol_cache,
+        services.currency_repository,
+        services.currency_symbol_cache,
       ),
       secret_key_base,
     )

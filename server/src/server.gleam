@@ -10,7 +10,6 @@ import server/currencies/currency_fetcher
 import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache_factory
 import server/currencies/internal/currency_store.{type CurrencyStore}
-import server/dependencies.{type Dependencies, Dependencies}
 import server/env_config
 import server/integrations/coin_market_cap/client.{
   type CmcListResponse, type CmcRequestError,
@@ -26,6 +25,7 @@ import server/rates/internal/kraken_interface
 import server/rates/internal/subscription_manager
 import server/rates/subscriber
 import server/rates/subscriber_factory
+import server/services.{type Services, Services}
 import server/utils/logger.{type Logger}
 import server/utils/time
 import server/web/router
@@ -74,8 +74,8 @@ pub fn main() {
 
   wait_for_kraken_symbols(time.monotonic_time_ms(), 10_000)
 
-  let dependencies =
-    build_dependencies(
+  let services =
+    build_services(
       currency_store,
       logger,
       request_cmc_cryptos,
@@ -83,7 +83,7 @@ pub fn main() {
       request_cmc_conversion,
     )
 
-  start_server(env_config.secret_key_base, dependencies)
+  start_server(env_config.secret_key_base, services)
 }
 
 fn configure_logging(log_level: String) -> Logger {
@@ -148,14 +148,14 @@ fn wait_for_kraken_symbols(start_time: Int, timeout_ms: Int) -> Nil {
   }
 }
 
-fn build_dependencies(
+fn build_services(
   currency_store: CurrencyStore,
   logger: Logger,
   request_cmc_cryptos: fn(Option(String)) ->
     Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
   kraken_client: KrakenClient,
   request_cmc_conversion: RequestCmcConversion,
-) -> Dependencies {
+) -> Services {
   let currency_repository = currency_repository.new(currency_store)
 
   let currency_symbol_cache = {
@@ -184,7 +184,7 @@ fn build_dependencies(
     subscriber_factory.create(subscriber_config)
   }
 
-  Dependencies(
+  Services(
     currency_repository:,
     currency_symbol_cache:,
     create_rate_subscriber:,
@@ -216,9 +216,9 @@ fn build_subscriber_config(
   )
 }
 
-fn start_server(secret_key_base: String, deps: Dependencies) -> Nil {
+fn start_server(secret_key_base: String, services: Services) -> Nil {
   let assert Ok(_) =
-    router.route_request(_, secret_key_base, deps)
+    router.route_request(_, secret_key_base, services)
     |> mist.new
     |> mist.bind("0.0.0.0")
     |> mist.port(8080)
