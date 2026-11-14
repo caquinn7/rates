@@ -95,7 +95,6 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
       currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
-      request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
@@ -155,7 +154,6 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
       currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
-      request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) {
         CmcConversion(
           1,
@@ -226,7 +224,6 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
       currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
-      request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) {
         CmcConversion(
           1,
@@ -477,7 +474,6 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
       currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
-      request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
@@ -535,7 +531,6 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
       currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
-      request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) {
         process.send(provider_calls, process.self())
         None
@@ -614,7 +609,6 @@ pub fn subscribe_schedules_get_latest_rate_test() {
       currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
-      request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
@@ -689,7 +683,6 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
       currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
-      request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
@@ -868,7 +861,6 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
       currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
-      request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) {
         CmcConversion(
           1,
@@ -950,7 +942,6 @@ pub fn stop_unsubscribes_from_kraken_test() {
       currency_symbol_cache:,
       subscription_refresh_interval_ms: 1000,
       kraken_interface:,
-      request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )

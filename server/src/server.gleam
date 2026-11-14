@@ -188,7 +188,6 @@ fn build_dependencies(
       price_store,
       pairs.exists,
     ),
-    request_cmc_cryptos:,
     request_cmc_conversion:,
     logger:,
   )
