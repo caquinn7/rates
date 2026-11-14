@@ -124,6 +124,159 @@ pub fn miss_rechecks_cache_after_waiting_for_another_fetch_test() {
   assert process.receive(fetches, 0) == Error(Nil)
 }
 
+pub fn nonpositive_timeouts_allow_hits_but_do_not_fetch_misses_test() {
+  let btc = Crypto(1, "Bitcoin", "BTC", None)
+  let get_cached = fn(symbol) {
+    case symbol {
+      "BTC" -> [btc]
+      _ -> []
+    }
+  }
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fn(_) { panic })
+
+  assert currency_symbol_cache.get_by_symbol_with_timeout(cache, "BTC", 0)
+    == Ok([btc])
+  assert currency_symbol_cache.get_by_symbol_with_timeout(cache, "BTC", -1)
+    == Ok([btc])
+  assert currency_symbol_cache.get_by_symbol_with_timeout(cache, "ETH", 0)
+    == Error(Nil)
+  assert currency_symbol_cache.get_by_symbol_with_timeout(cache, "ETH", -1)
+    == Error(Nil)
+}
+
+pub fn timed_out_fetch_populates_cache_and_caller_can_lookup_again_test() {
+  use store <- with_currency_store
+  let btc = Crypto(1, "Bitcoin", "BTC", None)
+  let eth = Crypto(1027, "Ethereum", "ETH", None)
+  let fetches = process.new_subject()
+  let fetch_and_cache = fn(symbol) {
+    case symbol {
+      "BTC" -> gated_fetch(store, btc, fetches, symbol)
+      "ETH" -> {
+        currency_store.insert(store, [eth])
+        Ok([eth])
+      }
+      _ -> panic
+    }
+  }
+  let assert Ok(cache) =
+    currency_symbol_cache.new(
+      currency_store.get_by_symbol(store, _),
+      fetch_and_cache,
+    )
+
+  assert currency_symbol_cache.get_by_symbol_with_timeout(cache, "BTC", 100)
+    == Error(Nil)
+  let assert Ok(#("BTC", release)) = process.receive(fetches, 1000)
+  use <- exception.defer(fn() { process.send(release, Nil) })
+  process.send(release, Nil)
+
+  // A live miss waits behind the completed BTC fetch, also ensuring its late
+  // reply has been sent before this caller makes its next cached lookup.
+  assert currency_symbol_cache.get_by_symbol(cache, "ETH") == Ok([eth])
+  assert currency_symbol_cache.get_by_symbol(cache, "BTC") == Ok([btc])
+  assert process.receive(fetches, 0) == Error(Nil)
+}
+
+pub fn expired_queued_miss_skips_storage_and_fetching_test() {
+  use store <- with_currency_store
+  let btc = Crypto(1, "Bitcoin", "BTC", None)
+  let sol = Crypto(5426, "Solana", "SOL", None)
+  let fetches = process.new_subject()
+  let eth_reads = process.new_subject()
+  let get_cached = fn(symbol) {
+    case symbol {
+      "ETH" -> process.send(eth_reads, process.self())
+      _ -> Nil
+    }
+    currency_store.get_by_symbol(store, symbol)
+  }
+  let fetch_and_cache = fn(symbol) {
+    case symbol {
+      "BTC" -> gated_fetch(store, btc, fetches, symbol)
+      "SOL" -> {
+        currency_store.insert(store, [sol])
+        Ok([sol])
+      }
+      _ -> panic as "An expired queued request must not fetch"
+    }
+  }
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
+  let #(_, slow_replies) = start_lookup(cache, "BTC")
+  let assert Ok(#("BTC", release)) = process.receive(fetches, 1000)
+  use <- exception.defer(fn() { process.send(release, Nil) })
+
+  assert currency_symbol_cache.get_by_symbol_with_timeout(cache, "ETH", 20)
+    == Error(Nil)
+  process.send(release, Nil)
+  assert process.receive(slow_replies, 1000) == Ok(Ok([btc]))
+  assert currency_symbol_cache.get_by_symbol(cache, "SOL") == Ok([sol])
+
+  // Only the caller's initial read occurred; the actor skipped expired ETH.
+  assert process.receive(eth_reads, 1000) == Ok(process.self())
+  assert process.receive(eth_reads, 0) == Error(Nil)
+}
+
+pub fn miss_expiring_during_actor_cache_read_does_not_start_fetch_test() {
+  let caller = process.self()
+  let reads = process.new_subject()
+  let eth = Crypto(1027, "Ethereum", "ETH", None)
+  let get_cached = fn(symbol) {
+    case symbol, process.self() == caller {
+      "BTC", False -> {
+        let release = process.new_subject()
+        process.send(reads, release)
+        let assert Ok(Nil) = process.receive(release, 1000)
+        []
+      }
+      "ETH", False -> [eth]
+      _, _ -> []
+    }
+  }
+  let assert Ok(cache) =
+    currency_symbol_cache.new(get_cached, fn(_) {
+      panic as "A request that expired during its cache read must not fetch"
+    })
+
+  assert currency_symbol_cache.get_by_symbol_with_timeout(cache, "BTC", 100)
+    == Error(Nil)
+  let assert Ok(release) = process.receive(reads, 1000)
+  use <- exception.defer(fn() { process.send(release, Nil) })
+  process.send(release, Nil)
+
+  // This live actor lookup runs after the expired BTC request has been handled.
+  assert currency_symbol_cache.get_by_symbol(cache, "ETH") == Ok([eth])
+}
+
+pub fn unavailable_actor_returns_error_but_cached_hits_still_succeed_test() {
+  let eth = Crypto(1027, "Ethereum", "ETH", None)
+  let actors = process.new_subject()
+  let get_cached = fn(symbol) {
+    case symbol {
+      "ETH" -> [eth]
+      _ -> []
+    }
+  }
+  let fetch_and_cache = fn(_) {
+    process.send(actors, process.self())
+    Error(Nil)
+  }
+  let assert Ok(cache) = currency_symbol_cache.new(get_cached, fetch_and_cache)
+  assert currency_symbol_cache.get_by_symbol(cache, "BTC") == Error(Nil)
+  let assert Ok(pid) = process.receive(actors, 1000)
+
+  process.unlink(pid)
+  let monitor = process.monitor(pid)
+  process.kill(pid)
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+
+  assert currency_symbol_cache.get_by_symbol(cache, "BTC") == Error(Nil)
+  assert currency_symbol_cache.get_by_symbol(cache, "ETH") == Ok([eth])
+}
+
 fn with_currency_store(run: fn(CurrencyStore) -> a) -> a {
   let assert Ok(store) = currency_store.new()
   use <- exception.defer(fn() { currency_store.drop(store) })

@@ -106,7 +106,7 @@ pub fn get_conversion(
   api_key: String,
   params: CmcConversionParameters,
 ) -> Result(CmcResponse(CmcConversion), CmcRequestError) {
-  let CmcConversionParameters(amount, id, convert_id) = params
+  let CmcConversionParameters(amount:, id:, convert_id:) = params
 
   let assert Ok(req) = request.to(base_url <> "/v2/tools/price-conversion")
   let req =
