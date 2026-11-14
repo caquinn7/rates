@@ -328,9 +328,9 @@ fn downgrade_to_fallback(
   }
 
   let subscription_manager =
-    subscription_manager.create_cmc_subscription(
+    subscription_manager.set_subscription(
       state.subscription_manager,
-      rate_request,
+      Cmc(rate_request),
     )
   State(..state, subscription_manager:)
 }
@@ -367,20 +367,16 @@ fn update_subscription_manager(
   strategy: RateSourceStrategy,
   rate_request: RateRequest,
 ) -> State {
-  let subscription_manager = case strategy {
-    KrakenStrategy(symbol) ->
-      subscription_manager.create_kraken_subscription(
-        state.subscription_manager,
-        rate_request,
-        symbol,
-      )
-
-    CmcStrategy ->
-      subscription_manager.create_cmc_subscription(
-        state.subscription_manager,
-        rate_request,
-      )
+  let subscription = case strategy {
+    KrakenStrategy(symbol) -> Kraken(rate_request, symbol)
+    CmcStrategy -> Cmc(rate_request)
   }
+
+  let subscription_manager =
+    subscription_manager.set_subscription(
+      state.subscription_manager,
+      subscription,
+    )
 
   State(..state, subscription_manager:)
 }
