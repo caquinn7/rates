@@ -20,8 +20,8 @@ pub opaque type PriceStore {
   PriceStore(EtsSet(String, PriceEntry))
 }
 
+/// A stored price and its timestamp in Unix milliseconds.
 pub type PriceEntry {
-  /// A stored price and its timestamp in Unix milliseconds.
   PriceEntry(price: PositiveFloat, timestamp: Int)
 }
 

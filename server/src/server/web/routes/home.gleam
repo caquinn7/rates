@@ -57,9 +57,6 @@ fn filter_valid_converters(
 }
 
 fn page_scaffold(seed_json: String) -> Element(a) {
-  // Escape '<' for the HTML script context; JSON decoding restores it.
-  let seed_json = string.replace(seed_json, "<", "\\u003c")
-
   html.html(
     [
       attribute.attribute("lang", "en"),
@@ -87,7 +84,8 @@ fn page_scaffold(seed_json: String) -> Element(a) {
         ),
         html.script(
           [attribute.type_("application/json"), attribute.id("model")],
-          seed_json,
+          // Escape '<' for the HTML script context; JSON decoding restores it.
+          string.replace(seed_json, "<", "\\u003c"),
         ),
       ]),
       html.body([attribute.class("flex flex-col min-h-screen")], [

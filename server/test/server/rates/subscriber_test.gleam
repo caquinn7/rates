@@ -272,6 +272,94 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
   assert process.receive(interest, 0) == Error(Nil)
 }
 
+pub fn initial_kraken_fallback_releases_interest_when_cmc_fails_test() {
+  assert_failed_fallback_releases_interest(False)
+}
+
+pub fn scheduled_kraken_fallback_releases_interest_when_cmc_fails_test() {
+  assert_failed_fallback_releases_interest(True)
+}
+
+fn assert_failed_fallback_releases_interest(start_with_kraken_price: Bool) {
+  let interest = process.new_subject()
+  let replies = process.new_subject()
+  let updates = process.new_subject()
+  let price = positive_float.from_float_unsafe(100_000.0)
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", Some(1)),
+    Fiat(2781, "United States Dollar", "USD", "$"),
+  ]
+  let assert Ok(manager) = subscription_manager.new(1000)
+  let assert Ok(id) = subscription_id.new("failed-fallback")
+  let assert Ok(target) =
+    subscriber.new_with_scheduler(
+      id,
+      replies,
+      subscriber.Config(
+        get_currency: fn(id) {
+          list.find(currencies, fn(currency) { currency.id == id })
+        },
+        kraken_interface: KrakenInterface(
+          get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
+          subscribe: fn(symbol) {
+            process.send(interest, #(True, symbol, process.self()))
+          },
+          unsubscribe: fn(symbol) {
+            process.send(interest, #(False, symbol, process.self()))
+          },
+          check_for_price: fn(_) {
+            case
+              get_and_increment("failed_fallback_price_lookups"),
+              start_with_kraken_price
+            {
+              0, True -> Ok(PriceEntry(price, 100))
+              _, _ -> Error(Nil)
+            }
+          },
+        ),
+        request_cmc_conversion: fn(_) {
+          Ok(CmcResponse(CmcStatus(1001, Some("error")), None))
+        },
+        subscription_manager: manager,
+        logger: logger.new(),
+      ),
+      record_schedule(updates),
+    )
+  use <- exception.defer(fn() { subscriber.stop(target) })
+  let request = RateRequest(1, 2781)
+  subscriber.subscribe(target, request)
+  let assert Ok(#(True, symbol, pid)) = process.receive(interest, 1000)
+  let monitor = process.monitor(pid)
+
+  case start_with_kraken_price {
+    True -> {
+      let assert Ok(#(received_id, Ok(response))) =
+        process.receive(replies, 1000)
+      assert received_id == id
+      assert response.source == Kraken
+      let refresh = await_scheduled_update(updates, 1000)
+      refresh()
+    }
+    False -> Nil
+  }
+
+  let assert Ok(#(received_id, Error(error))) = process.receive(replies, 1000)
+  assert received_id == id
+  let assert CmcError(received_request, _) = error
+  assert received_request == request
+  assert process.receive(interest, 1000) == Ok(#(False, symbol, pid))
+  let _ = await_scheduled_update(updates, 30_000)
+
+  subscriber.stop(target)
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+  assert process.receive(interest, 0) == Error(Nil)
+  assert process.receive(replies, 0) == Error(Nil)
+  assert process.receive(updates, 0) == Error(Nil)
+}
+
 pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
   let interest = process.new_subject()
   let subject = process.new_subject()
@@ -414,6 +502,8 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
 }
 
 pub fn subscribe_returns_error_when_both_sources_fail_test() {
+  let provider_calls = process.new_subject()
+  let updates = process.new_subject()
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
@@ -447,21 +537,22 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) {
+        process.send(provider_calls, process.self())
         None
         |> CmcResponse(CmcStatus(1001, Some("error")), _)
         |> Ok
       },
       logger: logger.new(),
     )
-  let subscriber_factory = subscriber_factory.create(deps)
+  let subscriber_factory = scheduled_subscriber_factory(deps, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
   let target = subscriber_factory(sub_id, subject)
+  use <- exception.defer(fn() { subscriber.stop(target) })
 
   // act
   subscriber.subscribe(target, RateRequest(1, 2781))
-  subscriber.stop(target)
 
   // assert
   let assert Ok(#(received_sub_id, Error(rate_err))) =
@@ -469,6 +560,24 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
 
   assert received_sub_id == sub_id
   let assert CmcError(RateRequest(1, 2781), _) = rate_err
+
+  let assert Ok(pid) = process.receive(provider_calls, 1000)
+  let monitor = process.monitor(pid)
+  let refresh = await_scheduled_update(updates, 30_000)
+  refresh()
+
+  assert process.receive(subject, 1000) == Ok(#(sub_id, Error(rate_err)))
+  assert process.receive(provider_calls, 1000) == Ok(pid)
+  let _ = await_scheduled_update(updates, 30_000)
+
+  subscriber.stop(target)
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+  assert process.receive(subject, 0) == Error(Nil)
+  assert process.receive(provider_calls, 0) == Error(Nil)
+  assert process.receive(updates, 0) == Error(Nil)
 }
 
 pub fn subscribe_schedules_get_latest_rate_test() {
@@ -668,7 +777,15 @@ pub fn returning_to_previous_pair_ignores_stale_refreshes_test() {
 }
 
 pub fn scheduled_refresh_callback_can_only_be_consumed_once_test() {
-  let fixture = new_refresh_test(Kraken)
+  assert_refresh_callback_can_only_be_consumed_once(Kraken)
+}
+
+pub fn cmc_refresh_callback_can_only_be_consumed_once_test() {
+  assert_refresh_callback_can_only_be_consumed_once(CoinMarketCap)
+}
+
+fn assert_refresh_callback_can_only_be_consumed_once(source: Source) {
+  let fixture = new_refresh_test(source)
   use <- exception.defer(fn() { subscriber.stop(fixture.target) })
   let request = RateRequest(1, 2781)
   let refresh = subscribe_and_capture_refresh(fixture, request)

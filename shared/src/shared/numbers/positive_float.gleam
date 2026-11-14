@@ -27,8 +27,8 @@ pub fn new(f: Float) -> Result(PositiveFloat, Nil) {
 }
 
 /// Panics on invalid input!
-pub fn from_float_unsafe(x: Float) -> PositiveFloat {
-  case new(x) {
+pub fn from_float_unsafe(f: Float) -> PositiveFloat {
+  case new(f) {
     Ok(p) -> p
     Error(_) -> panic as "Expected a positive, finite value"
   }
