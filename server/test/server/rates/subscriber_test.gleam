@@ -502,6 +502,8 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
 }
 
 pub fn subscribe_returns_error_when_both_sources_fail_test() {
+  let provider_calls = process.new_subject()
+  let updates = process.new_subject()
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
@@ -535,21 +537,22 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
       kraken_interface:,
       request_cmc_cryptos: fn(_) { panic },
       request_cmc_conversion: fn(_) {
+        process.send(provider_calls, process.self())
         None
         |> CmcResponse(CmcStatus(1001, Some("error")), _)
         |> Ok
       },
       logger: logger.new(),
     )
-  let subscriber_factory = subscriber_factory.create(deps)
+  let subscriber_factory = scheduled_subscriber_factory(deps, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
   let target = subscriber_factory(sub_id, subject)
+  use <- exception.defer(fn() { subscriber.stop(target) })
 
   // act
   subscriber.subscribe(target, RateRequest(1, 2781))
-  subscriber.stop(target)
 
   // assert
   let assert Ok(#(received_sub_id, Error(rate_err))) =
@@ -557,6 +560,24 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
 
   assert received_sub_id == sub_id
   let assert CmcError(RateRequest(1, 2781), _) = rate_err
+
+  let assert Ok(pid) = process.receive(provider_calls, 1000)
+  let monitor = process.monitor(pid)
+  let refresh = await_scheduled_update(updates, 30_000)
+  refresh()
+
+  assert process.receive(subject, 1000) == Ok(#(sub_id, Error(rate_err)))
+  assert process.receive(provider_calls, 1000) == Ok(pid)
+  let _ = await_scheduled_update(updates, 30_000)
+
+  subscriber.stop(target)
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+  assert process.receive(subject, 0) == Error(Nil)
+  assert process.receive(provider_calls, 0) == Error(Nil)
+  assert process.receive(updates, 0) == Error(Nil)
 }
 
 pub fn subscribe_schedules_get_latest_rate_test() {
@@ -756,7 +777,15 @@ pub fn returning_to_previous_pair_ignores_stale_refreshes_test() {
 }
 
 pub fn scheduled_refresh_callback_can_only_be_consumed_once_test() {
-  let fixture = new_refresh_test(Kraken)
+  assert_refresh_callback_can_only_be_consumed_once(Kraken)
+}
+
+pub fn cmc_refresh_callback_can_only_be_consumed_once_test() {
+  assert_refresh_callback_can_only_be_consumed_once(CoinMarketCap)
+}
+
+fn assert_refresh_callback_can_only_be_consumed_once(source: Source) {
+  let fixture = new_refresh_test(source)
   use <- exception.defer(fn() { subscriber.stop(fixture.target) })
   let request = RateRequest(1, 2781)
   let refresh = subscribe_and_capture_refresh(fixture, request)

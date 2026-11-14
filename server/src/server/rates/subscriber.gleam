@@ -263,19 +263,6 @@ fn handle_subscribe(
 
   case strategy {
     Ok(strategy) -> {
-      let config =
-        StrategyConfig(
-          check_for_kraken_price: kraken_interface.check_for_price,
-          request_cmc_conversion:,
-          on_kraken_fallback: fn() {
-            log_wait_for_kraken_price_timeout(
-              state.logger,
-              subscription_id,
-              rate_request,
-            )
-          },
-        )
-
       // Record acquired interest before looking up a price, so an immediate
       // fallback can release it even when there was no previous subscription.
       let state = case strategy {
@@ -286,22 +273,14 @@ fn handle_subscribe(
         CmcStrategy -> state
       }
 
-      let #(result, should_downgrade) =
-        rate_source_strategy.execute_strategy(strategy, rate_request, config)
-
-      process.send(state.reply_to, #(subscription_id, result))
-
-      let state = case should_downgrade {
-        True ->
-          downgrade_to_fallback(
-            state,
-            rate_request,
-            kraken_interface.unsubscribe,
-          )
-        False -> update_subscription_manager(state, strategy, rate_request)
-      }
-
-      actor.continue(schedule_next_update(state))
+      fetch_reply_and_reschedule(
+        subscription_id,
+        state,
+        rate_request,
+        strategy,
+        kraken_interface,
+        request_cmc_conversion,
+      )
     }
 
     Error(error) -> {
@@ -346,38 +325,15 @@ fn handle_get_latest_rate(
         request_cmc_conversion,
       )
 
-    Kraken(rate_request, symbol) -> {
-      let strategy_config =
-        StrategyConfig(
-          check_for_kraken_price: kraken_interface.check_for_price,
-          request_cmc_conversion:,
-          on_kraken_fallback: fn() {
-            log_wait_for_kraken_price_timeout(
-              state.logger,
-              subscription_id,
-              rate_request,
-            )
-          },
-        )
-      let #(result, should_downgrade) =
-        rate_source_strategy.execute_strategy(
-          KrakenStrategy(symbol),
-          rate_request,
-          strategy_config,
-        )
-      process.send(state.reply_to, #(subscription_id, result))
-
-      let state = case should_downgrade {
-        True ->
-          downgrade_to_fallback(
-            state,
-            rate_request,
-            kraken_interface.unsubscribe,
-          )
-        False -> state
-      }
-      actor.continue(schedule_next_update(state))
-    }
+    Kraken(rate_request, symbol) ->
+      fetch_reply_and_reschedule(
+        subscription_id,
+        state,
+        rate_request,
+        KrakenStrategy(symbol),
+        kraken_interface,
+        request_cmc_conversion,
+      )
   }
 }
 
@@ -396,7 +352,38 @@ fn handle_stop(
   actor.stop()
 }
 
-// helper functions
+fn fetch_reply_and_reschedule(
+  subscription_id: SubscriptionId,
+  state: State,
+  rate_request: RateRequest,
+  strategy: RateSourceStrategy,
+  kraken_interface: KrakenInterface,
+  request_cmc_conversion: RequestCmcConversion,
+) -> Next(State, Msg) {
+  let config =
+    StrategyConfig(
+      check_for_kraken_price: kraken_interface.check_for_price,
+      request_cmc_conversion:,
+      on_kraken_fallback: fn() {
+        log_wait_for_kraken_price_timeout(
+          state.logger,
+          subscription_id,
+          rate_request,
+        )
+      },
+    )
+  let #(result, should_downgrade) =
+    rate_source_strategy.execute_strategy(strategy, rate_request, config)
+
+  process.send(state.reply_to, #(subscription_id, result))
+
+  let state = case should_downgrade {
+    True ->
+      downgrade_to_fallback(state, rate_request, kraken_interface.unsubscribe)
+    False -> update_subscription_manager(state, strategy, rate_request)
+  }
+  actor.continue(schedule_next_update(state))
+}
 
 fn downgrade_to_fallback(
   state: State,
