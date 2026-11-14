@@ -54,9 +54,12 @@ pub fn get_crypto_currencies(
     #("aux", ""),
   ]
 
-  let params = case option.map(symbol, string.trim) {
-    Some("") | None -> params
-    Some(s) -> [#("symbol", s), ..params]
+  let #(params, http_config) = case option.map(symbol, string.trim) {
+    Some("") | None -> #(params, httpc.configure())
+    Some(s) -> #(
+      [#("symbol", s), ..params],
+      httpc.timeout(httpc.configure(), 3000),
+    )
   }
 
   let req =
@@ -65,8 +68,8 @@ pub fn get_crypto_currencies(
     |> request.set_query(params)
 
   use resp <- result.try(
-    req
-    |> httpc.send
+    http_config
+    |> httpc.dispatch(req)
     |> result.map_error(HttpError),
   )
 
@@ -103,7 +106,7 @@ pub fn get_conversion(
   api_key: String,
   params: CmcConversionParameters,
 ) -> Result(CmcResponse(CmcConversion), CmcRequestError) {
-  let CmcConversionParameters(amount, id, convert_id) = params
+  let CmcConversionParameters(amount:, id:, convert_id:) = params
 
   let assert Ok(req) = request.to(base_url <> "/v2/tools/price-conversion")
   let req =

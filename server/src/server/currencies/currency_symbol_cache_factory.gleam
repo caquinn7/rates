@@ -16,6 +16,15 @@ pub type RequestCmcCryptosBySymbol =
   fn(Option(String)) ->
     Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError)
 
+/// Creates a symbol cache backed by `currency_repository` and CoinMarketCap.
+///
+/// Cache hits read the repository directly; misses are serialized and fetched via
+/// `request_cmc_cryptos(Some(symbol))`. Successful results are inserted before
+/// being returned. The repository must support concurrent reads and make inserts
+/// visible to subsequent lookups.
+///
+/// Fetch failures are passed to `on_fetch_failed` and returned to lookup callers
+/// as `Error(Nil)`. Panics if the cache actor cannot be started.
 pub fn create(
   currency_repository: CurrencyRepository,
   request_cmc_cryptos: RequestCmcCryptosBySymbol,

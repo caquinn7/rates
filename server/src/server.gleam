@@ -126,7 +126,7 @@ fn fetch_and_store_currencies(
 }
 
 fn start_kraken(logger: Logger) -> KrakenClient {
-  let logger = logger.with(logger, "source", "kraken")
+  let logger = logger.with_source(logger, "kraken")
   let create_price_store = fn() {
     let assert Ok(store) = price_store.new()
     store
