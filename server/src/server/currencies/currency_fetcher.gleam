@@ -2,7 +2,6 @@ import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import server/app_config.{type AppConfig}
 import server/currencies/cmc_currency_handler.{
   type FetchError, type RequestCmcCryptos, type RequestCmcFiats,
 }
@@ -28,7 +27,7 @@ pub type RequestType {
 }
 
 pub fn get_currencies(
-  app_config: AppConfig,
+  supported_fiat_symbols: List(String),
   request_cryptos: RequestCmcCryptos,
   request_fiats: RequestCmcFiats,
   timeout: Int,
@@ -47,10 +46,7 @@ pub fn get_currencies(
   })
 
   spawn_fetch(subject, FiatRequest, fn() {
-    cmc_currency_handler.get_fiats(
-      app_config.supported_fiat_symbols,
-      request_fiats,
-    )
+    cmc_currency_handler.get_fiats(supported_fiat_symbols, request_fiats)
   })
 
   receive_both(subject, None, None, get_remaining_time)

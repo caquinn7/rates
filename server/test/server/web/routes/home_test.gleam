@@ -2,12 +2,9 @@ import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
-import server/currencies/currency_repository.{
-  type CurrencyRepository, CurrencyRepository,
-}
 import server/web/routes/home
 import shared/client_state.{ClientState, ConverterState}
-import shared/currency.{type Currency, Crypto, Fiat}
+import shared/currency.{Crypto, Fiat}
 import shared/page_data
 import wisp
 
@@ -17,7 +14,7 @@ pub fn resolve_page_data_with_no_client_state_uses_defaults_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
-  let data = home.resolve_page_data(test_repository(currencies), None)
+  let data = home.resolve_page_data(currencies, None)
 
   assert data.currencies == currencies
   assert data.converters == [ConverterState(1, 2781, 1.0)]
@@ -36,7 +33,7 @@ pub fn resolve_page_data_preserves_converter_order_duplicates_and_amounts_test()
       ConverterState(1027, 2781, 0.0),
     ])
 
-  let data = home.resolve_page_data(test_repository(currencies), Some(state))
+  let data = home.resolve_page_data(currencies, Some(state))
 
   assert data.currencies == currencies
   assert data.converters == state.converters
@@ -56,7 +53,7 @@ pub fn resolve_page_data_filters_invalid_currency_ids_test() {
       ConverterState(2781, 1, 0.00000001),
     ])
 
-  let data = home.resolve_page_data(test_repository(currencies), Some(state))
+  let data = home.resolve_page_data(currencies, Some(state))
 
   assert data.converters
     == [
@@ -71,7 +68,6 @@ pub fn get_embeds_currency_catalog_and_saved_or_default_state_without_rates_test
     Crypto(1027, "Ethereum", "ETH", Some(2)),
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
-  let repository = test_repository(currencies)
   let saved =
     ClientState([
       ConverterState(1027, 2781, 10.0),
@@ -88,11 +84,11 @@ pub fn get_embeds_currency_catalog_and_saved_or_default_state_without_rates_test
 
   list.each(cases, fn(test_case) {
     let #(state, expected_converters) = test_case
-    let data = home.resolve_page_data(repository, state)
+    let data = home.resolve_page_data(currencies, state)
     assert data.currencies == currencies
     assert data.converters == expected_converters
 
-    let response = home.get(repository, state)
+    let response = home.get(currencies, state)
     assert response.status == 200
     let assert wisp.Text(html) = response.body
     let assert Ok(#(_, seed_and_rest)) =
@@ -114,7 +110,7 @@ pub fn get_escapes_script_delimiters_without_changing_page_data_test() {
     Fiat(2781, "<!--<script>US Dollar", "USD & \"", "<$ & € \\u003c >"),
   ]
   let state = ClientState([ConverterState(1, 2781, 0.00000001)])
-  let response = home.get(test_repository(currencies), Some(state))
+  let response = home.get(currencies, Some(state))
 
   assert response.status == 200
   let assert wisp.Text(html) = response.body
@@ -126,13 +122,4 @@ pub fn get_escapes_script_delimiters_without_changing_page_data_test() {
   assert data.converters == state.converters
   assert !string.contains(seed, "<")
   assert string.starts_with(rest, "</head>")
-}
-
-fn test_repository(currencies: List(Currency)) -> CurrencyRepository {
-  CurrencyRepository(
-    insert: fn(_) { panic },
-    get_by_id: fn(_) { panic },
-    get_by_symbol: fn(_) { panic },
-    get_all: fn() { currencies },
-  )
 }

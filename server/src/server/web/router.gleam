@@ -10,9 +10,7 @@ import gleam/result
 import mist
 import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache.{type CurrencySymbolCache}
-import server/dependencies.{type Dependencies}
-import server/env_config.{type EnvConfig}
-import server/rates/subscriber_factory
+import server/services.{type Services}
 import server/utils/logger
 import server/web/routes/home
 import server/web/routes/websocket
@@ -23,27 +21,27 @@ import wisp/wisp_mist
 
 pub fn route_request(
   req: request.Request(mist.Connection),
-  env_config: EnvConfig,
-  deps: Dependencies,
+  secret_key_base: String,
+  services: Services,
 ) -> response.Response(mist.ResponseData) {
   case request.path_segments(req) {
-    ["ws"] -> handle_websocket_request(req, deps)
-    _ -> handle_http_request(req, env_config, deps)
+    ["ws"] -> handle_websocket_request(req, services)
+    _ -> handle_http_request(req, secret_key_base, services)
   }
 }
 
 fn handle_websocket_request(
   req: request.Request(mist.Connection),
-  deps: Dependencies,
+  services: Services,
 ) -> response.Response(mist.ResponseData) {
   mist.websocket(
     req,
     on_init: websocket.on_init(
       _,
-      logger.with(deps.logger, "source", "websocket"),
+      logger.with(services.logger, "source", "websocket"),
     ),
     handler: fn(state, message, conn) {
-      websocket.handler(state, message, conn, subscriber_factory.create(deps))
+      websocket.handler(state, message, conn, services.create_rate_subscriber)
     },
     on_close: websocket.on_close,
   )
@@ -51,17 +49,17 @@ fn handle_websocket_request(
 
 fn handle_http_request(
   req: request.Request(mist.Connection),
-  env_config: EnvConfig,
-  deps: Dependencies,
+  secret_key_base: String,
+  services: Services,
 ) -> response.Response(mist.ResponseData) {
   let handler =
     wisp_mist.handler(
       route_http_request(
         _,
-        deps.currency_repository,
-        deps.currency_symbol_cache,
+        services.currency_repository,
+        services.currency_symbol_cache,
       ),
-      env_config.secret_key_base,
+      secret_key_base,
     )
 
   handler(req)
@@ -93,7 +91,7 @@ fn route_http_request(
         }
       }
 
-      home.get(currency_repository, state)
+      home.get(currency_repository.get_all(), state)
     }
 
     ["api", "currencies"] -> {
