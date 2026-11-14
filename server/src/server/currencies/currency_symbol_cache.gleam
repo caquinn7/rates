@@ -17,8 +17,10 @@ import server/currencies/internal/cache_request.{type Reply}
 import server/utils/time
 import shared/currency.{type Currency}
 
-const default_timeout_ms = 5000
-
+/// A shareable handle for currency symbol lookups.
+///
+/// Holds a callback for direct cache reads and an actor subject for serialized
+/// cache misses. Copies of the handle share the same actor and backing cache.
 pub opaque type CurrencySymbolCache {
   CurrencySymbolCache(
     subject: Subject(Msg),
@@ -34,13 +36,6 @@ type Msg {
   )
 }
 
-type State {
-  State(
-    get_cached: fn(String) -> List(Currency),
-    fetch_and_cache: fn(String) -> Result(List(Currency), Nil),
-  )
-}
-
 /// Creates a cache with a direct lookup callback and a serialized fetch callback.
 ///
 /// `get_cached` must support concurrent calls from different processes.
@@ -50,9 +45,10 @@ pub fn new(
   get_cached: fn(String) -> List(Currency),
   fetch_and_cache: fn(String) -> Result(List(Currency), Nil),
 ) -> Result(CurrencySymbolCache, StartError) {
-  State(get_cached:, fetch_and_cache:)
-  |> actor.new
-  |> actor.on_message(handle_msg)
+  actor.new(Nil)
+  |> actor.on_message(fn(_, msg) {
+    handle_msg(get_cached, fetch_and_cache, msg)
+  })
   |> actor.start
   |> result.map(fn(started) { CurrencySymbolCache(started.data, get_cached) })
 }
@@ -65,7 +61,7 @@ pub fn get_by_symbol(
   cache: CurrencySymbolCache,
   symbol: String,
 ) -> Result(List(Currency), Nil) {
-  get_by_symbol_with_timeout(cache, symbol, default_timeout_ms)
+  get_by_symbol_with_timeout(cache, symbol, 5000)
 }
 
 /// Overrides the miss timeout for controlled tests. Cache hits do not wait.
@@ -97,8 +93,11 @@ pub fn get_by_symbol_with_timeout(
   }
 }
 
-fn handle_msg(state: State, msg: Msg) -> Next(State, Msg) {
-  let State(get_cached:, fetch_and_cache:) = state
+fn handle_msg(
+  get_cached: fn(String) -> List(Currency),
+  fetch_and_cache: fn(String) -> Result(List(Currency), Nil),
+  msg: Msg,
+) -> Next(Nil, Msg) {
   let GetBySymbol(reply_to:, symbol:, deadline_ms:) = msg
 
   let result = case time.monotonic_time_ms() >= deadline_ms {
@@ -115,5 +114,5 @@ fn handle_msg(state: State, msg: Msg) -> Next(State, Msg) {
   }
 
   cache_request.reply(reply_to, result)
-  actor.continue(state)
+  actor.continue(Nil)
 }
