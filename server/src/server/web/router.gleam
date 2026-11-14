@@ -92,7 +92,7 @@ fn route_http_request(
         }
       }
 
-      home.get(currency_repository, state)
+      home.get(currency_repository.get_all(), state)
     }
 
     ["api", "currencies"] -> {

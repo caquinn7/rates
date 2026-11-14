@@ -5,17 +5,16 @@ import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
-import server/currencies/currency_repository.{type CurrencyRepository}
 import shared/client_state.{type ClientState, type ConverterState, ClientState}
 import shared/currency.{type Currency}
 import shared/page_data.{type PageData, PageData}
 import wisp.{type Response}
 
 pub fn get(
-  currency_repository: CurrencyRepository,
+  currencies: List(Currency),
   client_state: Option(ClientState),
 ) -> Response {
-  resolve_page_data(currency_repository, client_state)
+  resolve_page_data(currencies, client_state)
   |> page_data.encode
   |> json.to_string
   |> page_scaffold
@@ -24,7 +23,7 @@ pub fn get(
 }
 
 pub fn resolve_page_data(
-  currency_repository: CurrencyRepository,
+  currencies: List(Currency),
   client_state: Option(ClientState),
 ) -> PageData {
   let client_state = case client_state {
@@ -32,7 +31,6 @@ pub fn resolve_page_data(
     None -> ClientState([client_state.default_converter])
   }
 
-  let currencies = currency_repository.get_all()
   let converters = {
     let validated = filter_valid_converters(client_state.converters, currencies)
     case validated {
