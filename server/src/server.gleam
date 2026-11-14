@@ -8,7 +8,7 @@ import mist
 import server/app_config.{type AppConfig, AppConfig}
 import server/currencies/cmc_currency_handler.{type RequestCmcFiats}
 import server/currencies/currency_fetcher
-import server/currencies/currency_repository
+import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache_factory
 import server/currencies/internal/currency_store.{type CurrencyStore}
 import server/dependencies.{type Dependencies, Dependencies}
@@ -25,6 +25,9 @@ import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
 import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/kraken_interface
+import server/rates/internal/subscription_manager
+import server/rates/subscriber
+import server/rates/subscriber_factory
 import server/utils/logger.{type Logger}
 import server/utils/time
 import server/web/router
@@ -161,9 +164,6 @@ fn build_dependencies(
 ) -> Dependencies {
   let currency_repository = currency_repository.new(currency_store)
 
-  let assert Ok(price_store) = price_store.get_store()
-    as "tried to get reference to price store before it was created"
-
   let currency_symbol_cache = {
     let on_fetch_failed = fn(err) {
       logger
@@ -179,17 +179,46 @@ fn build_dependencies(
     )
   }
 
+  let create_rate_subscriber = {
+    let subscriber_config =
+      build_subscriber_config(
+        kraken_client,
+        currency_repository,
+        request_cmc_conversion,
+        logger,
+      )
+    subscriber_factory.create(subscriber_config)
+  }
+
   Dependencies(
     currency_repository:,
     currency_symbol_cache:,
-    subscription_refresh_interval_ms: 10_000,
-    kraken_interface: kraken_interface.new(
-      kraken_client,
-      price_store,
-      pairs.exists,
-    ),
-    request_cmc_conversion:,
+    create_rate_subscriber:,
     logger:,
+  )
+}
+
+fn build_subscriber_config(
+  kraken_client: KrakenClient,
+  currency_repository: CurrencyRepository,
+  request_cmc_conversion: RequestCmcConversion,
+  logger: Logger,
+) -> subscriber.Config {
+  let assert Ok(subscription_manager) = subscription_manager.new(10_000)
+
+  let kraken_interface = {
+    let assert Ok(price_store) = price_store.get_store()
+      as "tried to get reference to price store before it was created"
+
+    kraken_interface.new(kraken_client, price_store, pairs.exists)
+  }
+
+  subscriber.Config(
+    get_currency: currency_repository.get_by_id,
+    kraken_interface:,
+    request_cmc_conversion:,
+    subscription_manager:,
+    logger: logger.with(logger, "source", "subscriber"),
   )
 }
 

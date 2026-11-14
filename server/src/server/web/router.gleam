@@ -12,7 +12,6 @@ import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/dependencies.{type Dependencies}
 import server/env_config.{type EnvConfig}
-import server/rates/subscriber_factory
 import server/utils/logger
 import server/web/routes/home
 import server/web/routes/websocket
@@ -43,7 +42,7 @@ fn handle_websocket_request(
       logger.with(deps.logger, "source", "websocket"),
     ),
     handler: fn(state, message, conn) {
-      websocket.handler(state, message, conn, subscriber_factory.create(deps))
+      websocket.handler(state, message, conn, deps.create_rate_subscriber)
     },
     on_close: websocket.on_close,
   )

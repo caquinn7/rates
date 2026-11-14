@@ -4,9 +4,6 @@ import gleam/erlang/atom.{type Atom}
 import gleam/erlang/process.{type Pid, type Subject}
 import gleam/list
 import gleam/option.{None, Some}
-import server/currencies/currency_repository.{CurrencyRepository}
-import server/currencies/currency_symbol_cache
-import server/dependencies.{type Dependencies, Dependencies}
 import server/integrations/coin_market_cap/client.{CmcResponse, CmcStatus}
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
@@ -17,7 +14,7 @@ import server/rates/internal/kraken_symbol
 import server/rates/internal/subscription_manager
 import server/rates/rate_error.{CmcError, CurrencyNotFound}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult}
-import server/rates/subscriber_factory
+import server/rates/subscriber_factory.{type SubscriberFactory}
 import server/utils/logger
 import shared/currency.{Crypto, Fiat}
 import shared/numbers/positive_float
@@ -40,21 +37,16 @@ fn await_scheduled_update(updates, expected_delay) {
   deliver
 }
 
-fn scheduled_subscriber_factory(deps: Dependencies, updates) {
+fn scheduled_subscriber_factory(
+  config: subscriber.Config,
+  updates: Subject(ScheduledUpdate),
+) -> SubscriberFactory {
   fn(id, reply_to) {
-    let assert Ok(manager) =
-      subscription_manager.new(deps.subscription_refresh_interval_ms)
     let assert Ok(target) =
       subscriber.new_with_scheduler(
         id,
         reply_to,
-        subscriber.Config(
-          get_currency: deps.currency_repository.get_by_id,
-          kraken_interface: deps.kraken_interface,
-          request_cmc_conversion: deps.request_cmc_conversion,
-          subscription_manager: manager,
-          logger: deps.logger,
-        ),
+        config,
         record_schedule(updates),
       )
     target
@@ -67,15 +59,9 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { panic },
-    )
+  let get_currency = fn(id) {
+    list.find(currencies, fn(currency) { currency.id == id })
+  }
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
   let kraken_interface =
@@ -86,19 +72,16 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
       check_for_price: fn(_) { Ok(PriceEntry(expected_price, 100)) },
     )
 
-  let assert Ok(currency_symbol_cache) =
-    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
-
-  let deps =
-    Dependencies(
-      currency_repository:,
-      currency_symbol_cache:,
-      subscription_refresh_interval_ms: 1000,
+  let assert Ok(subscription_manager) = subscription_manager.new(1000)
+  let config =
+    subscriber.Config(
+      get_currency:,
+      subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
-  let subscriber_factory = subscriber_factory.create(deps)
+  let subscriber_factory = subscriber_factory.create(config)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -120,24 +103,93 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
   assert rate_response.timestamp == 100
 }
 
+pub fn shared_factory_creates_independent_subscribers_test() {
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", Some(1)),
+    Crypto(1027, "Ethereum", "ETH", Some(2)),
+    Fiat(2781, "United States Dollar", "USD", "$"),
+  ]
+  let bitcoin_price = positive_float.from_float_unsafe(100_000.0)
+  let ethereum_price = positive_float.from_float_unsafe(4000.0)
+  let actors = process.new_subject()
+  let assert Ok(manager) = subscription_manager.new(60_000)
+  let config =
+    subscriber.Config(
+      get_currency: fn(id) {
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      kraken_interface: KrakenInterface(
+        get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
+        subscribe: fn(_) { process.send(actors, process.self()) },
+        unsubscribe: fn(_) { Nil },
+        check_for_price: fn(symbol) {
+          case kraken_symbol.to_string(symbol) {
+            "BTC/USD" -> Ok(PriceEntry(bitcoin_price, 100))
+            "ETH/USD" -> Ok(PriceEntry(ethereum_price, 100))
+            _ -> panic
+          }
+        },
+      ),
+      request_cmc_conversion: fn(_) { panic },
+      subscription_manager: manager,
+      logger: logger.new(),
+    )
+  let create_subscriber = subscriber_factory.create(config)
+  let first_id = subscription_id.from_string_unsafe("first")
+  let second_id = subscription_id.from_string_unsafe("second")
+  let first_replies = process.new_subject()
+  let second_replies = process.new_subject()
+  let first = create_subscriber(first_id, first_replies)
+  use <- exception.defer(fn() { subscriber.stop(first) })
+  let second = create_subscriber(second_id, second_replies)
+  use <- exception.defer(fn() { subscriber.stop(second) })
+
+  let assert_rate = fn(
+    replies: Subject(SubscriptionResult),
+    expected_id,
+    from,
+    price,
+  ) {
+    let assert Ok(#(id, Ok(rate))) = process.receive(replies, 1000)
+    assert id == expected_id
+    assert rate.from == from
+    assert rate.to == 2781
+    assert rate.rate == Some(price)
+    assert rate.source == Kraken
+    assert rate.timestamp == 100
+  }
+
+  subscriber.subscribe(first, RateRequest(1, 2781))
+  assert_rate(first_replies, first_id, 1, bitcoin_price)
+  let assert Ok(first_pid) = process.receive(actors, 1000)
+
+  subscriber.subscribe(second, RateRequest(1027, 2781))
+  assert_rate(second_replies, second_id, 1027, ethereum_price)
+  let assert Ok(second_pid) = process.receive(actors, 1000)
+  assert first_pid != second_pid
+
+  let monitor = process.monitor(first_pid)
+  subscriber.stop(first)
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+
+  subscriber.subscribe(second, RateRequest(1, 2781))
+  assert_rate(second_replies, second_id, 1, bitcoin_price)
+  assert process.receive(actors, 1000) == Ok(second_pid)
+  assert process.receive(first_replies, 0) == Error(Nil)
+}
+
 pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { panic },
-    )
-
-  let assert Ok(currency_symbol_cache) =
-    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+  let get_currency = fn(id) {
+    list.find(currencies, fn(currency) { currency.id == id })
+  }
 
   let kraken_interface =
     KrakenInterface(
@@ -148,11 +200,11 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
     )
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
-  let deps =
-    Dependencies(
-      currency_repository:,
-      currency_symbol_cache:,
-      subscription_refresh_interval_ms: 1000,
+  let assert Ok(subscription_manager) = subscription_manager.new(1000)
+  let config =
+    subscriber.Config(
+      get_currency:,
+      subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
         CmcConversion(
@@ -168,7 +220,7 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
       },
       logger: logger.new(),
     )
-  let subscriber_factory = subscriber_factory.create(deps)
+  let subscriber_factory = subscriber_factory.create(config)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -196,18 +248,9 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { panic },
-    )
-
-  let assert Ok(currency_symbol_cache) =
-    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+  let get_currency = fn(id) {
+    list.find(currencies, fn(currency) { currency.id == id })
+  }
 
   let kraken_interface =
     KrakenInterface(
@@ -218,11 +261,11 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
     )
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
-  let deps =
-    Dependencies(
-      currency_repository:,
-      currency_symbol_cache:,
-      subscription_refresh_interval_ms: 1000,
+  let assert Ok(subscription_manager) = subscription_manager.new(1000)
+  let config =
+    subscriber.Config(
+      get_currency:,
+      subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
         CmcConversion(
@@ -238,7 +281,7 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
       },
       logger: logger.new(),
     )
-  let subscriber_factory = subscriber_factory.create(deps)
+  let subscriber_factory = subscriber_factory.create(config)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -447,18 +490,9 @@ pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
 pub fn subscribe_returns_error_when_currency_id_not_found_test() {
   let currencies = [Crypto(1, "Bitcoin", "BTC", Some(1))]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { panic },
-    )
-
-  let assert Ok(currency_symbol_cache) =
-    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+  let get_currency = fn(id) {
+    list.find(currencies, fn(currency) { currency.id == id })
+  }
 
   let kraken_interface =
     KrakenInterface(
@@ -468,16 +502,16 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
       check_for_price: fn(_) { panic },
     )
 
-  let deps =
-    Dependencies(
-      currency_repository:,
-      currency_symbol_cache:,
-      subscription_refresh_interval_ms: 1000,
+  let assert Ok(subscription_manager) = subscription_manager.new(1000)
+  let config =
+    subscriber.Config(
+      get_currency:,
+      subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
-  let subscriber_factory = subscriber_factory.create(deps)
+  let subscriber_factory = subscriber_factory.create(config)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -504,18 +538,9 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { panic },
-    )
-
-  let assert Ok(currency_symbol_cache) =
-    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+  let get_currency = fn(id) {
+    list.find(currencies, fn(currency) { currency.id == id })
+  }
 
   let kraken_interface =
     KrakenInterface(
@@ -525,11 +550,11 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
       check_for_price: fn(_) { panic },
     )
 
-  let deps =
-    Dependencies(
-      currency_repository:,
-      currency_symbol_cache:,
-      subscription_refresh_interval_ms: 1000,
+  let assert Ok(subscription_manager) = subscription_manager.new(1000)
+  let config =
+    subscriber.Config(
+      get_currency:,
+      subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
         process.send(provider_calls, process.self())
@@ -539,7 +564,7 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
       },
       logger: logger.new(),
     )
-  let subscriber_factory = scheduled_subscriber_factory(deps, updates)
+  let subscriber_factory = scheduled_subscriber_factory(config, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -581,18 +606,9 @@ pub fn subscribe_schedules_get_latest_rate_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { panic },
-    )
-
-  let assert Ok(currency_symbol_cache) =
-    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+  let get_currency = fn(id) {
+    list.find(currencies, fn(currency) { currency.id == id })
+  }
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
   let kraken_interface =
@@ -603,17 +619,17 @@ pub fn subscribe_schedules_get_latest_rate_test() {
       check_for_price: fn(_) { Ok(PriceEntry(expected_price, 100)) },
     )
 
-  let deps =
-    Dependencies(
-      currency_repository:,
-      currency_symbol_cache:,
-      subscription_refresh_interval_ms: 1000,
+  let assert Ok(subscription_manager) = subscription_manager.new(1000)
+  let config =
+    subscriber.Config(
+      get_currency:,
+      subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
   let updates = process.new_subject()
-  let subscriber_factory = scheduled_subscriber_factory(deps, updates)
+  let subscriber_factory = scheduled_subscriber_factory(config, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -648,18 +664,9 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { panic },
-    )
-
-  let assert Ok(currency_symbol_cache) =
-    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+  let get_currency = fn(id) {
+    list.find(currencies, fn(currency) { currency.id == id })
+  }
 
   let expected_price = positive_float.from_float_unsafe(4000.0)
   let kraken_interface =
@@ -677,17 +684,17 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
       },
     )
 
-  let deps =
-    Dependencies(
-      currency_repository:,
-      currency_symbol_cache:,
-      subscription_refresh_interval_ms: 1000,
+  let assert Ok(subscription_manager) = subscription_manager.new(1000)
+  let config =
+    subscriber.Config(
+      get_currency:,
+      subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
   let updates = process.new_subject()
-  let subscriber_factory = scheduled_subscriber_factory(deps, updates)
+  let subscriber_factory = scheduled_subscriber_factory(config, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -826,18 +833,9 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { panic },
-    )
-
-  let assert Ok(currency_symbol_cache) =
-    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+  let get_currency = fn(id) {
+    list.find(currencies, fn(currency) { currency.id == id })
+  }
 
   let expected_kraken_price = positive_float.from_float_unsafe(100_000.0)
   let expected_cmc_price = positive_float.from_float_unsafe(100_001.0)
@@ -855,11 +853,11 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
       },
     )
 
-  let deps =
-    Dependencies(
-      currency_repository:,
-      currency_symbol_cache:,
-      subscription_refresh_interval_ms: 1000,
+  let assert Ok(subscription_manager) = subscription_manager.new(1000)
+  let config =
+    subscriber.Config(
+      get_currency:,
+      subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
         CmcConversion(
@@ -880,7 +878,7 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
       logger: logger.new(),
     )
   let updates = process.new_subject()
-  let subscriber_factory = scheduled_subscriber_factory(deps, updates)
+  let subscriber_factory = scheduled_subscriber_factory(config, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
@@ -912,18 +910,9 @@ pub fn stop_unsubscribes_from_kraken_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
 
-  let currency_repository =
-    CurrencyRepository(
-      insert: fn(_) { panic },
-      get_by_id: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      get_by_symbol: fn(_) { panic },
-      get_all: fn() { panic },
-    )
-
-  let assert Ok(currency_symbol_cache) =
-    currency_symbol_cache.new(fn(_) { panic }, fn(_) { panic })
+  let get_currency = fn(id) {
+    list.find(currencies, fn(currency) { currency.id == id })
+  }
 
   let unsub_subject = process.new_subject()
   let kraken_interface =
@@ -936,16 +925,16 @@ pub fn stop_unsubscribes_from_kraken_test() {
       },
     )
 
-  let deps =
-    Dependencies(
-      currency_repository:,
-      currency_symbol_cache:,
-      subscription_refresh_interval_ms: 1000,
+  let assert Ok(subscription_manager) = subscription_manager.new(1000)
+  let config =
+    subscriber.Config(
+      get_currency:,
+      subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
     )
-  let subscriber_factory = subscriber_factory.create(deps)
+  let subscriber_factory = subscriber_factory.create(config)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
