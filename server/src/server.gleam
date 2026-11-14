@@ -1,7 +1,7 @@
 import gleam/erlang/process
 import gleam/int
 import gleam/list
-import gleam/option.{type Option, None}
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import glight
 import mist
@@ -14,11 +14,10 @@ import server/dependencies.{type Dependencies, Dependencies}
 import server/env_config
 import server/integrations/coin_market_cap/client.{
   type CmcListResponse, type CmcRequestError,
-}
+} as cmc_client
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   type CmcCryptoCurrency,
 }
-import server/integrations/coin_market_cap/factories as cmc_factories
 import server/integrations/kraken/client.{type KrakenClient} as kraken_client
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
@@ -39,17 +38,20 @@ pub fn main() {
 
   let logger = configure_logging(env_config.log_level)
 
-  let request_cmc_cryptos =
-    cmc_factories.create_crypto_requester(
-      env_config.cmc_api_key,
-      env_config.crypto_limit,
-    )
+  let request_cmc_cryptos = cmc_client.get_crypto_currencies(
+    env_config.cmc_api_key,
+    Some(env_config.crypto_limit),
+    _,
+  )
 
-  let request_cmc_fiats =
-    cmc_factories.create_fiat_requester(env_config.cmc_api_key)
+  let request_cmc_fiats = fn() {
+    cmc_client.get_fiat_currencies(env_config.cmc_api_key, Some(100))
+  }
 
-  let request_cmc_conversion =
-    cmc_factories.create_conversion_requester(env_config.cmc_api_key)
+  let request_cmc_conversion = cmc_client.get_conversion(
+    env_config.cmc_api_key,
+    _,
+  )
 
   let assert Ok(currency_store) = currency_store.new()
 
