@@ -5,14 +5,13 @@ import gleam/option.{type Option, None}
 import gleam/string
 import glight
 import mist
-import server/app_config.{type AppConfig, AppConfig}
 import server/currencies/cmc_currency_handler.{type RequestCmcFiats}
 import server/currencies/currency_fetcher
 import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache_factory
 import server/currencies/internal/currency_store.{type CurrencyStore}
 import server/dependencies.{type Dependencies, Dependencies}
-import server/env_config.{type EnvConfig}
+import server/env_config
 import server/integrations/coin_market_cap/client.{
   type CmcListResponse, type CmcRequestError,
 }
@@ -40,29 +39,22 @@ pub fn main() {
 
   let logger = configure_logging(env_config.log_level)
 
-  let app_config =
-    AppConfig(
-      cmc_api_key: env_config.cmc_api_key,
-      crypto_limit: env_config.crypto_limit,
-      supported_fiat_symbols: env_config.supported_fiat_symbols,
-    )
-
   let request_cmc_cryptos =
     cmc_factories.create_crypto_requester(
-      app_config.cmc_api_key,
-      app_config.crypto_limit,
+      env_config.cmc_api_key,
+      env_config.crypto_limit,
     )
 
   let request_cmc_fiats =
-    cmc_factories.create_fiat_requester(app_config.cmc_api_key)
+    cmc_factories.create_fiat_requester(env_config.cmc_api_key)
 
   let request_cmc_conversion =
-    cmc_factories.create_conversion_requester(app_config.cmc_api_key)
+    cmc_factories.create_conversion_requester(env_config.cmc_api_key)
 
   let assert Ok(currency_store) = currency_store.new()
 
   fetch_and_store_currencies(
-    app_config,
+    env_config.supported_fiat_symbols,
     request_cmc_cryptos,
     request_cmc_fiats,
     currency_store,
@@ -89,7 +81,7 @@ pub fn main() {
       request_cmc_conversion,
     )
 
-  start_server(env_config, dependencies)
+  start_server(env_config.secret_key_base, dependencies)
 }
 
 fn configure_logging(log_level: String) -> Logger {
@@ -109,7 +101,7 @@ fn configure_logging(log_level: String) -> Logger {
 }
 
 fn fetch_and_store_currencies(
-  app_config: AppConfig,
+  supported_fiat_symbols: List(String),
   request_cmc_cryptos: fn(Option(String)) ->
     Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError),
   request_cmc_fiats: RequestCmcFiats,
@@ -118,7 +110,7 @@ fn fetch_and_store_currencies(
 ) {
   let currencies_result =
     currency_fetcher.get_currencies(
-      app_config,
+      supported_fiat_symbols,
       fn() { request_cmc_cryptos(None) },
       request_cmc_fiats,
       10_000,
@@ -222,9 +214,9 @@ fn build_subscriber_config(
   )
 }
 
-fn start_server(env_config: EnvConfig, deps: Dependencies) -> Nil {
+fn start_server(secret_key_base: String, deps: Dependencies) -> Nil {
   let assert Ok(_) =
-    router.route_request(_, env_config, deps)
+    router.route_request(_, secret_key_base, deps)
     |> mist.new
     |> mist.bind("0.0.0.0")
     |> mist.port(8080)

@@ -11,7 +11,6 @@ import mist
 import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/dependencies.{type Dependencies}
-import server/env_config.{type EnvConfig}
 import server/utils/logger
 import server/web/routes/home
 import server/web/routes/websocket
@@ -22,12 +21,12 @@ import wisp/wisp_mist
 
 pub fn route_request(
   req: request.Request(mist.Connection),
-  env_config: EnvConfig,
+  secret_key_base: String,
   deps: Dependencies,
 ) -> response.Response(mist.ResponseData) {
   case request.path_segments(req) {
     ["ws"] -> handle_websocket_request(req, deps)
-    _ -> handle_http_request(req, env_config, deps)
+    _ -> handle_http_request(req, secret_key_base, deps)
   }
 }
 
@@ -50,7 +49,7 @@ fn handle_websocket_request(
 
 fn handle_http_request(
   req: request.Request(mist.Connection),
-  env_config: EnvConfig,
+  secret_key_base: String,
   deps: Dependencies,
 ) -> response.Response(mist.ResponseData) {
   let handler =
@@ -60,7 +59,7 @@ fn handle_http_request(
         deps.currency_repository,
         deps.currency_symbol_cache,
       ),
-      env_config.secret_key_base,
+      secret_key_base,
     )
 
   handler(req)
