@@ -82,13 +82,6 @@ type State {
   )
 }
 
-type StateTransition {
-  KeepCurrentState
-  UpdateSubscription(RateSourceStrategy, RateRequest)
-  ClearSubscription
-  DowngradeToFallback(RateRequest)
-}
-
 /// Creates a new RateSubscriber actor that periodically fetches currency rates.
 ///
 /// This function initializes a new actor with the provided configuration and starts it.
@@ -298,28 +291,22 @@ fn handle_subscribe(
 
       process.send(state.reply_to, #(subscription_id, result))
 
-      // Determine state transition based on strategy and downgrade
-      let transition = case should_downgrade {
-        True -> DowngradeToFallback(rate_request)
-        False -> UpdateSubscription(strategy, rate_request)
+      let state = case should_downgrade {
+        True ->
+          downgrade_to_fallback(
+            state,
+            rate_request,
+            kraken_interface.unsubscribe,
+          )
+        False -> update_subscription_manager(state, strategy, rate_request)
       }
-
-      let state =
-        apply_state_transition(state, transition, kraken_interface.unsubscribe)
 
       actor.continue(schedule_next_update(state))
     }
 
     Error(error) -> {
       process.send(state.reply_to, #(subscription_id, Error(error)))
-
-      let state =
-        apply_state_transition(
-          state,
-          ClearSubscription,
-          kraken_interface.unsubscribe,
-        )
-      actor.continue(state)
+      actor.continue(clear_subscription_from_state(state))
     }
   }
 }
@@ -380,12 +367,15 @@ fn handle_get_latest_rate(
         )
       process.send(state.reply_to, #(subscription_id, result))
 
-      let transition = case should_downgrade {
-        True -> DowngradeToFallback(rate_request)
-        False -> KeepCurrentState
+      let state = case should_downgrade {
+        True ->
+          downgrade_to_fallback(
+            state,
+            rate_request,
+            kraken_interface.unsubscribe,
+          )
+        False -> state
       }
-      let state =
-        apply_state_transition(state, transition, kraken_interface.unsubscribe)
       actor.continue(schedule_next_update(state))
     }
   }
@@ -408,38 +398,25 @@ fn handle_stop(
 
 // helper functions
 
-/// Applies a state transition to create a new state
-fn apply_state_transition(
+fn downgrade_to_fallback(
   state: State,
-  transition: StateTransition,
+  rate_request: RateRequest,
   unsubscribe_from_kraken: fn(KrakenSymbol) -> Nil,
 ) -> State {
-  case transition {
-    KeepCurrentState -> state
+  let subscription =
+    subscription_manager.get_subscription(state.subscription_manager)
 
-    UpdateSubscription(strategy, rate_request) ->
-      update_subscription_manager(state, strategy, rate_request)
-
-    ClearSubscription -> clear_subscription_from_state(state)
-
-    DowngradeToFallback(rate_request) -> {
-      // Cleanup any existing Kraken subscription before downgrading
-      let subscription =
-        subscription_manager.get_subscription(state.subscription_manager)
-
-      case subscription {
-        Some(Kraken(_, symbol)) -> unsubscribe_from_kraken(symbol)
-        _ -> Nil
-      }
-
-      let subscription_manager =
-        subscription_manager.create_cmc_subscription(
-          state.subscription_manager,
-          rate_request,
-        )
-      State(..state, subscription_manager:)
-    }
+  case subscription {
+    Some(Kraken(_, symbol)) -> unsubscribe_from_kraken(symbol)
+    _ -> Nil
   }
+
+  let subscription_manager =
+    subscription_manager.create_cmc_subscription(
+      state.subscription_manager,
+      rate_request,
+    )
+  State(..state, subscription_manager:)
 }
 
 fn cleanup_existing_subscription(
