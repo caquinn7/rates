@@ -1,15 +1,12 @@
-//// This module wraps currency symbol lookups in an actor to prevent duplicate
-//// API calls to CoinMarketCap under concurrent requests.
+//// Currency symbol lookups with direct cache reads and serialized cache misses.
 ////
-//// ## The Problem
-//// Without the actor, multiple concurrent requests for the same uncached symbol
-//// could all observe a cache miss simultaneously and each trigger a separate API
-//// call to CoinMarketCap, wasting resources and potentially hitting rate limits.
+//// Cache hits are returned in the calling process, so they do not wait behind
+//// slow CoinMarketCap requests. Misses go through an actor that checks the cache
+//// again before fetching. Once a successful fetch populates the cache, queued
+//// lookups reuse its results instead of making duplicate API calls.
 ////
-//// ## The Solution
-//// By serializing check-and-fetch operations through an actor, only ONE API call
-//// is made per symbol, even when many requests arrive concurrently. The actor
-//// coordinates which symbols need fetching vs. which are already cached.
+//// Fetches for different symbols remain serialized. Empty results and failures
+//// are not cached, so subsequent requests may fetch those symbols again.
 
 import gleam/erlang/process.{type Subject}
 import gleam/otp/actor.{type Next, type StartError}
@@ -17,7 +14,10 @@ import gleam/result
 import shared/currency.{type Currency}
 
 pub opaque type CurrencySymbolCache {
-  CurrencySymbolCache(subject: Subject(Msg))
+  CurrencySymbolCache(
+    subject: Subject(Msg),
+    get_cached: fn(String) -> List(Currency),
+  )
 }
 
 type Msg {
@@ -31,6 +31,11 @@ type State {
   )
 }
 
+/// Creates a cache with a direct lookup callback and a serialized fetch callback.
+///
+/// `get_cached` must support concurrent calls from different processes.
+/// `fetch_and_cache` must store successful results before returning them so that
+/// queued requests can find them when the actor checks the cache again.
 pub fn new(
   get_cached: fn(String) -> List(Currency),
   fetch_and_cache: fn(String) -> Result(List(Currency), Nil),
@@ -39,15 +44,18 @@ pub fn new(
   |> actor.new
   |> actor.on_message(handle_msg)
   |> actor.start
-  |> result.map(fn(started) { CurrencySymbolCache(started.data) })
+  |> result.map(fn(started) { CurrencySymbolCache(started.data, get_cached) })
 }
 
 pub fn get_by_symbol(
   cache: CurrencySymbolCache,
   symbol: String,
 ) -> Result(List(Currency), Nil) {
-  let CurrencySymbolCache(subject) = cache
-  actor.call(subject, 5000, GetBySymbol(_, symbol))
+  let CurrencySymbolCache(subject, get_cached) = cache
+  case get_cached(symbol) {
+    [] -> actor.call(subject, 5000, GetBySymbol(_, symbol))
+    currencies -> Ok(currencies)
+  }
 }
 
 fn handle_msg(state: State, msg: Msg) -> Next(State, Msg) {
