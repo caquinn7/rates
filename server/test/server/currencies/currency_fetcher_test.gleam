@@ -1,11 +1,12 @@
 import exception
 import gleam/erlang/process
 import gleam/httpc
+import gleam/list
 import gleam/option.{None, Some}
 import server/currencies/cmc_currency_handler.{ClientError, MissingData}
 import server/currencies/currency_fetcher.{
-  CryptoRequest, EmptyListReceived, FiatRequest, HandlerError, RequestError,
-  Timeout,
+  type RequestType, CryptoRequest, EmptyListReceived, FiatRequest, HandlerError,
+  RequestError, Timeout,
 }
 import server/integrations/coin_market_cap/client.{
   CmcResponse, CmcStatus, HttpError,
@@ -14,6 +15,7 @@ import server/integrations/coin_market_cap/cmc_crypto_currency.{
   CmcCryptoCurrency,
 }
 import server/integrations/coin_market_cap/cmc_fiat_currency.{CmcFiatCurrency}
+import shared/currency.{Crypto, Fiat}
 
 const good_cmc_status = CmcStatus(0, None)
 
@@ -143,6 +145,14 @@ pub fn get_currencies_fiat_request_returns_error_when_empty_list_received_test()
   assert Error(RequestError(FiatRequest, EmptyListReceived)) == result
 }
 
+pub fn get_currencies_returns_crypto_error_without_waiting_for_fiats_test() {
+  assert_error_without_waiting_for_other_request(CryptoRequest)
+}
+
+pub fn get_currencies_returns_fiat_error_without_waiting_for_cryptos_test() {
+  assert_error_without_waiting_for_other_request(FiatRequest)
+}
+
 pub fn get_currencies_returns_error_when_request_times_out_test() {
   let started = process.new_subject()
   let results = process.new_subject()
@@ -212,7 +222,85 @@ pub fn get_currencies_returns_both_crypto_and_fiat_test() {
   let result =
     currency_fetcher.get_currencies([], request_cryptos, request_fiats, 100)
 
-  let assert Ok([_, _]) = result
+  let assert Ok(currencies) = result
+  assert list.length(currencies) == 2
+  assert list.contains(currencies, Crypto(1, "Bitcoin", "BTC", Some(1)))
+  assert list.contains(
+    currencies,
+    Fiat(2781, "United States Dollar", "USD", "$"),
+  )
+}
+
+fn assert_error_without_waiting_for_other_request(
+  failing_request: RequestType,
+) {
+  let started = process.new_subject()
+  let results = process.new_subject()
+  let expected_error = HttpError(httpc.InvalidUtf8Response)
+  let wait_for_release = fn() {
+    let release = process.new_subject()
+    process.send(started, #(process.self(), release))
+    let assert Ok(Nil) = process.receive(release, 1000)
+    Nil
+  }
+
+  let request_cryptos = fn() {
+    case failing_request {
+      CryptoRequest -> Error(expected_error)
+      FiatRequest -> {
+        wait_for_release()
+        Ok(CmcResponse(
+          good_cmc_status,
+          Some([CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]),
+        ))
+      }
+    }
+  }
+
+  let request_fiats = fn() {
+    case failing_request {
+      FiatRequest -> Error(expected_error)
+      CryptoRequest -> {
+        wait_for_release()
+        Ok(CmcResponse(
+          good_cmc_status,
+          Some([CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]),
+        ))
+      }
+    }
+  }
+
+  let _ =
+    process.spawn(fn() {
+      let result =
+        currency_fetcher.get_currencies(
+          [],
+          request_cryptos,
+          request_fiats,
+          10_000,
+        )
+      process.send(results, result)
+    })
+
+  let assert Ok(#(worker, release)) = process.receive(started, 1000)
+  use <- exception.defer(fn() { process.send(release, Nil) })
+  let monitor = process.monitor(worker)
+  use <- exception.defer(fn() { process.demonitor_process(monitor) })
+
+  assert process.receive(results, 1000)
+    == Ok(
+      Error(RequestError(
+        failing_request,
+        HandlerError(ClientError(expected_error)),
+      )),
+    )
+  assert process.is_alive(worker)
+
+  process.send(release, Nil)
+  let assert Ok(process.ProcessDown(_, _, process.Normal)) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(down) { down })
+    |> process.selector_receive(1000)
 }
 
 fn assert_nonpositive_budget_times_out(timeout: Int) {
