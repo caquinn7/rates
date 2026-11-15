@@ -4,7 +4,7 @@ import gleam/httpc
 import gleam/list
 import gleam/option.{None, Some}
 import server/currencies/cmc_currency_handler.{ClientError, MissingData}
-import server/currencies/currency_fetcher.{
+import server/currencies/currency_catalog_loader.{
   type RequestType, CryptoRequest, EmptyListReceived, FiatRequest, HandlerError,
   RequestError, Timeout,
 }
@@ -28,7 +28,7 @@ pub fn get_currencies_crypto_missing_data_returns_handler_error_test() {
     ))
   }
 
-  assert currency_fetcher.get_currencies(
+  assert currency_catalog_loader.get_currencies(
       [],
       request_cryptos,
       request_fiats,
@@ -49,7 +49,7 @@ pub fn get_currencies_fiat_missing_data_returns_handler_error_test() {
   }
   let request_fiats = fn() { Ok(CmcResponse(good_cmc_status, None)) }
 
-  assert currency_fetcher.get_currencies(
+  assert currency_catalog_loader.get_currencies(
       [],
       request_cryptos,
       request_fiats,
@@ -73,7 +73,12 @@ pub fn get_currencies_crypto_request_returns_handler_error_test() {
   }
 
   let result =
-    currency_fetcher.get_currencies([], request_cryptos, request_fiats, 100)
+    currency_catalog_loader.get_currencies(
+      [],
+      request_cryptos,
+      request_fiats,
+      100,
+    )
 
   assert Error(RequestError(
       CryptoRequest,
@@ -98,7 +103,12 @@ pub fn get_currencies_crypto_request_returns_error_when_empty_list_received_test
   }
 
   let result =
-    currency_fetcher.get_currencies([], request_cryptos, request_fiats, 100)
+    currency_catalog_loader.get_currencies(
+      [],
+      request_cryptos,
+      request_fiats,
+      100,
+    )
 
   assert Error(RequestError(CryptoRequest, EmptyListReceived)) == result
 }
@@ -115,7 +125,12 @@ pub fn get_currencies_fiat_request_returns_handler_error_test() {
   let request_fiats = fn() { Error(expected_error) }
 
   let result =
-    currency_fetcher.get_currencies([], request_cryptos, request_fiats, 100)
+    currency_catalog_loader.get_currencies(
+      [],
+      request_cryptos,
+      request_fiats,
+      100,
+    )
 
   assert Error(RequestError(
       FiatRequest,
@@ -140,7 +155,12 @@ pub fn get_currencies_fiat_request_returns_error_when_empty_list_received_test()
   }
 
   let result =
-    currency_fetcher.get_currencies([], request_cryptos, request_fiats, 100)
+    currency_catalog_loader.get_currencies(
+      [],
+      request_cryptos,
+      request_fiats,
+      100,
+    )
 
   assert Error(RequestError(FiatRequest, EmptyListReceived)) == result
 }
@@ -177,7 +197,12 @@ pub fn get_currencies_returns_error_when_request_times_out_test() {
   let _ =
     process.spawn(fn() {
       let result =
-        currency_fetcher.get_currencies([], request_cryptos, request_fiats, 100)
+        currency_catalog_loader.get_currencies(
+          [],
+          request_cryptos,
+          request_fiats,
+          100,
+        )
       process.send(results, result)
     })
 
@@ -220,7 +245,12 @@ pub fn get_currencies_returns_both_crypto_and_fiat_test() {
   }
 
   let result =
-    currency_fetcher.get_currencies([], request_cryptos, request_fiats, 100)
+    currency_catalog_loader.get_currencies(
+      [],
+      request_cryptos,
+      request_fiats,
+      100,
+    )
 
   let assert Ok(currencies) = result
   assert list.length(currencies) == 2
@@ -273,7 +303,7 @@ fn assert_error_without_waiting_for_other_request(
   let _ =
     process.spawn(fn() {
       let result =
-        currency_fetcher.get_currencies(
+        currency_catalog_loader.get_currencies(
           [],
           request_cryptos,
           request_fiats,
@@ -317,7 +347,7 @@ fn assert_nonpositive_budget_times_out(timeout: Int) {
     ))
   }
 
-  assert currency_fetcher.get_currencies(
+  assert currency_catalog_loader.get_currencies(
       [],
       request_cryptos,
       request_fiats,

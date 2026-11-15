@@ -1,3 +1,6 @@
+//// Loads crypto and fiat currency metadata concurrently for server startup.
+//// Both requests must return nonempty lists to assemble the currency catalog.
+
 import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/result

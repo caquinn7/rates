@@ -8,7 +8,7 @@ import mist
 import server/currencies/cmc_currency_handler.{
   type RequestCmcCryptos, type RequestCmcFiats,
 }
-import server/currencies/currency_fetcher
+import server/currencies/currency_catalog_loader
 import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache_factory.{
   type RequestCmcCryptosBySymbol,
@@ -126,7 +126,7 @@ fn fetch_and_store_currencies(
   logger: Logger,
 ) {
   let currencies_result =
-    currency_fetcher.get_currencies(
+    currency_catalog_loader.get_currencies(
       supported_fiat_symbols,
       request_cmc_cryptos,
       request_cmc_fiats,
