@@ -1,8 +1,10 @@
 import gleam/httpc
 import gleam/option.{None, Some}
-import server/currencies/cmc_currency_handler.{ClientError, ErrorStatusReceived}
+import server/currencies/cmc_currency_handler.{
+  ClientError, ErrorStatusReceived, MissingData,
+}
 import server/integrations/coin_market_cap/client.{
-  CmcListResponse, CmcStatus, HttpError,
+  CmcResponse, CmcStatus, HttpError,
 }
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   CmcCryptoCurrency,
@@ -18,7 +20,7 @@ pub fn get_cryptos_test() {
   let request_cryptos = fn() {
     [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
     |> Some
-    |> CmcListResponse(good_cmc_status, _)
+    |> CmcResponse(good_cmc_status, _)
     |> Ok
   }
 
@@ -34,7 +36,7 @@ pub fn get_cryptos_removes_duplicates_test() {
       CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
     ]
     |> Some
-    |> CmcListResponse(good_cmc_status, _)
+    |> CmcResponse(good_cmc_status, _)
     |> Ok
   }
 
@@ -52,10 +54,23 @@ pub fn get_cryptos_client_error_test() {
   assert Error(ClientError(expected_client_err)) == result
 }
 
+pub fn get_cryptos_missing_data_returns_error_test() {
+  let request_cryptos = fn() { Ok(CmcResponse(good_cmc_status, None)) }
+
+  assert cmc_currency_handler.get_cryptos(request_cryptos)
+    == Error(MissingData(good_cmc_status))
+}
+
+pub fn get_cryptos_empty_data_returns_empty_list_test() {
+  let request_cryptos = fn() { Ok(CmcResponse(good_cmc_status, Some([]))) }
+
+  assert cmc_currency_handler.get_cryptos(request_cryptos) == Ok([])
+}
+
 pub fn get_cryptos_error_status_test() {
   let request_cryptos = fn() {
     None
-    |> CmcListResponse(bad_cmc_status, _)
+    |> CmcResponse(bad_cmc_status, _)
     |> Ok
   }
 
@@ -69,7 +84,7 @@ pub fn get_cryptos_returns_empty_list_when_symbol_not_found_test() {
     let msg = "Invalid value for \"symbol\": \"XYZ\""
 
     None
-    |> CmcListResponse(CmcStatus(400, Some(msg)), _)
+    |> CmcResponse(CmcStatus(400, Some(msg)), _)
     |> Ok
   }
 
@@ -85,7 +100,7 @@ pub fn get_fiats_filters_out_unsupported_symbols_test() {
       CmcFiatCurrency(9999, "", "", "EUR"),
     ]
     |> Some
-    |> CmcListResponse(good_cmc_status, _)
+    |> CmcResponse(good_cmc_status, _)
     |> Ok
   }
 
@@ -101,7 +116,7 @@ pub fn get_fiats_removes_duplicates_test() {
       CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
     ]
     |> Some
-    |> CmcListResponse(good_cmc_status, _)
+    |> CmcResponse(good_cmc_status, _)
     |> Ok
   }
 
@@ -117,7 +132,7 @@ pub fn get_fiats_does_not_filter_when_supported_symbols_is_empty_test() {
       CmcFiatCurrency(9999, "Buck", "B", "BCK"),
     ]
     |> Some
-    |> CmcListResponse(good_cmc_status, _)
+    |> CmcResponse(good_cmc_status, _)
     |> Ok
   }
 
@@ -139,10 +154,23 @@ pub fn get_fiats_client_error_test() {
   assert Error(ClientError(expected_client_err)) == result
 }
 
+pub fn get_fiats_missing_data_returns_error_test() {
+  let request_fiats = fn() { Ok(CmcResponse(good_cmc_status, None)) }
+
+  assert cmc_currency_handler.get_fiats([], request_fiats)
+    == Error(MissingData(good_cmc_status))
+}
+
+pub fn get_fiats_empty_data_returns_empty_list_test() {
+  let request_fiats = fn() { Ok(CmcResponse(good_cmc_status, Some([]))) }
+
+  assert cmc_currency_handler.get_fiats([], request_fiats) == Ok([])
+}
+
 pub fn get_fiats_error_status_test() {
   let request_fiats = fn() {
     None
-    |> CmcListResponse(bad_cmc_status, _)
+    |> CmcResponse(bad_cmc_status, _)
     |> Ok
   }
 

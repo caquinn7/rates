@@ -5,7 +5,9 @@ import gleam/option.{None, Some}
 import gleam/string
 import glight
 import mist
-import server/currencies/cmc_currency_handler.{type RequestCmcFiats}
+import server/currencies/cmc_currency_handler.{
+  type RequestCmcCryptos, type RequestCmcFiats,
+}
 import server/currencies/currency_fetcher
 import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache_factory.{
@@ -29,6 +31,11 @@ import server/web/router
 
 const currency_fetch_timeout_ms = 10_000
 
+// Leave one second for processing within the startup fetch deadline.
+const cmc_catalog_timeout_ms = 9000
+
+const cmc_lookup_timeout_ms = 3000
+
 const kraken_readiness_timeout_ms = 10_000
 
 const subscription_refresh_interval_ms = 10_000
@@ -41,26 +48,41 @@ pub fn main() {
 
   let logger = configure_logging(env_config.log_level)
 
+  let request_cmc_crypto_catalog = fn() {
+    cmc_client.get_crypto_currencies(
+      env_config.cmc_api_key,
+      Some(env_config.crypto_limit),
+      None,
+      cmc_catalog_timeout_ms,
+    )
+  }
+
   let request_cmc_cryptos = cmc_client.get_crypto_currencies(
     env_config.cmc_api_key,
     Some(env_config.crypto_limit),
     _,
+    cmc_lookup_timeout_ms,
   )
 
   let request_cmc_fiats = fn() {
-    cmc_client.get_fiat_currencies(env_config.cmc_api_key, Some(100))
+    cmc_client.get_fiat_currencies(
+      env_config.cmc_api_key,
+      Some(100),
+      cmc_catalog_timeout_ms,
+    )
   }
 
   let request_cmc_conversion = cmc_client.get_conversion(
     env_config.cmc_api_key,
     _,
+    cmc_lookup_timeout_ms,
   )
 
   let assert Ok(currency_store) = currency_store.new()
 
   fetch_and_store_currencies(
     env_config.supported_fiat_symbols,
-    request_cmc_cryptos,
+    request_cmc_crypto_catalog,
     request_cmc_fiats,
     currency_store,
     logger,
@@ -98,7 +120,7 @@ fn configure_logging(log_level: String) -> Logger {
 
 fn fetch_and_store_currencies(
   supported_fiat_symbols: List(String),
-  request_cmc_cryptos: RequestCmcCryptosBySymbol,
+  request_cmc_cryptos: RequestCmcCryptos,
   request_cmc_fiats: RequestCmcFiats,
   currency_store: CurrencyStore,
   logger: Logger,
@@ -106,7 +128,7 @@ fn fetch_and_store_currencies(
   let currencies_result =
     currency_fetcher.get_currencies(
       supported_fiat_symbols,
-      fn() { request_cmc_cryptos(None) },
+      request_cmc_cryptos,
       request_cmc_fiats,
       currency_fetch_timeout_ms,
     )

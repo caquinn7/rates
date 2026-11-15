@@ -2,7 +2,7 @@ import gleam/list
 import gleam/option.{Some}
 import gleam/result
 import server/integrations/coin_market_cap/client.{
-  type CmcListResponse, type CmcRequestError, type CmcStatus, CmcStatus,
+  type CmcRequestError, type CmcResponse, type CmcStatus, CmcStatus,
 }
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   type CmcCryptoCurrency,
@@ -13,10 +13,10 @@ import server/integrations/coin_market_cap/cmc_fiat_currency.{
 import shared/currency.{type Currency, Crypto, Fiat}
 
 pub type RequestCmcCryptos =
-  fn() -> Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError)
+  fn() -> Result(CmcResponse(List(CmcCryptoCurrency)), CmcRequestError)
 
 pub type RequestCmcFiats =
-  fn() -> Result(CmcListResponse(CmcFiatCurrency), CmcRequestError)
+  fn() -> Result(CmcResponse(List(CmcFiatCurrency)), CmcRequestError)
 
 /// Failures returned when fetching and interpreting CMC currency listings.
 pub type FetchError {
@@ -26,6 +26,9 @@ pub type FetchError {
   /// A decoded response reports a provider error. Carries its error code and
   /// optional message in the original CMC status.
   ErrorStatusReceived(CmcStatus)
+
+  /// A successful response contains no data list. Carries the original CMC status.
+  MissingData(CmcStatus)
 }
 
 /// Fetches cryptocurrencies using `request_crypto`, removes duplicate entries,
@@ -33,7 +36,7 @@ pub type FetchError {
 ///
 /// CMC's invalid-symbol error yields `Ok([])`. Request failures become
 /// `ClientError`; other provider error statuses become `ErrorStatusReceived`.
-/// Panics if a successful response contains no data list.
+/// A successful response with no data list returns `MissingData`.
 pub fn get_cryptos(
   request_crypto: RequestCmcCryptos,
 ) -> Result(List(Currency), FetchError) {
@@ -52,7 +55,10 @@ pub fn get_cryptos(
       }
   })
 
-  let assert Some(cryptos) = data
+  use cryptos <- result.try(option.to_result(
+    data,
+    MissingData(cmc_response.status),
+  ))
 
   cryptos
   |> list.unique
@@ -67,7 +73,8 @@ pub fn get_cryptos(
 /// Symbol matching is case-sensitive; an empty list disables filtering.
 ///
 /// Request failures become `ClientError`; provider error statuses become
-/// `ErrorStatusReceived`. Panics if a successful response contains no data list.
+/// `ErrorStatusReceived`. A successful response with no data list returns
+/// `MissingData`.
 pub fn get_fiats(
   supported_symbols: List(String),
   request_fiat: RequestCmcFiats,
@@ -82,7 +89,10 @@ pub fn get_fiats(
     False -> Error(ErrorStatusReceived(cmc_response.status))
   })
 
-  let assert Some(fiats) = data
+  use fiats <- result.try(option.to_result(
+    data,
+    MissingData(cmc_response.status),
+  ))
 
   fiats
   |> list.unique
