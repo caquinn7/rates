@@ -35,6 +35,22 @@ pub fn debug(logger: Logger, message: String) -> Nil {
   Nil
 }
 
+/// Builds and logs a debug event only when the primary log level permits it.
+/// The builder runs synchronously, once, in the emitting process. Keep field
+/// construction and message formatting inside it to defer that work.
+///
+/// Later filters may still discard the event. Erlang reports builder failures
+/// as diagnostic log events instead of propagating the exception.
+pub fn debug_lazy(build: fn() -> #(Logger, String)) -> Nil {
+  log_lazy(glight.Debug, fn(_) {
+    let #(logger, message) = build()
+
+    logger
+    |> context_for_log
+    |> glight.with("msg", message)
+  })
+}
+
 pub fn info(logger: Logger, message: String) -> Nil {
   glight.info(context_for_log(logger), message)
   Nil
@@ -54,3 +70,18 @@ fn context_for_log(logger: Logger) -> glight.LoggerContext {
   let Logger(context) = logger
   glight.with(context, "pid", string.inspect(process.self()))
 }
+
+fn log_lazy(
+  level: glight.LogLevel,
+  build_report: fn(Nil) -> glight.LoggerContext,
+) -> Nil {
+  erlang_log_lazy(level, build_report, Nil)
+  Nil
+}
+
+@external(erlang, "logger", "log")
+fn erlang_log_lazy(
+  level: glight.LogLevel,
+  build_report: fn(Nil) -> glight.LoggerContext,
+  argument: Nil,
+) -> Nil

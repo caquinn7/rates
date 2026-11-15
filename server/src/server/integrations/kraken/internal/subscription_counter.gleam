@@ -214,14 +214,19 @@ pub fn log_subscription_count(
   logger: Logger,
   symbol: String,
 ) -> Nil {
-  let pending_count = get_pending_count(counter, symbol)
-  let active_count = get_active_count(counter, symbol)
+  logger.debug_lazy(fn() {
+    let pending_count = get_pending_count(counter, symbol)
+    let active_count = get_active_count(counter, symbol)
 
-  logger
-  |> logger.with("symbol", symbol)
-  |> logger.with("subscription_counter.pending", int.to_string(pending_count))
-  |> logger.with("subscription_counter.active", int.to_string(active_count))
-  |> logger.debug("Subscription count for " <> symbol)
+    let context =
+      logger
+      |> logger.with("symbol", symbol)
+      |> logger.with(
+        "subscription_counter.pending",
+        int.to_string(pending_count),
+      )
+      |> logger.with("subscription_counter.active", int.to_string(active_count))
 
-  Nil
+    #(context, "Subscription count for " <> symbol)
+  })
 }

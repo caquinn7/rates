@@ -170,9 +170,12 @@ fn log_message_received(
   logger: Logger,
   message: WebsocketMessage(SubscriptionResult),
 ) -> Nil {
-  logger
-  |> logger.with("received", string.inspect(message))
-  |> logger.debug("Received websocket message")
+  logger.debug_lazy(fn() {
+    #(
+      logger.with(logger, "received", string.inspect(message)),
+      "Received websocket message",
+    )
+  })
 }
 
 fn log_socket_init(logger: Logger) -> Nil {
@@ -190,21 +193,31 @@ fn log_rate_response_success(
   subscription_id: SubscriptionId,
   rate_response: RateResponse,
 ) -> Nil {
-  let RateResponse(from:, to:, rate:, source:, timestamp:) = rate_response
+  logger.debug_lazy(fn() {
+    let RateResponse(from:, to:, rate:, source:, timestamp:) = rate_response
 
-  logger
-  |> logger.with("subscription_id", subscription_id.to_string(subscription_id))
-  |> logger.with("rate_response.from", int.to_string(from))
-  |> logger.with("rate_response.to", int.to_string(to))
-  |> logger.with(
-    "rate_response.rate",
-    rate
-      |> option.map(positive_float.to_string)
-      |> option.unwrap(""),
-  )
-  |> logger.with("rate_response.source", rate_response.source_to_string(source))
-  |> logger.with("rate_response.timestamp", int.to_string(timestamp))
-  |> logger.debug("Successfully fetched subscription rate")
+    let context =
+      logger
+      |> logger.with(
+        "subscription_id",
+        subscription_id.to_string(subscription_id),
+      )
+      |> logger.with("rate_response.from", int.to_string(from))
+      |> logger.with("rate_response.to", int.to_string(to))
+      |> logger.with(
+        "rate_response.rate",
+        rate
+          |> option.map(positive_float.to_string)
+          |> option.unwrap(""),
+      )
+      |> logger.with(
+        "rate_response.source",
+        rate_response.source_to_string(source),
+      )
+      |> logger.with("rate_response.timestamp", int.to_string(timestamp))
+
+    #(context, "Successfully fetched subscription rate")
+  })
 }
 
 fn log_rate_response_error(
