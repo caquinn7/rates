@@ -3,9 +3,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
-import server/integrations/coin_market_cap/client.{
-  CmcListResponse, CmcResponse, CmcStatus,
-}
+import server/integrations/coin_market_cap/client.{CmcResponse, CmcStatus}
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
 }
@@ -26,13 +24,13 @@ const status_cases = [
 
 pub fn crypto_success_requires_data_test() {
   assert_success_requires_data(
-    client.cmc_list_response_decoder(cmc_crypto_currency.decoder()),
+    client.cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
   )
 }
 
 pub fn fiat_success_requires_data_test() {
   assert_success_requires_data(
-    client.cmc_list_response_decoder(cmc_fiat_currency.decoder()),
+    client.cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())),
   )
 }
 
@@ -51,9 +49,9 @@ pub fn crypto_envelopes_preserve_valid_data_test() {
     let #(status_json, status) = status_case
     assert json.parse(
         envelope(status_json, data),
-        client.cmc_list_response_decoder(cmc_crypto_currency.decoder()),
+        client.cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
       )
-      == Ok(CmcListResponse(
+      == Ok(CmcResponse(
         status,
         Some([CmcCryptoCurrency(1, None, "Bitcoin", "BTC")]),
       ))
@@ -69,9 +67,9 @@ pub fn fiat_envelopes_preserve_valid_data_test() {
     let #(status_json, status) = status_case
     assert json.parse(
         envelope(status_json, data),
-        client.cmc_list_response_decoder(cmc_fiat_currency.decoder()),
+        client.cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())),
       )
-      == Ok(CmcListResponse(
+      == Ok(CmcResponse(
         status,
         Some([CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]),
       ))
@@ -107,26 +105,26 @@ pub fn successful_listings_allow_empty_lists_test() {
 
   assert json.parse(
       payload,
-      client.cmc_list_response_decoder(cmc_crypto_currency.decoder()),
+      client.cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
     )
-    == Ok(CmcListResponse(CmcStatus(0, None), Some([])))
+    == Ok(CmcResponse(CmcStatus(0, None), Some([])))
 
   assert json.parse(
       payload,
-      client.cmc_list_response_decoder(cmc_fiat_currency.decoder()),
+      client.cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())),
     )
-    == Ok(CmcListResponse(CmcStatus(0, None), Some([])))
+    == Ok(CmcResponse(CmcStatus(0, None), Some([])))
 }
 
 pub fn provider_errors_allow_missing_or_null_data_test() {
   let status = CmcStatus(400, Some("Invalid request"))
   assert_provider_error_without_data(
-    client.cmc_list_response_decoder(cmc_crypto_currency.decoder()),
-    CmcListResponse(status, None),
+    client.cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
+    CmcResponse(status, None),
   )
   assert_provider_error_without_data(
-    client.cmc_list_response_decoder(cmc_fiat_currency.decoder()),
-    CmcListResponse(status, None),
+    client.cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())),
+    CmcResponse(status, None),
   )
   assert_provider_error_without_data(
     client.cmc_response_decoder(cmc_conversion.decoder()),
@@ -136,7 +134,7 @@ pub fn provider_errors_allow_missing_or_null_data_test() {
 
 pub fn malformed_crypto_data_preserves_its_error_path_test() {
   assert_malformed_data_rejected(
-    client.cmc_list_response_decoder(cmc_crypto_currency.decoder()),
+    client.cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
     "[{\"id\":1,\"name\":\"Bitcoin\",\"symbol\":123}]",
     ["data", "0", "symbol"],
   )
@@ -144,7 +142,7 @@ pub fn malformed_crypto_data_preserves_its_error_path_test() {
 
 pub fn malformed_fiat_data_preserves_its_error_path_test() {
   assert_malformed_data_rejected(
-    client.cmc_list_response_decoder(cmc_fiat_currency.decoder()),
+    client.cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())),
     "[{\"id\":2781,\"name\":\"United States Dollar\",\"sign\":123,\"symbol\":\"USD\"}]",
     ["data", "0", "sign"],
   )

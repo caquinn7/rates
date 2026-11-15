@@ -4,7 +4,7 @@ import server/currencies/cmc_currency_handler.{type FetchError}
 import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/integrations/coin_market_cap/client.{
-  type CmcListResponse, type CmcRequestError,
+  type CmcRequestError, type CmcResponse,
 }
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   type CmcCryptoCurrency,
@@ -14,7 +14,7 @@ import server/integrations/coin_market_cap/cmc_crypto_currency.{
 /// result limit are already bound; `None` requests an unfiltered listing.
 pub type RequestCmcCryptosBySymbol =
   fn(Option(String)) ->
-    Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError)
+    Result(CmcResponse(List(CmcCryptoCurrency)), CmcRequestError)
 
 /// Creates a symbol cache backed by `currency_repository` and CoinMarketCap.
 ///

@@ -2,7 +2,7 @@ import gleam/list
 import gleam/option.{Some}
 import gleam/result
 import server/integrations/coin_market_cap/client.{
-  type CmcListResponse, type CmcRequestError, type CmcStatus, CmcStatus,
+  type CmcRequestError, type CmcResponse, type CmcStatus, CmcStatus,
 }
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   type CmcCryptoCurrency,
@@ -13,10 +13,10 @@ import server/integrations/coin_market_cap/cmc_fiat_currency.{
 import shared/currency.{type Currency, Crypto, Fiat}
 
 pub type RequestCmcCryptos =
-  fn() -> Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError)
+  fn() -> Result(CmcResponse(List(CmcCryptoCurrency)), CmcRequestError)
 
 pub type RequestCmcFiats =
-  fn() -> Result(CmcListResponse(CmcFiatCurrency), CmcRequestError)
+  fn() -> Result(CmcResponse(List(CmcFiatCurrency)), CmcRequestError)
 
 /// Failures returned when fetching and interpreting CMC currency listings.
 pub type FetchError {

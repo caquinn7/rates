@@ -24,10 +24,6 @@ pub type CmcResponse(a) {
   CmcResponse(status: CmcStatus, data: Option(a))
 }
 
-pub type CmcListResponse(a) {
-  CmcListResponse(status: CmcStatus, data: Option(List(a)))
-}
-
 pub type CmcStatus {
   CmcStatus(error_code: Int, error_message: Option(String))
 }
@@ -42,7 +38,7 @@ pub fn get_crypto_currencies(
   api_key: String,
   limit: Option(Int),
   symbol: Option(String),
-) -> Result(CmcListResponse(CmcCryptoCurrency), CmcRequestError) {
+) -> Result(CmcResponse(List(CmcCryptoCurrency)), CmcRequestError) {
   // only fails if url can't be parsed
   let assert Ok(req) = request.to(base_url <> "/v1/cryptocurrency/map")
 
@@ -74,14 +70,16 @@ pub fn get_crypto_currencies(
   )
 
   resp.body
-  |> json.parse(cmc_list_response_decoder(cmc_crypto_currency.decoder()))
+  |> json.parse(
+    cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
+  )
   |> result.map_error(JsonDecodeError)
 }
 
 pub fn get_fiat_currencies(
   api_key: String,
   limit: Option(Int),
-) -> Result(CmcListResponse(CmcFiatCurrency), CmcRequestError) {
+) -> Result(CmcResponse(List(CmcFiatCurrency)), CmcRequestError) {
   let assert Ok(req) = request.to(base_url <> "/v1/fiat/map")
   let req =
     req
@@ -98,7 +96,7 @@ pub fn get_fiat_currencies(
   )
 
   resp.body
-  |> json.parse(cmc_list_response_decoder(cmc_fiat_currency.decoder()))
+  |> json.parse(cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())))
   |> result.map_error(JsonDecodeError)
 }
 
@@ -136,20 +134,7 @@ fn set_headers(req: Request(a), api_key: String) -> Request(a) {
   |> request.set_header("accept", "application/json")
 }
 
-/// Decodes a listing envelope, requiring data when CMC reports success.
-@internal
-pub fn cmc_list_response_decoder(
-  data_decoder: Decoder(a),
-) -> Decoder(CmcListResponse(a)) {
-  use status <- decode.field("status", status_decoder())
-  use data <- decode.then(response_data_decoder(
-    status,
-    decode.list(data_decoder),
-  ))
-  decode.success(CmcListResponse(status, data))
-}
-
-/// Decodes a single-payload envelope, requiring data when CMC reports success.
+/// Decodes a response envelope, requiring data when CMC reports success.
 @internal
 pub fn cmc_response_decoder(
   data_decoder: Decoder(a),

@@ -6,7 +6,7 @@ import server/currencies/currency_repository.{CurrencyRepository}
 import server/currencies/currency_symbol_cache
 import server/currencies/currency_symbol_cache_factory
 import server/integrations/coin_market_cap/client.{
-  CmcListResponse, CmcStatus, HttpError,
+  CmcResponse, CmcStatus, HttpError,
 }
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   CmcCryptoCurrency,
@@ -26,9 +26,9 @@ pub fn missing_data_reports_error_and_keeps_cache_available_test() {
   let status = CmcStatus(0, None)
   let request_cryptos = fn(symbol) {
     case symbol {
-      Some("BAD") -> Ok(CmcListResponse(status, None))
+      Some("BAD") -> Ok(CmcResponse(status, None))
       Some("BTC") ->
-        Ok(CmcListResponse(
+        Ok(CmcResponse(
           status,
           Some([CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]),
         ))
