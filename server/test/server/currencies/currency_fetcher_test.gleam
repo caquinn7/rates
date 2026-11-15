@@ -1,3 +1,4 @@
+import exception
 import gleam/erlang/process
 import gleam/httpc
 import gleam/option.{None, Some}
@@ -142,7 +143,9 @@ pub fn get_currencies_fiat_request_returns_error_when_empty_list_received_test()
   assert Error(RequestError(FiatRequest, EmptyListReceived)) == result
 }
 
-pub fn get_currencies_returns_error_when_request_times_out() {
+pub fn get_currencies_returns_error_when_request_times_out_test() {
+  let started = process.new_subject()
+  let results = process.new_subject()
   let request_cryptos = fn() {
     [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
     |> Some
@@ -150,9 +153,10 @@ pub fn get_currencies_returns_error_when_request_times_out() {
     |> Ok
   }
 
-  let timeout = 25
   let request_fiats = fn() {
-    process.sleep(timeout)
+    let release = process.new_subject()
+    process.send(started, #(process.self(), release))
+    let assert Ok(Nil) = process.receive(release, 1000)
 
     [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
     |> Some
@@ -160,10 +164,26 @@ pub fn get_currencies_returns_error_when_request_times_out() {
     |> Ok
   }
 
-  let result =
-    currency_fetcher.get_currencies([], request_cryptos, request_fiats, timeout)
+  let _ =
+    process.spawn(fn() {
+      let result =
+        currency_fetcher.get_currencies([], request_cryptos, request_fiats, 100)
+      process.send(results, result)
+    })
 
-  assert Error(Timeout) == result
+  let assert Ok(#(worker, release)) = process.receive(started, 1000)
+  use <- exception.defer(fn() { process.send(release, Nil) })
+  let monitor = process.monitor(worker)
+  use <- exception.defer(fn() { process.demonitor_process(monitor) })
+
+  assert process.receive(results, 1000) == Ok(Error(Timeout))
+  assert process.is_alive(worker)
+
+  process.send(release, Nil)
+  let assert Ok(process.ProcessDown(_, _, process.Normal)) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(down) { down })
+    |> process.selector_receive(1000)
 }
 
 pub fn get_currencies_returns_both_crypto_and_fiat_test() {
