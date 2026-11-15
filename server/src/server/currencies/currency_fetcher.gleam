@@ -26,71 +26,79 @@ pub type RequestType {
   FiatRequest
 }
 
+/// Fetches crypto and fiat currencies concurrently within `timeout` milliseconds.
+/// Both requests share one monotonic deadline. Nonpositive budgets return
+/// `Error(Timeout)` without starting either request.
 pub fn get_currencies(
   supported_fiat_symbols: List(String),
   request_cryptos: RequestCmcCryptos,
   request_fiats: RequestCmcFiats,
   timeout: Int,
 ) -> CurrenciesResult {
-  let start_time = time.monotonic_time_ms()
-  let get_remaining_time = fn() {
-    let now = time.monotonic_time_ms()
-    let elapsed = now - start_time
-    timeout - elapsed
+  case timeout <= 0 {
+    True -> Error(Timeout)
+    False -> {
+      let deadline_ms = time.monotonic_time_ms() + timeout
+      let subject = process.new_subject()
+
+      spawn_fetch(subject, CryptoRequest, fn() {
+        cmc_currency_handler.get_cryptos(request_cryptos)
+      })
+
+      spawn_fetch(subject, FiatRequest, fn() {
+        cmc_currency_handler.get_fiats(supported_fiat_symbols, request_fiats)
+      })
+
+      receive_both(subject, None, None, deadline_ms)
+    }
   }
-
-  let subject = process.new_subject()
-
-  spawn_fetch(subject, CryptoRequest, fn() {
-    cmc_currency_handler.get_cryptos(request_cryptos)
-  })
-
-  spawn_fetch(subject, FiatRequest, fn() {
-    cmc_currency_handler.get_fiats(supported_fiat_symbols, request_fiats)
-  })
-
-  receive_both(subject, None, None, get_remaining_time)
 }
 
 fn receive_both(
   subject: Subject(CurrenciesResult),
   crypto_result: Option(CurrenciesResult),
   fiat_result: Option(CurrenciesResult),
-  get_remaining_time: fn() -> Int,
+  deadline_ms: Int,
 ) -> CurrenciesResult {
   case crypto_result, fiat_result {
     Some(Ok(crypto)), Some(Ok(fiat)) -> Ok(list.append(crypto, fiat))
 
     Some(Error(err)), _ | _, Some(Error(err)) -> Error(err)
 
-    _, _ ->
-      case process.receive(subject, get_remaining_time()) {
-        Error(_) -> Error(Timeout)
+    _, _ -> {
+      let remaining_ms = deadline_ms - time.monotonic_time_ms()
+      case remaining_ms <= 0 {
+        True -> Error(Timeout)
+        False ->
+          case process.receive(subject, remaining_ms) {
+            Error(_) -> Error(Timeout)
 
-        Ok(Error(err)) -> Error(err)
+            Ok(Error(err)) -> Error(err)
 
-        Ok(Ok(currencies)) -> {
-          case currencies {
-            [] -> panic as "received empty currency list"
+            Ok(Ok(currencies)) -> {
+              case currencies {
+                [] -> panic as "received empty currency list"
 
-            [Crypto(..), ..] ->
-              receive_both(
-                subject,
-                Some(Ok(currencies)),
-                fiat_result,
-                get_remaining_time,
-              )
+                [Crypto(..), ..] ->
+                  receive_both(
+                    subject,
+                    Some(Ok(currencies)),
+                    fiat_result,
+                    deadline_ms,
+                  )
 
-            [Fiat(..), ..] ->
-              receive_both(
-                subject,
-                crypto_result,
-                Some(Ok(currencies)),
-                get_remaining_time,
-              )
+                [Fiat(..), ..] ->
+                  receive_both(
+                    subject,
+                    crypto_result,
+                    Some(Ok(currencies)),
+                    deadline_ms,
+                  )
+              }
+            }
           }
-        }
       }
+    }
   }
 }
 

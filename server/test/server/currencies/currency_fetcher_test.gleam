@@ -186,6 +186,14 @@ pub fn get_currencies_returns_error_when_request_times_out_test() {
     |> process.selector_receive(1000)
 }
 
+pub fn get_currencies_returns_timeout_for_zero_budget_test() {
+  assert_nonpositive_budget_times_out(0)
+}
+
+pub fn get_currencies_returns_timeout_for_negative_budget_test() {
+  assert_nonpositive_budget_times_out(-1)
+}
+
 pub fn get_currencies_returns_both_crypto_and_fiat_test() {
   let request_cryptos = fn() {
     [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
@@ -205,4 +213,27 @@ pub fn get_currencies_returns_both_crypto_and_fiat_test() {
     currency_fetcher.get_currencies([], request_cryptos, request_fiats, 100)
 
   let assert Ok([_, _]) = result
+}
+
+fn assert_nonpositive_budget_times_out(timeout: Int) {
+  let request_cryptos = fn() {
+    Ok(CmcResponse(
+      good_cmc_status,
+      Some([CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]),
+    ))
+  }
+  let request_fiats = fn() {
+    Ok(CmcResponse(
+      good_cmc_status,
+      Some([CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]),
+    ))
+  }
+
+  assert currency_fetcher.get_currencies(
+      [],
+      request_cryptos,
+      request_fiats,
+      timeout,
+    )
+    == Error(Timeout)
 }
