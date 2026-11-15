@@ -31,7 +31,8 @@ import server/web/router
 
 const currency_fetch_timeout_ms = 10_000
 
-const cmc_catalog_timeout_ms = 30_000
+// Leave one second for processing within the startup fetch deadline.
+const cmc_catalog_timeout_ms = 9000
 
 const cmc_lookup_timeout_ms = 3000
 
