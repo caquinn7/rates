@@ -1,6 +1,6 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/float
-import gleam/http/request.{type Request}
+import gleam/http/request
 import gleam/httpc
 import gleam/int
 import gleam/json
@@ -38,10 +38,8 @@ pub fn get_crypto_currencies(
   api_key: String,
   limit: Option(Int),
   symbol: Option(String),
+  timeout_ms: Int,
 ) -> Result(CmcResponse(List(CmcCryptoCurrency)), CmcRequestError) {
-  // only fails if url can't be parsed
-  let assert Ok(req) = request.to(base_url <> "/v1/cryptocurrency/map")
-
   let params = [
     #("sort", "cmc_rank"),
     #("limit", int.to_string(option.unwrap(limit, 100))),
@@ -50,88 +48,82 @@ pub fn get_crypto_currencies(
     #("aux", ""),
   ]
 
-  let #(params, http_config) = case option.map(symbol, string.trim) {
-    Some("") | None -> #(params, httpc.configure())
-    Some(s) -> #(
-      [#("symbol", s), ..params],
-      httpc.timeout(httpc.configure(), 3000),
-    )
+  let params = case option.map(symbol, string.trim) {
+    Some("") | None -> params
+    Some(s) -> [#("symbol", s), ..params]
   }
 
-  let req =
-    req
-    |> set_headers(api_key)
-    |> request.set_query(params)
-
-  use resp <- result.try(
-    http_config
-    |> httpc.dispatch(req)
-    |> result.map_error(HttpError),
+  get(
+    api_key,
+    "/v1/cryptocurrency/map",
+    params,
+    timeout_ms,
+    decode.list(cmc_crypto_currency.decoder()),
   )
-
-  resp.body
-  |> json.parse(
-    cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
-  )
-  |> result.map_error(JsonDecodeError)
 }
 
 pub fn get_fiat_currencies(
   api_key: String,
   limit: Option(Int),
+  timeout_ms: Int,
 ) -> Result(CmcResponse(List(CmcFiatCurrency)), CmcRequestError) {
-  let assert Ok(req) = request.to(base_url <> "/v1/fiat/map")
-  let req =
-    req
-    |> set_headers(api_key)
-    |> request.set_query([
+  get(
+    api_key,
+    "/v1/fiat/map",
+    [
       #("sort", "id"),
       #("limit", int.to_string(option.unwrap(limit, 100))),
-    ])
-
-  use resp <- result.try(
-    req
-    |> httpc.send
-    |> result.map_error(HttpError),
+    ],
+    timeout_ms,
+    decode.list(cmc_fiat_currency.decoder()),
   )
-
-  resp.body
-  |> json.parse(cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())))
-  |> result.map_error(JsonDecodeError)
 }
 
 pub fn get_conversion(
   api_key: String,
   params: CmcConversionParameters,
+  timeout_ms: Int,
 ) -> Result(CmcResponse(CmcConversion), CmcRequestError) {
   let CmcConversionParameters(amount:, id:, convert_id:) = params
 
-  let assert Ok(req) = request.to(base_url <> "/v2/tools/price-conversion")
-  let req =
-    req
-    |> set_headers(api_key)
-    |> request.set_query([
+  get(
+    api_key,
+    "/v2/tools/price-conversion",
+    [
       #("amount", float.to_string(amount)),
       #("id", int.to_string(id)),
       #("convert_id", int.to_string(convert_id)),
-    ])
+    ],
+    timeout_ms,
+    cmc_conversion.decoder(),
+  )
+}
+
+fn get(
+  api_key: String,
+  path: String,
+  params: List(#(String, String)),
+  timeout_ms: Int,
+  data_decoder: Decoder(a),
+) -> Result(CmcResponse(a), CmcRequestError) {
+  // All paths are fixed by the endpoint functions above.
+  let assert Ok(req) = request.to(base_url <> path)
+  let req =
+    req
+    |> request.set_header("x-cmc_pro_api_key", api_key)
+    |> request.set_header("accept", "application/json")
+    |> request.set_query(params)
 
   use resp <- result.try(
     httpc.configure()
-    |> httpc.timeout(3000)
+    |> httpc.timeout(timeout_ms)
     |> httpc.dispatch(req)
     |> result.map_error(HttpError),
   )
 
   resp.body
-  |> json.parse(cmc_response_decoder(cmc_conversion.decoder()))
+  |> json.parse(cmc_response_decoder(data_decoder))
   |> result.map_error(JsonDecodeError)
-}
-
-fn set_headers(req: Request(a), api_key: String) -> Request(a) {
-  req
-  |> request.set_header("x-cmc_pro_api_key", api_key)
-  |> request.set_header("accept", "application/json")
 }
 
 /// Decodes a response envelope, requiring data when CMC reports success.
