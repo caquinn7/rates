@@ -138,7 +138,7 @@ fn fetch_and_store_currencies(
       currency_store.insert(currency_store, currencies)
 
       logger
-      |> logger.with("source", "server")
+      |> logger.with_source("server")
       |> logger.with("count", int.to_string(list.length(currencies)))
       |> logger.info("fetched currencies from cmc")
     }
@@ -185,7 +185,7 @@ fn build_services(
   let currency_symbol_cache = {
     let on_fetch_failed = fn(err) {
       logger
-      |> logger.with("source", "server")
+      |> logger.with_source("server")
       |> logger.with("error", string.inspect(err))
       |> logger.error("Error getting cryptos from CMC")
     }

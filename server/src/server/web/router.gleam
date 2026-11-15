@@ -38,7 +38,7 @@ fn handle_websocket_request(
     req,
     on_init: websocket.on_init(
       _,
-      logger.with(services.logger, "source", "websocket"),
+      logger.with_source(services.logger, "websocket"),
     ),
     handler: fn(state, message, conn) {
       websocket.handler(state, message, conn, services.create_rate_subscriber)
