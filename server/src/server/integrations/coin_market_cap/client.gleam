@@ -136,22 +136,44 @@ fn set_headers(req: Request(a), api_key: String) -> Request(a) {
   |> request.set_header("accept", "application/json")
 }
 
-fn cmc_list_response_decoder(
+/// Decodes a listing envelope, requiring data when CMC reports success.
+@internal
+pub fn cmc_list_response_decoder(
   data_decoder: Decoder(a),
 ) -> Decoder(CmcListResponse(a)) {
   use status <- decode.field("status", status_decoder())
-  use data <- decode.optional_field(
-    "data",
-    None,
-    decode.optional(decode.list(data_decoder)),
-  )
+  use data <- decode.then(response_data_decoder(
+    status,
+    decode.list(data_decoder),
+  ))
   decode.success(CmcListResponse(status, data))
 }
 
-fn cmc_response_decoder(data_decoder: Decoder(a)) -> Decoder(CmcResponse(a)) {
+/// Decodes a single-payload envelope, requiring data when CMC reports success.
+@internal
+pub fn cmc_response_decoder(
+  data_decoder: Decoder(a),
+) -> Decoder(CmcResponse(a)) {
   use status <- decode.field("status", status_decoder())
-  use data <- decode.optional_field("data", None, decode.optional(data_decoder))
+  use data <- decode.then(response_data_decoder(status, data_decoder))
   decode.success(CmcResponse(status, data))
+}
+
+fn response_data_decoder(
+  status: CmcStatus,
+  data_decoder: Decoder(a),
+) -> Decoder(Option(a)) {
+  case status.error_code {
+    0 -> decode.at(["data"], decode.map(data_decoder, Some))
+    _ -> {
+      use data <- decode.optional_field(
+        "data",
+        None,
+        decode.optional(data_decoder),
+      )
+      decode.success(data)
+    }
+  }
 }
 
 fn status_decoder() -> Decoder(CmcStatus) {

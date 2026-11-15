@@ -1,6 +1,8 @@
 import gleam/httpc
 import gleam/option.{None, Some}
-import server/currencies/cmc_currency_handler.{ClientError, ErrorStatusReceived}
+import server/currencies/cmc_currency_handler.{
+  ClientError, ErrorStatusReceived, MissingData,
+}
 import server/integrations/coin_market_cap/client.{
   CmcListResponse, CmcStatus, HttpError,
 }
@@ -50,6 +52,19 @@ pub fn get_cryptos_client_error_test() {
   let result = cmc_currency_handler.get_cryptos(request_cryptos)
 
   assert Error(ClientError(expected_client_err)) == result
+}
+
+pub fn get_cryptos_missing_data_returns_error_test() {
+  let request_cryptos = fn() { Ok(CmcListResponse(good_cmc_status, None)) }
+
+  assert cmc_currency_handler.get_cryptos(request_cryptos)
+    == Error(MissingData(good_cmc_status))
+}
+
+pub fn get_cryptos_empty_data_returns_empty_list_test() {
+  let request_cryptos = fn() { Ok(CmcListResponse(good_cmc_status, Some([]))) }
+
+  assert cmc_currency_handler.get_cryptos(request_cryptos) == Ok([])
 }
 
 pub fn get_cryptos_error_status_test() {
@@ -137,6 +152,19 @@ pub fn get_fiats_client_error_test() {
   let result = cmc_currency_handler.get_fiats([], request_fiats)
 
   assert Error(ClientError(expected_client_err)) == result
+}
+
+pub fn get_fiats_missing_data_returns_error_test() {
+  let request_fiats = fn() { Ok(CmcListResponse(good_cmc_status, None)) }
+
+  assert cmc_currency_handler.get_fiats([], request_fiats)
+    == Error(MissingData(good_cmc_status))
+}
+
+pub fn get_fiats_empty_data_returns_empty_list_test() {
+  let request_fiats = fn() { Ok(CmcListResponse(good_cmc_status, Some([]))) }
+
+  assert cmc_currency_handler.get_fiats([], request_fiats) == Ok([])
 }
 
 pub fn get_fiats_error_status_test() {
