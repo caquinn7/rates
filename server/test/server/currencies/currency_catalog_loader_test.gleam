@@ -5,8 +5,8 @@ import gleam/list
 import gleam/option.{None, Some}
 import server/currencies/cmc_currency_handler.{ClientError, MissingData}
 import server/currencies/currency_catalog_loader.{
-  type RequestType, CryptoRequest, EmptyListReceived, FiatRequest, HandlerError,
-  RequestError, Timeout,
+  type RequestType, CryptoRequest, EmptyCatalog, FetchFailed, FiatRequest,
+  Timeout,
 }
 import server/integrations/coin_market_cap/client.{
   CmcResponse, CmcStatus, HttpError,
@@ -19,7 +19,7 @@ import shared/currency.{Crypto, Fiat}
 
 const good_cmc_status = CmcStatus(0, None)
 
-pub fn get_currencies_crypto_missing_data_returns_handler_error_test() {
+pub fn get_currencies_crypto_missing_data_returns_fetch_failure_test() {
   let request_cryptos = fn() { Ok(CmcResponse(good_cmc_status, None)) }
   let request_fiats = fn() {
     Ok(CmcResponse(
@@ -34,13 +34,10 @@ pub fn get_currencies_crypto_missing_data_returns_handler_error_test() {
       request_fiats,
       1000,
     )
-    == Error(RequestError(
-      CryptoRequest,
-      HandlerError(MissingData(good_cmc_status)),
-    ))
+    == Error(FetchFailed(CryptoRequest, MissingData(good_cmc_status)))
 }
 
-pub fn get_currencies_fiat_missing_data_returns_handler_error_test() {
+pub fn get_currencies_fiat_missing_data_returns_fetch_failure_test() {
   let request_cryptos = fn() {
     Ok(CmcResponse(
       good_cmc_status,
@@ -55,13 +52,10 @@ pub fn get_currencies_fiat_missing_data_returns_handler_error_test() {
       request_fiats,
       1000,
     )
-    == Error(RequestError(
-      FiatRequest,
-      HandlerError(MissingData(good_cmc_status)),
-    ))
+    == Error(FetchFailed(FiatRequest, MissingData(good_cmc_status)))
 }
 
-pub fn get_currencies_crypto_request_returns_handler_error_test() {
+pub fn get_currencies_crypto_request_returns_fetch_failure_test() {
   let expected_error = HttpError(httpc.InvalidUtf8Response)
   let request_cryptos = fn() { Error(expected_error) }
 
@@ -80,14 +74,11 @@ pub fn get_currencies_crypto_request_returns_handler_error_test() {
       100,
     )
 
-  assert Error(RequestError(
-      CryptoRequest,
-      HandlerError(ClientError(expected_error)),
-    ))
+  assert Error(FetchFailed(CryptoRequest, ClientError(expected_error)))
     == result
 }
 
-pub fn get_currencies_crypto_request_returns_error_when_empty_list_received_test() {
+pub fn get_currencies_crypto_request_returns_empty_catalog_error_test() {
   let request_cryptos = fn() {
     []
     |> Some
@@ -110,10 +101,10 @@ pub fn get_currencies_crypto_request_returns_error_when_empty_list_received_test
       100,
     )
 
-  assert Error(RequestError(CryptoRequest, EmptyListReceived)) == result
+  assert Error(EmptyCatalog(CryptoRequest)) == result
 }
 
-pub fn get_currencies_fiat_request_returns_handler_error_test() {
+pub fn get_currencies_fiat_request_returns_fetch_failure_test() {
   let request_cryptos = fn() {
     [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
     |> Some
@@ -132,14 +123,10 @@ pub fn get_currencies_fiat_request_returns_handler_error_test() {
       100,
     )
 
-  assert Error(RequestError(
-      FiatRequest,
-      HandlerError(ClientError(expected_error)),
-    ))
-    == result
+  assert Error(FetchFailed(FiatRequest, ClientError(expected_error))) == result
 }
 
-pub fn get_currencies_fiat_request_returns_error_when_empty_list_received_test() {
+pub fn get_currencies_fiat_request_returns_empty_catalog_error_test() {
   let request_cryptos = fn() {
     [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
     |> Some
@@ -162,7 +149,7 @@ pub fn get_currencies_fiat_request_returns_error_when_empty_list_received_test()
       100,
     )
 
-  assert Error(RequestError(FiatRequest, EmptyListReceived)) == result
+  assert Error(EmptyCatalog(FiatRequest)) == result
 }
 
 pub fn get_currencies_returns_crypto_error_without_waiting_for_fiats_test() {
@@ -318,12 +305,7 @@ fn assert_error_without_waiting_for_other_request(
   use <- exception.defer(fn() { process.demonitor_process(monitor) })
 
   assert process.receive(results, 1000)
-    == Ok(
-      Error(RequestError(
-        failing_request,
-        HandlerError(ClientError(expected_error)),
-      )),
-    )
+    == Ok(Error(FetchFailed(failing_request, ClientError(expected_error))))
   assert process.is_alive(worker)
 
   process.send(release, Nil)

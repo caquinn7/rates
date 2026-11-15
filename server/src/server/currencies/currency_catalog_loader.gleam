@@ -11,16 +11,18 @@ import server/utils/time
 import shared/currency.{type Currency}
 
 pub type CurrenciesResult =
-  Result(List(Currency), CurrencyFetcherError)
+  Result(List(Currency), LoadError)
 
-pub type CurrencyFetcherError {
-  RequestError(RequestType, RequestTypeSpecificError)
+/// Failures encountered while loading the startup currency catalog.
+pub type LoadError {
+  /// A crypto or fiat fetch failed. Retains the underlying handler error.
+  FetchFailed(RequestType, FetchError)
+
+  /// A request produced no supported currencies.
+  EmptyCatalog(RequestType)
+
+  /// The shared deadline expired or the supplied budget was nonpositive.
   Timeout
-}
-
-pub type RequestTypeSpecificError {
-  HandlerError(FetchError)
-  EmptyListReceived
 }
 
 pub type RequestType {
@@ -68,7 +70,7 @@ fn receive_fetch(
     True -> Error(Timeout)
     False ->
       process.receive(subject, remaining_ms)
-      |> result.map_error(fn(_) { Timeout })
+      |> result.replace_error(Timeout)
       |> result.flatten
   }
 }
@@ -76,10 +78,10 @@ fn receive_fetch(
 fn spawn_fetch(
   subject: Subject(CurrenciesResult),
   req_type: RequestType,
-  fetch_fn: fn() -> Result(List(Currency), FetchError),
+  fetch: fn() -> Result(List(Currency), FetchError),
 ) -> Nil {
   process.spawn(fn() {
-    let result = try_fetch(req_type, fetch_fn)
+    let result = try_fetch(req_type, fetch)
     process.send(subject, result)
   })
 
@@ -88,15 +90,15 @@ fn spawn_fetch(
 
 fn try_fetch(
   req_type: RequestType,
-  fetch_fn: fn() -> Result(List(Currency), FetchError),
+  fetch: fn() -> Result(List(Currency), FetchError),
 ) -> CurrenciesResult {
-  fetch_fn()
-  |> result.map_error(HandlerError)
-  |> result.map_error(RequestError(req_type, _))
-  |> result.try(fn(currencies) {
-    case currencies {
-      [] -> Error(RequestError(req_type, EmptyListReceived))
-      _ -> Ok(currencies)
-    }
-  })
+  use currencies <- result.try(
+    fetch()
+    |> result.map_error(FetchFailed(req_type, _)),
+  )
+
+  case currencies {
+    [] -> Error(EmptyCatalog(req_type))
+    _ -> Ok(currencies)
+  }
 }
