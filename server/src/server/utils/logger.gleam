@@ -1,71 +1,56 @@
-import gleam/dict.{type Dict}
+//// Structured logging with immutable context fields.
+////
+//// Each logging call sets `"pid"` to the emitting process's PID, overriding any
+//// supplied value. The PID is captured at log time, so a logger can be shared
+//// across processes.
+
 import gleam/erlang/process
 import gleam/string
 import glight
 
+/// Immutable structured fields attached to log messages.
 pub opaque type Logger {
-  Logger(Dict(String, String))
+  Logger(glight.LoggerContext)
 }
 
-fn to_dict(logger: Logger) -> Dict(String, String) {
-  let Logger(unwrapped) = logger
-  unwrapped
-}
-
-// builder functions
-
+/// Creates an empty logging context.
 pub fn new() -> Logger {
-  glight.logger()
-  |> Logger
+  Logger(glight.logger())
 }
 
+/// Returns a new logger with the field added or its previous value replaced.
+/// The original logger is unchanged.
 pub fn with(logger: Logger, key: String, value: String) -> Logger {
-  logger
-  |> to_dict
-  |> glight.with(key, value)
-  |> Logger
+  let Logger(context) = logger
+  Logger(glight.with(context, key, value))
 }
 
+/// Returns a new logger with the `"source"` field set or replaced.
 pub fn with_source(logger: Logger, source: String) -> Logger {
-  logger
-  |> with("source", source)
+  with(logger, "source", source)
 }
-
-fn with_pid(logger: Logger) -> Logger {
-  logger
-  |> with("pid", string.inspect(process.self()))
-}
-
-// logging functions
 
 pub fn debug(logger: Logger, message: String) -> Nil {
-  logger
-  |> with_pid
-  |> to_dict
-  |> glight.debug(message)
+  glight.debug(context_for_log(logger), message)
   Nil
 }
 
 pub fn info(logger: Logger, message: String) -> Nil {
-  logger
-  |> with_pid
-  |> to_dict
-  |> glight.info(message)
+  glight.info(context_for_log(logger), message)
   Nil
 }
 
 pub fn warning(logger: Logger, message: String) -> Nil {
-  logger
-  |> with_pid
-  |> to_dict
-  |> glight.warning(message)
+  glight.warning(context_for_log(logger), message)
   Nil
 }
 
 pub fn error(logger: Logger, message: String) -> Nil {
-  logger
-  |> with_pid
-  |> to_dict
-  |> glight.error(message)
+  glight.error(context_for_log(logger), message)
   Nil
+}
+
+fn context_for_log(logger: Logger) -> glight.LoggerContext {
+  let Logger(context) = logger
+  glight.with(context, "pid", string.inspect(process.self()))
 }
