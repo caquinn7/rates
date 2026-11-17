@@ -110,7 +110,8 @@ fn route_http_request(
         )
       })
 
-      let assert Ok(re) = regexp.from_string("^[a-zA-Z0-9]+$")
+      // Erlang's `$` can match before a final newline; require the whole string.
+      let assert Ok(re) = regexp.from_string("\\A[a-zA-Z0-9]+\\z")
       let symbol_valid = regexp.check(re, symbol)
       use <- bool.lazy_guard(!symbol_valid, fn() {
         wisp.response(400)
