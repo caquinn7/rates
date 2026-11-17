@@ -1,21 +1,18 @@
-import gleam/bool
 import gleam/http
 import gleam/http/request
 import gleam/http/response
-import gleam/json
 import gleam/list
-import gleam/option.{None}
-import gleam/regexp
+import gleam/option
 import gleam/result
 import mist
 import server/currencies/currency_repository.{type CurrencyRepository}
 import server/currencies/currency_symbol_cache.{type CurrencySymbolCache}
 import server/services.{type Services}
 import server/utils/logger
+import server/web/routes/currencies
 import server/web/routes/home
 import server/web/routes/websocket
 import shared/client_state
-import shared/currency
 import wisp
 import wisp/wisp_mist
 
@@ -75,59 +72,20 @@ fn route_http_request(
     [] -> {
       use <- wisp.require_method(req, http.Get)
 
-      let state = {
-        let state_param =
-          req
-          |> wisp.get_query
-          |> list.key_find("state")
-          |> result.unwrap("")
-
-        case state_param {
-          "" -> None
-          _ ->
-            state_param
-            |> client_state.decode
-            |> option.from_result
-        }
-      }
+      let state =
+        req
+        |> wisp.get_query
+        |> list.key_find("state")
+        |> result.unwrap("")
+        |> client_state.decode
+        |> option.from_result
 
       home.get(currency_repository.get_all(), state)
     }
 
     ["api", "currencies"] -> {
       use <- wisp.require_method(req, http.Get)
-
-      let symbol =
-        req
-        |> wisp.get_query
-        |> list.key_find("symbol")
-        |> result.unwrap("")
-
-      use <- bool.lazy_guard(symbol == "", fn() {
-        wisp.response(400)
-        |> wisp.json_body(
-          "{\"error\": \"Query parameter 'symbol' is required.\"}",
-        )
-      })
-
-      // Erlang's `$` can match before a final newline; require the whole string.
-      let assert Ok(re) = regexp.from_string("\\A[a-zA-Z0-9]+\\z")
-      let symbol_valid = regexp.check(re, symbol)
-      use <- bool.lazy_guard(!symbol_valid, fn() {
-        wisp.response(400)
-        |> wisp.json_body(
-          "{\"error\": \"'symbol' should only include one or more alphanumeric characters.\"}",
-        )
-      })
-
-      case currency_symbol_cache.get_by_symbol(currency_symbol_cache, symbol) {
-        Ok(currencies) ->
-          currencies
-          |> json.array(currency.encode)
-          |> json.to_string
-          |> wisp.json_response(200)
-        Error(_) -> wisp.internal_server_error()
-      }
+      currencies.get(req, currency_symbol_cache)
     }
 
     _ -> wisp.not_found()
