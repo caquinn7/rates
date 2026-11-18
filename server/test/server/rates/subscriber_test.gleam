@@ -92,10 +92,10 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
   subscriber.stop(target)
 
   // assert
-  let assert Ok(#(received_sub_id, Ok(rate_response))) =
+  let assert Ok(#(received_subscriber, Ok(rate_response))) =
     process.receive(subject, 1000)
 
-  assert received_sub_id == sub_id
+  assert received_subscriber == target
   assert rate_response.from == 1
   assert rate_response.to == 2781
   assert rate_response.rate == Some(expected_price)
@@ -146,12 +146,13 @@ pub fn shared_factory_creates_independent_subscribers_test() {
 
   let assert_rate = fn(
     replies: Subject(SubscriptionResult),
-    expected_id,
+    expected_subscriber,
     from,
     price,
   ) {
-    let assert Ok(#(id, Ok(rate))) = process.receive(replies, 1000)
-    assert id == expected_id
+    let assert Ok(#(received_subscriber, Ok(rate))) =
+      process.receive(replies, 1000)
+    assert received_subscriber == expected_subscriber
     assert rate.from == from
     assert rate.to == 2781
     assert rate.rate == Some(price)
@@ -160,11 +161,11 @@ pub fn shared_factory_creates_independent_subscribers_test() {
   }
 
   subscriber.subscribe(first, RateRequest(1, 2781))
-  assert_rate(first_replies, first_id, 1, bitcoin_price)
+  assert_rate(first_replies, first, 1, bitcoin_price)
   let assert Ok(first_pid) = process.receive(actors, 1000)
 
   subscriber.subscribe(second, RateRequest(1027, 2781))
-  assert_rate(second_replies, second_id, 1027, ethereum_price)
+  assert_rate(second_replies, second, 1027, ethereum_price)
   let assert Ok(second_pid) = process.receive(actors, 1000)
   assert first_pid != second_pid
 
@@ -176,7 +177,7 @@ pub fn shared_factory_creates_independent_subscribers_test() {
     |> process.selector_receive(1000)
 
   subscriber.subscribe(second, RateRequest(1, 2781))
-  assert_rate(second_replies, second_id, 1, bitcoin_price)
+  assert_rate(second_replies, second, 1, bitcoin_price)
   assert process.receive(actors, 1000) == Ok(second_pid)
   assert process.receive(first_replies, 0) == Error(Nil)
 }
@@ -231,10 +232,10 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
   subscriber.stop(target)
 
   // assert
-  let assert Ok(#(received_sub_id, Ok(rate_response))) =
+  let assert Ok(#(received_subscriber, Ok(rate_response))) =
     process.receive(subject, 1000)
 
-  assert received_sub_id == sub_id
+  assert received_subscriber == target
   assert rate_response.from == 1
   assert rate_response.to == 2781
   assert rate_response.rate == Some(expected_price)
@@ -292,10 +293,10 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
   subscriber.stop(target)
 
   // assert
-  let assert Ok(#(received_sub_id, Ok(rate_response))) =
+  let assert Ok(#(received_subscriber, Ok(rate_response))) =
     process.receive(subject, 1000)
 
-  assert received_sub_id == sub_id
+  assert received_subscriber == target
   assert rate_response.from == 1
   assert rate_response.to == 2781
   assert rate_response.rate == Some(expected_price)
@@ -373,9 +374,9 @@ fn assert_failed_fallback_releases_interest(start_with_kraken_price: Bool) {
 
   case start_with_kraken_price {
     True -> {
-      let assert Ok(#(received_id, Ok(response))) =
+      let assert Ok(#(received_subscriber, Ok(response))) =
         process.receive(replies, 1000)
-      assert received_id == id
+      assert received_subscriber == target
       assert response.source == Kraken
       let refresh = await_scheduled_update(updates, 1000)
       refresh()
@@ -383,8 +384,9 @@ fn assert_failed_fallback_releases_interest(start_with_kraken_price: Bool) {
     False -> Nil
   }
 
-  let assert Ok(#(received_id, Error(error))) = process.receive(replies, 1000)
-  assert received_id == id
+  let assert Ok(#(received_subscriber, Error(error))) =
+    process.receive(replies, 1000)
+  assert received_subscriber == target
   let assert CmcError(received_request, _) = error
   assert received_request == request
   assert process.receive(interest, 1000) == Ok(#(False, symbol, pid))
@@ -524,10 +526,10 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
   subscriber.stop(target)
 
   // assert
-  let assert Ok(#(received_sub_id, Error(rate_err))) =
+  let assert Ok(#(received_subscriber, Error(rate_err))) =
     process.receive(subject, 1000)
 
-  assert received_sub_id == sub_id
+  assert received_subscriber == target
   assert rate_err == CurrencyNotFound(rate_req, 2)
 }
 
@@ -575,10 +577,10 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
   subscriber.subscribe(target, RateRequest(1, 2781))
 
   // assert
-  let assert Ok(#(received_sub_id, Error(rate_err))) =
+  let assert Ok(#(received_subscriber, Error(rate_err))) =
     process.receive(subject, 1000)
 
-  assert received_sub_id == sub_id
+  assert received_subscriber == target
   let assert CmcError(RateRequest(1, 2781), _) = rate_err
 
   let assert Ok(pid) = process.receive(provider_calls, 1000)
@@ -586,7 +588,7 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
   let refresh = await_scheduled_update(updates, 30_000)
   refresh()
 
-  assert process.receive(subject, 1000) == Ok(#(sub_id, Error(rate_err)))
+  assert process.receive(subject, 1000) == Ok(#(target, Error(rate_err)))
   assert process.receive(provider_calls, 1000) == Ok(pid)
   let _ = await_scheduled_update(updates, 30_000)
 
@@ -644,10 +646,10 @@ pub fn subscribe_schedules_get_latest_rate_test() {
   let refresh = await_scheduled_update(updates, 1000)
   refresh()
 
-  let assert Ok(#(received_sub_id, Ok(rate_response))) =
+  let assert Ok(#(received_subscriber, Ok(rate_response))) =
     process.receive(subject, 1500)
 
-  assert received_sub_id == sub_id
+  assert received_subscriber == target
   assert rate_response.from == 1
   assert rate_response.to == 2781
   assert rate_response.rate == Some(expected_price)
@@ -706,18 +708,18 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   subscriber.subscribe(target, RateRequest(1027, 2781))
 
   // assert 
-  let assert Ok(#(received_sub_id, Ok(rate_response))) =
+  let assert Ok(#(received_subscriber, Ok(rate_response))) =
     process.receive(subject, 1500)
 
-  assert received_sub_id == sub_id
+  assert received_subscriber == target
   assert rate_response.from == 1
   assert rate_response.to == 2781
   let old_refresh = await_scheduled_update(updates, 1000)
 
-  let assert Ok(#(received_sub_id, Ok(rate_response))) =
+  let assert Ok(#(received_subscriber, Ok(rate_response))) =
     process.receive(subject, 1500)
 
-  assert received_sub_id == sub_id
+  assert received_subscriber == target
   assert rate_response.from == 1027
   assert rate_response.to == 2781
   assert rate_response.rate == Some(expected_price)

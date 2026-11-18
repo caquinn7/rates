@@ -50,8 +50,8 @@ pub fn on_init(
   #(State(subject, dict.new(), logger), Some(selector))
 }
 
-/// Handles client subscription requests and forwards rate results for active
-/// subscription IDs. Sends a protocol error when a text request cannot be decoded.
+/// Handles client subscription requests and forwards rate results from active
+/// subscribers. Sends a protocol error when a text request cannot be decoded.
 pub fn handler(
   state: State,
   message: WebsocketMessage(SubscriptionResult),
@@ -130,11 +130,14 @@ fn handle_rate_result(
   result: SubscriptionResult,
   conn: WebsocketConnection,
 ) -> mist.Next(State, SubscriptionResult) {
-  let #(subscription_id, rate_result) = result
+  let #(subscriber, rate_result) = result
+  let subscription_id = rate_subscriber.subscription_id(subscriber)
 
-  // An in-flight lookup can reply before the subscriber processes Stop.
+  // Unsubscribing queues a stop behind any lookup already in progress.
+  // The client can reuse the ID before that lookup replies, so check that the
+  // reply came from the subscriber currently registered for the ID.
   use <- bool.guard(
-    !dict.has_key(state.rate_subscribers, subscription_id),
+    dict.get(state.rate_subscribers, subscription_id) != Ok(subscriber),
     mist.continue(state),
   )
 

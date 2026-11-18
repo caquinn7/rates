@@ -1,29 +1,32 @@
 import exception
+import gleam/dict
 import gleam/erlang/process.{type Pid, type Subject}
 import gleam/http/request
 import gleam/httpc
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/otp/actor.{type Started}
 import mist
 import server/integrations/coin_market_cap/client.{
-  type CmcConversionParameters, type CmcRequestError, type CmcResponse,
-  HttpError,
+  type CmcRequestError, type CmcResponse, CmcResponse, CmcStatus, HttpError,
 }
-import server/integrations/coin_market_cap/cmc_conversion.{type CmcConversion}
+import server/integrations/coin_market_cap/cmc_conversion.{
+  type CmcConversion, CmcConversion, QuoteItem,
+}
 import server/integrations/kraken/client_recovery_test as fixture
 import server/integrations/kraken/internal/session as kraken_session
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store.{type PriceStore}
+import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/kraken_interface.{
   type KrakenInterface, KrakenInterface,
 }
 import server/rates/internal/kraken_symbol
 import server/rates/internal/subscription_manager
-import server/rates/rate_error.{type RateError}
-import server/rates/subscriber.{type RateSubscriber}
+import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult}
+import server/rates/subscriber_factory.{type SubscriberFactory}
 import server/utils/logger
 import server/utils/retry
 import server/utils/time
@@ -31,9 +34,7 @@ import server/web/routes/websocket
 import shared/currency.{Crypto, Fiat}
 import shared/numbers/positive_float
 import shared/rates/rate_request.{RateRequest}
-import shared/rates/rate_response.{
-  type RateResponse, CoinMarketCap, RateResponse,
-}
+import shared/rates/rate_response.{CoinMarketCap, RateResponse}
 import shared/subscriptions/subscription_id.{type SubscriptionId}
 import shared/subscriptions/subscription_request.{SubscriptionRequest}
 import shared/websocket_request
@@ -162,7 +163,7 @@ pub fn provider_response_timeout_can_be_followed_by_a_successful_update_test() {
   assert receive_response(replies)
     == SubscriptionFailed(id, RateRequest(bitcoin_id, usd_id), RateUnavailable)
 
-  let reply_to = unwrap(process.receive(reply_targets, 1000))
+  let #(target, reply_to) = unwrap(process.receive(reply_targets, 1000))
   let rate =
     RateResponse(
       bitcoin_id,
@@ -171,34 +172,19 @@ pub fn provider_response_timeout_can_be_followed_by_a_successful_update_test() {
       CoinMarketCap,
       123,
     )
-  process.send(reply_to, #(id, Ok(rate)))
+  process.send(reply_to, #(target, Ok(rate)))
   assert receive_response(replies) == SubscriptionUpdate(id, rate)
 }
 
 pub fn unsubscribe_drops_in_flight_rate_result_test() {
-  let lookup_started = process.new_subject()
-  let request_cmc_conversion = fn(_) {
-    let release_lookup = process.new_subject()
-    process.send(lookup_started, #(process.self(), release_lookup))
-    let _ = unwrap(process.receive(release_lookup, 2000))
-    Error(HttpError(httpc.ResponseTimeout))
-  }
-
-  use url, _ <- with_cmc_provider(request_cmc_conversion)
+  use url, lookup_started <- with_blocked_cmc_provider
   use browser, replies <- with_browser(url)
 
   browser_subscribe(browser, [#("bitcoin", bitcoin_id)])
   let #(subscriber_pid, release_lookup) =
     unwrap(process.receive(lookup_started, 1000))
 
-  "bitcoin"
-  |> subscription_id.from_string_unsafe
-  |> websocket_request.Unsubscribe
-  |> websocket_request.encode
-  |> json.to_string
-  |> Send
-  |> stratus.to_user_message
-  |> process.send(browser.data, _)
+  browser_unsubscribe(browser, "bitcoin")
 
   // The response to the next frame confirms Unsubscribe has been processed.
   Send("not JSON")
@@ -206,8 +192,44 @@ pub fn unsubscribe_drops_in_flight_rate_result_test() {
   |> process.send(browser.data, _)
   assert receive_response(replies) == ProtocolError
 
-  process.send(release_lookup, Nil)
+  process.send(release_lookup, Error(HttpError(httpc.ResponseTimeout)))
   await_dead(subscriber_pid)
+  assert process.receive(replies, 200) == Error(Nil)
+}
+
+pub fn resubscribing_with_same_id_drops_in_flight_result_from_old_subscriber_test() {
+  use url, lookup_started <- with_blocked_cmc_provider
+  use browser, replies <- with_browser(url)
+
+  browser_subscribe(browser, [#("bitcoin", bitcoin_id)])
+  let #(old_pid, release_old) = unwrap(process.receive(lookup_started, 1000))
+
+  browser_unsubscribe(browser, "bitcoin")
+  browser_subscribe(browser, [#("bitcoin", bitcoin_id)])
+  let #(new_pid, release_new) = unwrap(process.receive(lookup_started, 1000))
+  assert new_pid != old_pid
+
+  process.send(release_old, Error(HttpError(httpc.ResponseTimeout)))
+  await_dead(old_pid)
+
+  let price = Some(positive_float.from_float_unsafe(100.0))
+  let conversion =
+    CmcConversion(
+      bitcoin_id,
+      "BTC",
+      "Bitcoin",
+      positive_float.from_float_unsafe(1.0),
+      dict.from_list([#(int.to_string(usd_id), QuoteItem(price, 123))]),
+    )
+  process.send(
+    release_new,
+    Ok(CmcResponse(CmcStatus(0, None), Some(conversion))),
+  )
+  assert receive_response(replies)
+    == SubscriptionUpdate(
+      subscription_id.from_string_unsafe("bitcoin"),
+      RateResponse(bitcoin_id, usd_id, price, CoinMarketCap, 123),
+    )
   assert process.receive(replies, 200) == Error(Nil)
 }
 
@@ -220,25 +242,17 @@ fn receive_response(replies: Subject(String)) -> WebsocketResponse {
 }
 
 fn with_failing_provider(
-  run: fn(
-    String,
-    Subject(Subject(#(SubscriptionId, Result(RateResponse, RateError)))),
-  ) -> a,
+  run: fn(String, Subject(#(RateSubscriber, Subject(SubscriptionResult)))) -> a,
 ) -> a {
   with_cmc_provider(fn(_) { Error(HttpError(httpc.ResponseTimeout)) }, run)
 }
 
 fn with_cmc_provider(
-  request_cmc_conversion: fn(CmcConversionParameters) ->
-    Result(CmcResponse(CmcConversion), CmcRequestError),
-  run: fn(
-    String,
-    Subject(Subject(#(SubscriptionId, Result(RateResponse, RateError)))),
-  ) -> a,
+  request_cmc_conversion: RequestCmcConversion,
+  run: fn(String, Subject(#(RateSubscriber, Subject(SubscriptionResult)))) -> a,
 ) -> a {
   let reply_targets = process.new_subject()
   let factory = fn(id, reply_to) {
-    process.send(reply_targets, reply_to)
     let currencies = [
       Crypto(bitcoin_id, "Bitcoin", "BTC", Some(1)),
       Fiat(usd_id, "US Dollar", "USD", "$"),
@@ -259,12 +273,34 @@ fn with_cmc_provider(
         logger: logger.new(),
       )
 
-    subscriber.new_with_scheduler(id, reply_to, config, fn(_, _) { Nil })
-    |> unwrap
+    let target =
+      subscriber.new_with_scheduler(id, reply_to, config, fn(_, _) { Nil })
+      |> unwrap
+    process.send(reply_targets, #(target, reply_to))
+    target
   }
 
   use url <- with_application_factory(factory)
   run(url, reply_targets)
+}
+
+fn with_blocked_cmc_provider(
+  run: fn(
+    String,
+    Subject(
+      #(Pid, Subject(Result(CmcResponse(CmcConversion), CmcRequestError))),
+    ),
+  ) -> a,
+) -> a {
+  let lookup_started = process.new_subject()
+  let request_cmc_conversion = fn(_) {
+    let release_lookup = process.new_subject()
+    process.send(lookup_started, #(process.self(), release_lookup))
+    unwrap(process.receive(release_lookup, 2000))
+  }
+
+  use url, _ <- with_cmc_provider(request_cmc_conversion)
+  run(url, lookup_started)
 }
 
 fn with_application(
@@ -283,10 +319,7 @@ fn with_application(
 }
 
 fn with_application_factory(
-  factory: fn(
-    SubscriptionId,
-    Subject(#(SubscriptionId, Result(RateResponse, RateError))),
-  ) -> RateSubscriber,
+  factory: SubscriberFactory,
   run: fn(String) -> a,
 ) -> a {
   let ready = process.new_subject()
@@ -349,7 +382,7 @@ fn create_kraken_interface(
 
 fn create_rate_subscriber(
   id: SubscriptionId,
-  reply_to: Subject(#(SubscriptionId, Result(RateResponse, RateError))),
+  reply_to: Subject(SubscriptionResult),
   kraken_interface: KrakenInterface,
 ) -> RateSubscriber {
   let currencies = [
@@ -450,6 +483,20 @@ fn browser_close(
   browser: Started(Subject(stratus.InternalMessage(BrowserMessage))),
 ) -> Nil {
   Close
+  |> stratus.to_user_message
+  |> process.send(browser.data, _)
+}
+
+fn browser_unsubscribe(
+  browser: Started(Subject(stratus.InternalMessage(BrowserMessage))),
+  id: String,
+) -> Nil {
+  id
+  |> subscription_id.from_string_unsafe
+  |> websocket_request.Unsubscribe
+  |> websocket_request.encode
+  |> json.to_string
+  |> Send
   |> stratus.to_user_message
   |> process.send(browser.data, _)
 }
