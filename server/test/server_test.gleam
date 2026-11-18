@@ -3,6 +3,6 @@ import glight
 
 pub fn main() {
   // silence logger for tests
-  glight.configure([])
+  let assert Ok(Nil) = glight.configure([])
   gleeunit.main()
 }

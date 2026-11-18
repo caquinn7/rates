@@ -23,7 +23,7 @@ packages = [
   { name = "gleam_stdlib", version = "1.0.5", build_tools = ["gleam"], requirements = [], otp_app = "gleam_stdlib", source = "hex", outer_checksum = "CEE5B6C076A85B45F60C585F4316C63EC8B7127C119D5738C3958A9C4D50404E" },
   { name = "gleam_time", version = "1.11.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleam_time", source = "hex", outer_checksum = "3AB789C3ED4EB9DDA7283F46C3CF83A5487C9CFB790DC3FF8F8ACB5BF7B7A6C1" },
   { name = "gleeunit", version = "1.11.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "gleeunit", source = "hex", outer_checksum = "EC31ABA74256AEA531EDF8169931D775BBB384FED0A8A1BDC4DD9354E3E21826" },
-  { name = "glight", version = "2.3.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "jsx"], source = "git", repo = "https://github.com/ocapmycap/glight.git", commit = "378533d17c21958d51949a339cc8dea060ff8864" },
+  { name = "glight", version = "2.3.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "jsx"], source = "git", repo = "https://github.com/caquinn7/glight.git", commit = "96815da0b350ae02eeab9c3d9c3cff5559104bc7" },
   { name = "glisten", version = "9.0.1", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_otp", "gleam_stdlib", "logging"], otp_app = "glisten", source = "hex", outer_checksum = "7795AA50830656F3A0316A6B26595F893C83272DA901B3405E31339CAA31A10B" },
   { name = "gramps", version = "6.0.1", build_tools = ["gleam"], requirements = ["gleam_crypto", "gleam_erlang", "gleam_http", "gleam_stdlib"], otp_app = "gramps", source = "hex", outer_checksum = "D55636072DEE173F6586A5679D3C02EC7A0DE3F8646B78C351B72908FF223DF7" },
   { name = "houdini", version = "1.2.1", build_tools = ["gleam"], requirements = [], otp_app = "houdini", source = "hex", outer_checksum = "6F8AC2F12974567FB744BEA66AC93CEB76AAEA19AD28564623F76CDA9BC26A85" },
@@ -54,7 +54,7 @@ gleam_regexp = { version = ">= 1.1.1 and < 2.0.0" }
 gleam_stdlib = { version = ">= 1.0.5 and < 2.0.0" }
 gleam_time = { version = ">= 1.11.0 and < 2.0.0" }
 gleeunit = { version = ">= 1.11.0 and < 2.0.0" }
-glight = { git = "https://github.com/ocapmycap/glight.git", ref = "378533d17c21958d51949a339cc8dea060ff8864" }
+glight = { git = "https://github.com/caquinn7/glight.git", ref = "96815da0b350ae02eeab9c3d9c3cff5559104bc7" }
 lustre = { version = ">= 5.7.1 and < 6.0.0" }
 mist = { version = ">= 6.0.3 and < 7.0.0" }
 shared = { path = "../shared" }
