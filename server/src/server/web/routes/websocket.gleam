@@ -58,93 +58,11 @@ pub fn handler(
   conn: WebsocketConnection,
   create_rate_subscriber: SubscriberFactory,
 ) -> mist.Next(State, SubscriptionResult) {
-  let State(subject:, rate_subscribers:, logger:) = state
-
-  log_message_received(logger, message)
+  log_message_received(state.logger, message)
 
   case message {
-    Text(str) -> {
-      case json.parse(str, websocket_request.decoder()) {
-        Ok(Subscribe(subscription_reqs)) -> {
-          let rate_subscribers =
-            subscription_reqs
-            |> list.fold(rate_subscribers, fn(subscribers, request) {
-              let id = request.id
-
-              let #(subscriber, subscribers) = case dict.get(subscribers, id) {
-                Ok(subscriber) -> #(subscriber, subscribers)
-                Error(_) -> {
-                  let subscriber = create_rate_subscriber(id, subject)
-                  #(subscriber, dict.insert(subscribers, id, subscriber))
-                }
-              }
-
-              rate_subscriber.subscribe(subscriber, request.rate_request)
-              subscribers
-            })
-
-          mist.continue(State(..state, rate_subscribers:))
-        }
-
-        Ok(Unsubscribe(subscription_id)) -> {
-          case dict.get(rate_subscribers, subscription_id) {
-            Ok(subscriber) -> {
-              rate_subscriber.stop(subscriber)
-
-              let rate_subscribers =
-                dict.delete(rate_subscribers, subscription_id)
-
-              mist.continue(State(..state, rate_subscribers:))
-            }
-
-            Error(_) -> mist.continue(state)
-          }
-        }
-
-        Error(_) -> {
-          send_response(conn, ProtocolError, logger)
-          mist.continue(state)
-        }
-      }
-    }
-
-    Custom(#(subscription_id, rate_result)) -> {
-      // An in-flight lookup can reply before the subscriber processes Stop.
-      use <- bool.guard(
-        !dict.has_key(rate_subscribers, subscription_id),
-        mist.continue(state),
-      )
-
-      let response = case rate_result {
-        Ok(rate_resp) -> {
-          log_rate_response_success(logger, subscription_id, rate_resp)
-          SubscriptionUpdate(subscription_id, rate_resp)
-        }
-
-        Error(err) -> {
-          log_rate_response_error(logger, subscription_id, err)
-
-          case err {
-            CurrencyNotFound(request, id) ->
-              SubscriptionFailed(
-                subscription_id,
-                request,
-                websocket_response.CurrencyNotFound(id),
-              )
-            CmcError(request, _) ->
-              SubscriptionFailed(
-                subscription_id,
-                request,
-                websocket_response.RateUnavailable,
-              )
-          }
-        }
-      }
-
-      send_response(conn, response, logger)
-      mist.continue(state)
-    }
-
+    Text(text) -> handle_text(state, text, conn, create_rate_subscriber)
+    Custom(result) -> handle_rate_result(state, result, conn)
     Binary(_) -> mist.continue(state)
     Closed | Shutdown -> mist.stop()
   }
@@ -156,6 +74,99 @@ pub fn on_close(state: State) -> Nil {
   |> dict.each(fn(_, subscriber) { rate_subscriber.stop(subscriber) })
 
   log_socket_closed(state.logger)
+}
+
+fn handle_text(
+  state: State,
+  text: String,
+  conn: WebsocketConnection,
+  create_rate_subscriber: SubscriberFactory,
+) -> mist.Next(State, SubscriptionResult) {
+  let State(subject:, rate_subscribers:, logger:) = state
+
+  case json.parse(text, websocket_request.decoder()) {
+    Ok(Subscribe(subscription_reqs)) -> {
+      let rate_subscribers =
+        subscription_reqs
+        |> list.fold(rate_subscribers, fn(subscribers, request) {
+          let id = request.id
+
+          let #(subscriber, subscribers) = case dict.get(subscribers, id) {
+            Ok(subscriber) -> #(subscriber, subscribers)
+            Error(_) -> {
+              let subscriber = create_rate_subscriber(id, subject)
+              #(subscriber, dict.insert(subscribers, id, subscriber))
+            }
+          }
+
+          rate_subscriber.subscribe(subscriber, request.rate_request)
+          subscribers
+        })
+
+      mist.continue(State(..state, rate_subscribers:))
+    }
+
+    Ok(Unsubscribe(subscription_id)) -> {
+      case dict.get(rate_subscribers, subscription_id) {
+        Ok(subscriber) -> {
+          rate_subscriber.stop(subscriber)
+          let rate_subscribers = dict.delete(rate_subscribers, subscription_id)
+          mist.continue(State(..state, rate_subscribers:))
+        }
+
+        Error(_) -> mist.continue(state)
+      }
+    }
+
+    Error(_) -> {
+      send_response(conn, ProtocolError, logger)
+      mist.continue(state)
+    }
+  }
+}
+
+fn handle_rate_result(
+  state: State,
+  result: SubscriptionResult,
+  conn: WebsocketConnection,
+) -> mist.Next(State, SubscriptionResult) {
+  let #(subscription_id, rate_result) = result
+
+  // An in-flight lookup can reply before the subscriber processes Stop.
+  use <- bool.guard(
+    !dict.has_key(state.rate_subscribers, subscription_id),
+    mist.continue(state),
+  )
+
+  let logger = state.logger
+  let response = case rate_result {
+    Ok(rate_resp) -> {
+      log_rate_response_success(logger, subscription_id, rate_resp)
+      SubscriptionUpdate(subscription_id, rate_resp)
+    }
+
+    Error(err) -> {
+      log_rate_response_error(logger, subscription_id, err)
+
+      case err {
+        CurrencyNotFound(request, id) ->
+          SubscriptionFailed(
+            subscription_id,
+            request,
+            websocket_response.CurrencyNotFound(id),
+          )
+        CmcError(request, _) ->
+          SubscriptionFailed(
+            subscription_id,
+            request,
+            websocket_response.RateUnavailable,
+          )
+      }
+    }
+  }
+
+  send_response(conn, response, logger)
+  mist.continue(state)
 }
 
 fn send_response(
