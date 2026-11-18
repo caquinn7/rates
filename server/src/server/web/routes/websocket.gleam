@@ -1,7 +1,6 @@
 import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Selector, type Subject}
-import gleam/function
 import gleam/int
 import gleam/json
 import gleam/list
@@ -13,21 +12,29 @@ import mist.{
 }
 import server/rates/rate_error.{type RateError, CmcError, CurrencyNotFound}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult} as rate_subscriber
+import server/rates/subscriber_factory.{type SubscriberFactory}
 import server/utils/logger.{type Logger}
 import shared/numbers/positive_float
 import shared/rates/rate_response.{type RateResponse, RateResponse}
 import shared/subscriptions/subscription_id.{type SubscriptionId}
 import shared/websocket_request.{Subscribe, Unsubscribe}
-import shared/websocket_response.{SubscriptionFailed, SubscriptionUpdate}
+import shared/websocket_response.{
+  type WebsocketResponse, ProtocolError, SubscriptionFailed, SubscriptionUpdate,
+}
 
 pub type State {
   State(
+    /// Receives rate results from this connection's `RateSubscriber` actors.
     subject: Subject(SubscriptionResult),
+    /// Subscriber actors registered on this connection, keyed by subscription ID.
     rate_subscribers: Dict(SubscriptionId, RateSubscriber),
+    /// Logging context for WebSocket events and failures on this connection.
     logger: Logger,
   )
 }
 
+/// Initializes subscription state for a new connection and returns a selector
+/// for rate subscriber results.
 pub fn on_init(
   _conn: WebsocketConnection,
   logger: Logger,
@@ -36,19 +43,20 @@ pub fn on_init(
 
   let selector =
     process.new_selector()
-    |> process.select_map(subject, function.identity)
+    |> process.select(subject)
 
   log_socket_init(logger)
 
   #(State(subject, dict.new(), logger), Some(selector))
 }
 
+/// Handles client subscription requests and forwards rate results for active
+/// subscription IDs. Sends a protocol error when a text request cannot be decoded.
 pub fn handler(
   state: State,
   message: WebsocketMessage(SubscriptionResult),
   conn: WebsocketConnection,
-  create_rate_subscriber: fn(SubscriptionId, Subject(SubscriptionResult)) ->
-    RateSubscriber,
+  create_rate_subscriber: SubscriberFactory,
 ) -> mist.Next(State, SubscriptionResult) {
   let State(subject:, rate_subscribers:, logger:) = state
 
@@ -58,34 +66,21 @@ pub fn handler(
     Text(str) -> {
       case json.parse(str, websocket_request.decoder()) {
         Ok(Subscribe(subscription_reqs)) -> {
-          // Updates the rate subscribers dictionary by processing a list of subscription requests.
-          // For existing subscriber IDs, reuses the subscriber and updates their subscription.
-          // For new subscriber IDs, creates a new rate subscriber, subscribes them to the rate request,
-          // and adds them to the dictionary. Returns the updated state with the new subscribers map.
           let rate_subscribers =
             subscription_reqs
-            |> list.fold(rate_subscribers, fn(acc, subscription_req) {
-              case dict.get(acc, subscription_req.id) {
-                Ok(existing_subscriber) -> {
-                  rate_subscriber.subscribe(
-                    existing_subscriber,
-                    subscription_req.rate_request,
-                  )
-                  acc
-                }
+            |> list.fold(rate_subscribers, fn(subscribers, request) {
+              let id = request.id
 
+              let #(subscriber, subscribers) = case dict.get(subscribers, id) {
+                Ok(subscriber) -> #(subscriber, subscribers)
                 Error(_) -> {
-                  let new_subscriber =
-                    create_rate_subscriber(subscription_req.id, subject)
-
-                  rate_subscriber.subscribe(
-                    new_subscriber,
-                    subscription_req.rate_request,
-                  )
-
-                  dict.insert(acc, subscription_req.id, new_subscriber)
+                  let subscriber = create_rate_subscriber(id, subject)
+                  #(subscriber, dict.insert(subscribers, id, subscriber))
                 }
               }
+
+              rate_subscriber.subscribe(subscriber, request.rate_request)
+              subscribers
             })
 
           mist.continue(State(..state, rate_subscribers:))
@@ -107,11 +102,7 @@ pub fn handler(
         }
 
         Error(_) -> {
-          let response =
-            websocket_response.ProtocolError
-            |> websocket_response.encode
-            |> json.to_string
-          let _ = mist.send_text_frame(conn, response)
+          send_response(conn, ProtocolError, logger)
           mist.continue(state)
         }
       }
@@ -150,11 +141,7 @@ pub fn handler(
         }
       }
 
-      let response_str =
-        response
-        |> websocket_response.encode
-        |> json.to_string
-      let _ = mist.send_text_frame(conn, response_str)
+      send_response(conn, response, logger)
       mist.continue(state)
     }
 
@@ -163,12 +150,32 @@ pub fn handler(
   }
 }
 
+/// Queues a stop for each remaining rate subscriber when the connection closes.
 pub fn on_close(state: State) -> Nil {
   state.rate_subscribers
-  |> dict.values
-  |> list.each(rate_subscriber.stop)
+  |> dict.each(fn(_, subscriber) { rate_subscriber.stop(subscriber) })
 
   log_socket_closed(state.logger)
+}
+
+fn send_response(
+  conn: WebsocketConnection,
+  response: WebsocketResponse,
+  logger: Logger,
+) -> Nil {
+  let frame_result =
+    response
+    |> websocket_response.encode
+    |> json.to_string
+    |> mist.send_text_frame(conn, _)
+
+  case frame_result {
+    Ok(Nil) -> Nil
+    Error(reason) ->
+      logger
+      |> logger.with("reason", string.inspect(reason))
+      |> logger.warning("Failed to send WebSocket response")
+  }
 }
 
 // logging
