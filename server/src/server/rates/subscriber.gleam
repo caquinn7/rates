@@ -47,8 +47,9 @@ pub type Config {
   )
 }
 
+/// A rate result paired with the handle of the subscriber that produced it.
 pub type SubscriptionResult =
-  #(SubscriptionId, Result(RateResponse, RateError))
+  #(RateSubscriber, Result(RateResponse, RateError))
 
 /// Schedules an update by invoking its delivery callback after a delay in milliseconds.
 /// The callback enqueues the update on the actor; it never handles it directly.
@@ -68,11 +69,10 @@ type Msg {
   Stop
 }
 
-/// Fixed subscription identity and provider dependencies shared by message handlers.
+/// Fixed provider dependencies shared by message handlers.
 /// Created at startup and reused for the lifetime of the subscriber actor.
 type Context {
   Context(
-    subscription_id: SubscriptionId,
     get_currency: fn(Int) -> Result(Currency, Nil),
     kraken_interface: KrakenInterface,
     request_cmc_conversion: RequestCmcConversion,
@@ -84,9 +84,9 @@ type Context {
 /// The pending token permits one scheduled refresh; stale tokens are ignored.
 type State {
   State(
-    /// This actor's inbox, used to enqueue scheduled refresh messages.
-    self: Subject(Msg),
-    /// Destination for rate responses and errors tagged with the subscription ID.
+    /// This actor's handle, attached to results and used to queue refreshes.
+    self: RateSubscriber,
+    /// Destination for this subscriber's rate responses and errors.
     reply_to: Subject(SubscriptionResult),
     /// Active rate request, selected source, and refresh interval policy.
     subscription_manager: SubscriptionManager,
@@ -103,8 +103,7 @@ type State {
 }
 
 /// Starts an actor; call `subscribe` to begin fetching a currency pair.
-/// Sends results to `reply_to` as `#(subscription_id, Ok(rate_response))` or
-/// `#(subscription_id, Error(rate_error))`.
+/// Sends results to `reply_to` paired with the returned subscriber handle.
 ///
 /// Kraken refreshes use the configured base interval. CMC refreshes wait at least
 /// 30 seconds, retaining longer configured intervals. Returns `Error(StartError)`
@@ -136,24 +135,31 @@ fn start(
 ) -> Result(RateSubscriber, StartError) {
   let context =
     Context(
-      subscription_id:,
       get_currency: config.get_currency,
       kraken_interface: config.kraken_interface,
       request_cmc_conversion: config.request_cmc_conversion,
     )
 
-  actor.new_with_initialiser(100, initialiser(_, reply_to, config, scheduler))
+  actor.new_with_initialiser(100, initialiser(
+    _,
+    subscription_id,
+    reply_to,
+    config,
+    scheduler,
+  ))
   |> actor.on_message(fn(state, msg) { handle_msg(context, state, msg) })
   |> actor.start
-  |> result.map(fn(started) { RateSubscriber(subscription_id, started.data) })
+  |> result.map(fn(started) { started.data })
 }
 
 fn initialiser(
-  self: Subject(Msg),
+  subject: Subject(Msg),
+  id: SubscriptionId,
   reply_to: Subject(SubscriptionResult),
   config: Config,
   scheduler: Option(Scheduler),
-) -> Result(Initialised(State, Msg, Subject(Msg)), String) {
+) -> Result(Initialised(State, Msg, RateSubscriber), String) {
+  let self = RateSubscriber(id:, subject:)
   let state =
     State(
       self:,
@@ -170,7 +176,8 @@ fn initialiser(
   |> Ok
 }
 
-pub fn subscription_id(rate_subscriber: RateSubscriber) {
+/// Returns the client-supplied ID associated with this subscriber.
+pub fn subscription_id(rate_subscriber: RateSubscriber) -> SubscriptionId {
   rate_subscriber.id
 }
 
@@ -226,7 +233,7 @@ fn handle_subscribe(
     }
 
     Error(error) -> {
-      process.send(state.reply_to, #(context.subscription_id, Error(error)))
+      process.send(state.reply_to, #(state.self, Error(error)))
       actor.continue(clear_subscription_from_state(state))
     }
   }
@@ -292,7 +299,7 @@ fn fetch_reply_and_reschedule(
       on_kraken_fallback: fn() {
         log_wait_for_kraken_price_timeout(
           state.logger,
-          context.subscription_id,
+          state.self.id,
           rate_request,
         )
       },
@@ -300,7 +307,7 @@ fn fetch_reply_and_reschedule(
   let #(result, should_downgrade) =
     rate_source_strategy.execute_strategy(strategy, rate_request, config)
 
-  process.send(state.reply_to, #(context.subscription_id, result))
+  process.send(state.reply_to, #(state.self, result))
 
   let state = case should_downgrade {
     True ->
@@ -392,12 +399,16 @@ fn schedule_next_update(state: State) -> State {
   case state.scheduler {
     Some(schedule) ->
       schedule(delay, fn() {
-        actor.send(state.self, GetLatestRate(refresh_token))
+        actor.send(state.self.subject, GetLatestRate(refresh_token))
       })
 
     None -> {
       let _ =
-        process.send_after(state.self, delay, GetLatestRate(refresh_token))
+        process.send_after(
+          state.self.subject,
+          delay,
+          GetLatestRate(refresh_token),
+        )
       Nil
     }
   }
