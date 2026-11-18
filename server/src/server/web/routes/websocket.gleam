@@ -1,3 +1,4 @@
+import gleam/bool
 import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Selector, type Subject}
 import gleam/function
@@ -117,6 +118,12 @@ pub fn handler(
     }
 
     Custom(#(subscription_id, rate_result)) -> {
+      // An in-flight lookup can reply before the subscriber processes Stop.
+      use <- bool.guard(
+        !dict.has_key(rate_subscribers, subscription_id),
+        mist.continue(state),
+      )
+
       let response = case rate_result {
         Ok(rate_resp) -> {
           log_rate_response_success(logger, subscription_id, rate_resp)
