@@ -111,8 +111,9 @@ fn configure_logging(log_level: String) -> Logger {
     _ -> glight.Info
   }
 
+  let assert Ok(Nil) =
+    glight.configure([glight.Console, glight.File("server.log")])
   glight.set_log_level(log_level)
-  glight.configure([glight.Console, glight.File("server.log")])
   glight.set_is_color(True)
 
   logger.new()

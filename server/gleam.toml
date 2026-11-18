@@ -29,8 +29,7 @@ stratus = ">= 3.0.0 and < 4.0.0"
 # Pin its 0.4.0 revision, which also allows gleam_stdlib 1.x.
 carpenter = { git = "https://github.com/ghivert/carpenter.git", ref = "dcaadb1d00cc12f23c81c98ccba2a438936a8d77" }
 # Temporary fork allowing gleam_stdlib 1.x; return to Hex after an upstream release.
-# https://github.com/distrill/glight/pull/5
-glight = { git = "https://github.com/ocapmycap/glight.git", ref = "378533d17c21958d51949a339cc8dea060ff8864" }
+glight = { git = "https://github.com/caquinn7/glight.git", ref = "96815da0b350ae02eeab9c3d9c3cff5559104bc7" }
 gleam_regexp = ">= 1.1.1 and < 2.0.0"
 gleam_time = ">= 1.11.0 and < 2.0.0"
 
