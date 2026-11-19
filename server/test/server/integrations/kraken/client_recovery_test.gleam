@@ -1,5 +1,6 @@
 import exception
 import gleam/bytes_tree
+import gleam/dict.{type Dict}
 import gleam/dynamic/decode
 import gleam/erlang/process.{type Pid, type Subject}
 import gleam/http/response as http_response
@@ -8,6 +9,8 @@ import gleam/json
 import gleam/list
 import gleam/option.{Some}
 import gleam/otp/actor
+import gleam/string
+import glight
 import mist
 import server/integrations/kraken/internal/connection
 import server/integrations/kraken/internal/request as kraken_request
@@ -21,7 +24,7 @@ import server/integrations/kraken/internal/session.{
 }
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
-import server/utils/logger
+import server/utils/logger.{type LogEntry, LogEntry}
 import server/utils/time
 import shared/numbers/positive_float
 
@@ -291,8 +294,22 @@ pub fn shutdown_during_reconnect_handshake_cleans_up_the_attempt_test() {
 }
 
 pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_test() {
-  use fixture, url <- with_server([])
-  use client, first <- with_client(fixture, url, config())
+  let logs = process.new_subject()
+  let client_logger = logger.new_with_sink(glight.Info, process.send(logs, _))
+  use fixture, url <- with_server([Accept(Echo, True), Accept(Echo, False)])
+  use client <- start_client_with_logger(url, config(), client_logger)
+
+  let first = await_open(fixture, 0)
+  let session_pid = string.inspect(client.pid)
+  let ready =
+    await_session_log(
+      logs,
+      session_pid,
+      glight.Info,
+      "Kraken connection ready",
+      0,
+    )
+  assert dict.get(ready, "restored_symbols") == Ok("0")
 
   process.send(client.data, Subscribe("BTC/USD"))
   process.send(client.data, Subscribe("BTC/USD"))
@@ -305,12 +322,32 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
   let assert [first_socket] = linked_processes(first_worker)
 
   process.send(first.control, Close)
+  assert await_retry_logs(logs, session_pid, 0, 30) == "Normal"
   let second = await_open(fixture, 1)
 
   assert process.is_alive(client.pid)
   assert !process.is_alive(first_worker)
   assert !process.is_alive(first_socket)
   assert price_store.get_price(store, "BTC/USD") == Ok(old)
+
+  // A ping confirms the replacement is running while the snapshot is withheld.
+  let _ = await_request(fixture, 1, fn(req) { req == InstrumentSubscribe })
+  let _ = await_request(fixture, 1, is_ping)
+  assert receive_session_log(logs, session_pid, time.monotonic_time_ms())
+    == Error(Nil)
+
+  process.send(second.control, Send(instrument_snapshot))
+  let recovered =
+    await_session_log(
+      logs,
+      session_pid,
+      glight.Info,
+      "Kraken connection ready",
+      1,
+    )
+  assert dict.get(recovered, "restored_symbols") == Ok("1")
+  let assert Ok(downtime) = dict.get(recovered, "downtime_ms")
+  assert unwrap(int.parse(downtime)) >= 0
 
   let _ =
     await_request(fixture, 1, fn(req) { req == TickerSubscribe(["BTC/USD"]) })
@@ -351,6 +388,8 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
   let _ =
     await_request(fixture, 1, fn(req) { req == TickerUnsubscribe(["BTC/USD"]) })
 
+  assert receive_session_log(logs, session_pid, time.monotonic_time_ms())
+    == Error(Nil)
   assert process.is_alive(second.pid)
 }
 
@@ -402,11 +441,12 @@ pub fn worker_reports_socket_failure_before_its_own_normal_exit_test() {
 pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
   use fixture, url <- with_server([])
   let events = process.new_subject()
+  let logs = process.new_subject()
   let worker =
     connection.start(
       process.self(),
       process.send(events, _),
-      logger.new(),
+      logger.new_with_sink(glight.Warning, process.send(logs, _)),
       url,
       500,
       connection.send_text,
@@ -416,6 +456,8 @@ pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
   let opened = await_open(fixture, 0)
   let assert Ok(connection.Connected(_)) = process.receive(events, 1000)
 
+  let invalid_json = "{not-json"
+  let invalid_pong = "{\"method\":\"pong\",\"req_id\":\"not an integer\"}"
   list.each(
     [
       "{\"channel\":\"heartbeat\"}",
@@ -423,8 +465,8 @@ pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
       "{\"method\":\"unsubscribe\",\"success\":true}",
       "{\"method\":\"subscribe\",\"success\":true,\"result\":{\"channel\":\"instrument\"}}",
       "{\"channel\":\"instrument\",\"type\":\"update\",\"data\":{\"pairs\":[]}}",
-      "{not-json",
-      "{\"method\":\"pong\",\"req_id\":\"not an integer\"}",
+      invalid_json,
+      invalid_pong,
       pong_json(42),
     ],
     fn(text) { process.send(opened.control, Send(text)) },
@@ -432,6 +474,18 @@ pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
 
   assert process.receive(events, 1000)
     == Ok(connection.Received(response.Pong(42)))
+
+  // The pong arrives after the socket handles the preceding frames.
+  list.each([invalid_json, invalid_pong], fn(text) {
+    let LogEntry(level, message, fields) = unwrap(process.receive(logs, 0))
+    assert level == glight.Warning
+    assert message == "Unable to decode Kraken response"
+    assert dict.get(fields, "response") == Ok(text)
+    let assert Ok(reason) = dict.get(fields, "reason")
+    assert reason != ""
+  })
+  assert process.receive(logs, 0) == Error(Nil)
+
   assert process.receive(events, 0) == Error(Nil)
   assert process.is_alive(worker)
   assert process.is_alive(opened.pid)
@@ -468,6 +522,8 @@ pub fn outage_subscription_changes_determine_what_is_replayed_test() {
 }
 
 pub fn repeated_handshake_failures_back_off_and_cap_with_jitter_test() {
+  let logs = process.new_subject()
+  let client_logger = logger.new_with_sink(glight.Info, process.send(logs, _))
   let delays = process.new_subject()
   let cfg =
     session.Config(..config(), jitter_ms: fn() {
@@ -482,18 +538,51 @@ pub fn repeated_handshake_failures_back_off_and_cap_with_jitter_test() {
     Reject,
     Reject,
   ])
-  use _, first <- with_client(fixture, url, cfg)
+  use client <- start_client_with_logger(url, cfg, client_logger)
+  let first = await_open(fixture, 0)
   let _ = await_attempt(fixture, 0)
+  let session_pid = string.inspect(client.pid)
+  let _ =
+    await_session_log(
+      logs,
+      session_pid,
+      glight.Info,
+      "Kraken connection ready",
+      0,
+    )
 
   process.send(first.control, Close)
 
-  list.each([35, 65, 125, 125, 125], fn(minimum) {
-    let assert Ok(scheduled) = process.receive(delays, 2000)
-    let #(_, attempted) = unwrap(process.receive(fixture.attempts, 2000))
+  list.each([#(0, 35), #(1, 65), #(2, 125), #(3, 125), #(4, 125)], fn(expected) {
+    let #(generation, delay_ms) = expected
+    let reason = await_retry_logs(logs, session_pid, generation, delay_ms)
+    case generation {
+      0 -> {
+        assert reason == "Normal"
+      }
+      _ -> {
+        assert string.contains(reason, "503")
+      }
+    }
 
-    assert attempted - scheduled >= minimum - 1
-    assert attempted - scheduled < minimum + 80
+    let assert Ok(scheduled) = process.receive(delays, 2000)
+    let #(attempt, attempted) = unwrap(process.receive(fixture.attempts, 2000))
+
+    assert attempt == generation + 1
+    assert attempted - scheduled >= delay_ms - 1
+    assert attempted - scheduled < delay_ms + 80
   })
+
+  let _ = await_open(fixture, 5)
+  let _ =
+    await_session_log(
+      logs,
+      session_pid,
+      glight.Info,
+      "Kraken connection ready",
+      5,
+    )
+  Nil
 }
 
 pub fn stable_connection_resets_retry_delay_test() {
@@ -704,8 +793,12 @@ fn respond_to_request(socket, request, attempt, pong, snapshot) {
 }
 
 fn start_client(url, cfg, run) {
+  start_client_with_logger(url, cfg, logger.new(), run)
+}
+
+fn start_client_with_logger(url, cfg, client_logger, run) {
   let assert Ok(client) =
-    session.start(logger.new(), fn() { unwrap(price_store.new()) }, url, cfg)
+    session.start(client_logger, fn() { unwrap(price_store.new()) }, url, cfg)
   use <- exception.defer(fn() { stop_process(client.pid) })
   run(client)
 }
@@ -772,6 +865,66 @@ fn await_attempt(fixture: Fixture, attempt) {
   case actual == attempt {
     True -> timestamp
     False -> await_attempt(fixture, attempt)
+  }
+}
+
+fn await_retry_logs(
+  logs: Subject(LogEntry),
+  session_pid: String,
+  generation: Int,
+  delay_ms: Int,
+) -> String {
+  let lost =
+    await_session_log(
+      logs,
+      session_pid,
+      glight.Warning,
+      "Kraken connection lost",
+      generation,
+    )
+  let assert Ok(reason) = dict.get(lost, "reason")
+  let retry =
+    await_session_log(
+      logs,
+      session_pid,
+      glight.Warning,
+      "Retrying Kraken connection",
+      generation,
+    )
+  assert dict.get(retry, "delay_ms") == Ok(int.to_string(delay_ms))
+  reason
+}
+
+fn await_session_log(
+  logs: Subject(LogEntry),
+  session_pid: String,
+  level: glight.LogLevel,
+  message: String,
+  generation: Int,
+) -> Dict(String, String) {
+  let deadline = time.monotonic_time_ms() + 2000
+  let LogEntry(actual_level, actual_message, fields) =
+    unwrap(receive_session_log(logs, session_pid, deadline))
+
+  assert actual_level == level
+  assert actual_message == message
+  assert dict.get(fields, "generation") == Ok(int.to_string(generation))
+  fields
+}
+
+fn receive_session_log(
+  logs: Subject(LogEntry),
+  session_pid: String,
+  deadline: Int,
+) -> Result(LogEntry, Nil) {
+  let remaining = int.max(0, deadline - time.monotonic_time_ms())
+  case process.receive(logs, remaining) {
+    Ok(entry) ->
+      case dict.get(entry.fields, "pid") == Ok(session_pid) {
+        True -> Ok(entry)
+        False -> receive_session_log(logs, session_pid, deadline)
+      }
+    Error(Nil) -> Error(Nil)
   }
 }
 
