@@ -198,7 +198,7 @@ fn log_message_received(
   logger: Logger,
   message: WebsocketMessage(SubscriptionResult),
 ) -> Nil {
-  logger.debug_lazy(fn() {
+  logger.debug_lazy(logger, fn() {
     #(
       logger.with(logger, "received", string.inspect(message)),
       "Received websocket message",
@@ -221,7 +221,7 @@ fn log_rate_response_success(
   subscription_id: SubscriptionId,
   rate_response: RateResponse,
 ) -> Nil {
-  logger.debug_lazy(fn() {
+  logger.debug_lazy(logger, fn() {
     let RateResponse(from:, to:, rate:, source:, timestamp:) = rate_response
 
     let context =

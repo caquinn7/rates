@@ -1,5 +1,5 @@
 import exception
-import gleam/dict
+import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Pid, type Subject}
 import gleam/http/request
 import gleam/httpc
@@ -8,6 +8,8 @@ import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/otp/actor.{type Started}
+import gleam/string
+import glight
 import mist
 import server/integrations/coin_market_cap/client.{
   type CmcRequestError, type CmcResponse, CmcResponse, CmcStatus, HttpError,
@@ -27,7 +29,7 @@ import server/rates/internal/kraken_symbol
 import server/rates/internal/subscription_manager
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult}
 import server/rates/subscriber_factory.{type SubscriberFactory}
-import server/utils/logger
+import server/utils/logger.{type LogEntry, type Logger, LogEntry}
 import server/utils/retry
 import server/utils/time
 import server/web/routes/websocket
@@ -154,11 +156,41 @@ pub fn missing_currency_error_preserves_subscription_and_pair_test() {
     )
 }
 
-pub fn provider_response_timeout_can_be_followed_by_a_successful_update_test() {
-  use url, reply_targets <- with_failing_provider
+pub fn websocket_logs_lifecycle_and_rate_outcomes_test() {
+  let events = process.new_subject()
+  let socket_logger =
+    logger.new_with_sink(glight.Debug, process.send(events, _))
+    |> logger.with_source("websocket")
+  use url, lookup_started, reply_targets <- with_blocked_cmc_provider(
+    socket_logger,
+  )
   use browser, replies <- with_browser(url)
 
+  let initialized = receive_log(events, glight.Debug, "Socket initialized")
+  let assert Ok(socket_pid) = dict.get(initialized, "pid")
+  assert dict.get(initialized, "source") == Ok("websocket")
+
   browser_subscribe(browser, [#("bitcoin", bitcoin_id)])
+  let request = receive_log(events, glight.Debug, "Received websocket message")
+  let assert Ok(received) = dict.get(request, "received")
+  assert string.starts_with(received, "Text(")
+  assert string.contains(received, "bitcoin")
+  assert dict.get(request, "pid") == Ok(socket_pid)
+
+  let #(_, release_lookup) = unwrap(process.receive(lookup_started, 1000))
+  assert process.receive(events, 0) == Error(Nil)
+  assert process.receive(replies, 0) == Error(Nil)
+
+  process.send(release_lookup, Error(HttpError(httpc.ResponseTimeout)))
+  let _ = receive_log(events, glight.Debug, "Received websocket message")
+  let failure = receive_log(events, glight.Error, "Error getting rate")
+  assert dict.get(failure, "subscription_id") == Ok("bitcoin")
+  assert dict.get(failure, "rate_request.from") == Ok("1")
+  assert dict.get(failure, "rate_request.to") == Ok("2781")
+  assert dict.get(failure, "pid") == Ok(socket_pid)
+  let assert Ok(reason) = dict.get(failure, "reason")
+  assert string.contains(reason, "ResponseTimeout")
+
   let id = subscription_id.from_string_unsafe("bitcoin")
   assert receive_response(replies)
     == SubscriptionFailed(id, RateRequest(bitcoin_id, usd_id), RateUnavailable)
@@ -173,11 +205,25 @@ pub fn provider_response_timeout_can_be_followed_by_a_successful_update_test() {
       123,
     )
   process.send(reply_to, #(target, Ok(rate)))
+  let _ = receive_log(events, glight.Debug, "Received websocket message")
+  let success =
+    receive_log(events, glight.Debug, "Successfully fetched subscription rate")
+  assert dict.get(success, "subscription_id") == Ok("bitcoin")
+  assert dict.get(success, "rate_response.from") == Ok("1")
+  assert dict.get(success, "rate_response.to") == Ok("2781")
+  assert dict.get(success, "rate_response.rate") == Ok("100.0")
+  assert dict.get(success, "rate_response.source") == Ok("CoinMarketCap")
+  assert dict.get(success, "rate_response.timestamp") == Ok("123")
+  assert dict.get(success, "pid") == Ok(socket_pid)
   assert receive_response(replies) == SubscriptionUpdate(id, rate)
+
+  browser_close(browser)
+  let closed = receive_log(events, glight.Debug, "Socket closed")
+  assert dict.get(closed, "pid") == Ok(socket_pid)
 }
 
 pub fn unsubscribe_drops_in_flight_rate_result_test() {
-  use url, lookup_started <- with_blocked_cmc_provider
+  use url, lookup_started, _ <- with_blocked_cmc_provider(logger.new())
   use browser, replies <- with_browser(url)
 
   browser_subscribe(browser, [#("bitcoin", bitcoin_id)])
@@ -198,7 +244,7 @@ pub fn unsubscribe_drops_in_flight_rate_result_test() {
 }
 
 pub fn resubscribing_with_same_id_drops_in_flight_result_from_old_subscriber_test() {
-  use url, lookup_started <- with_blocked_cmc_provider
+  use url, lookup_started, _ <- with_blocked_cmc_provider(logger.new())
   use browser, replies <- with_browser(url)
 
   browser_subscribe(browser, [#("bitcoin", bitcoin_id)])
@@ -241,13 +287,30 @@ fn receive_response(replies: Subject(String)) -> WebsocketResponse {
   |> unwrap
 }
 
+fn receive_log(
+  events: Subject(LogEntry),
+  level: glight.LogLevel,
+  message: String,
+) -> Dict(String, String) {
+  let LogEntry(actual_level, actual_message, fields) =
+    unwrap(process.receive(events, 1000))
+  assert actual_level == level
+  assert actual_message == message
+  fields
+}
+
 fn with_failing_provider(
   run: fn(String, Subject(#(RateSubscriber, Subject(SubscriptionResult)))) -> a,
 ) -> a {
-  with_cmc_provider(fn(_) { Error(HttpError(httpc.ResponseTimeout)) }, run)
+  with_cmc_provider(
+    logger.new(),
+    fn(_) { Error(HttpError(httpc.ResponseTimeout)) },
+    run,
+  )
 }
 
 fn with_cmc_provider(
+  socket_logger: Logger,
   request_cmc_conversion: RequestCmcConversion,
   run: fn(String, Subject(#(RateSubscriber, Subject(SubscriptionResult)))) -> a,
 ) -> a {
@@ -280,16 +343,18 @@ fn with_cmc_provider(
     target
   }
 
-  use url <- with_application_factory(factory)
+  use url <- with_application_factory(factory, socket_logger)
   run(url, reply_targets)
 }
 
 fn with_blocked_cmc_provider(
+  socket_logger: Logger,
   run: fn(
     String,
     Subject(
       #(Pid, Subject(Result(CmcResponse(CmcConversion), CmcRequestError))),
     ),
+    Subject(#(RateSubscriber, Subject(SubscriptionResult))),
   ) -> a,
 ) -> a {
   let lookup_started = process.new_subject()
@@ -299,8 +364,11 @@ fn with_blocked_cmc_provider(
     unwrap(process.receive(release_lookup, 2000))
   }
 
-  use url, _ <- with_cmc_provider(request_cmc_conversion)
-  run(url, lookup_started)
+  use url, reply_targets <- with_cmc_provider(
+    socket_logger,
+    request_cmc_conversion,
+  )
+  run(url, lookup_started, reply_targets)
 }
 
 fn with_application(
@@ -314,19 +382,20 @@ fn with_application(
     create_rate_subscriber(id, reply_to, kraken_interface)
   }
 
-  use url <- with_application_factory(factory)
+  use url <- with_application_factory(factory, logger.new())
   run(url, subscribers)
 }
 
 fn with_application_factory(
   factory: SubscriberFactory,
+  socket_logger: Logger,
   run: fn(String) -> a,
 ) -> a {
   let ready = process.new_subject()
   let handler = fn(req) {
     mist.websocket(
       req,
-      on_init: websocket.on_init(_, logger.new()),
+      on_init: websocket.on_init(_, socket_logger),
       handler: fn(state, message, conn) {
         websocket.handler(state, message, conn, factory)
       },
