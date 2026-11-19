@@ -4,6 +4,7 @@ import gleam/erlang/atom.{type Atom}
 import gleam/erlang/process.{type Pid, type Subject}
 import gleam/list
 import gleam/option.{None, Some}
+import glight
 import server/integrations/coin_market_cap/client.{CmcResponse, CmcStatus}
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
@@ -15,7 +16,7 @@ import server/rates/internal/subscription_manager
 import server/rates/rate_error.{CmcError, CurrencyNotFound}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult}
 import server/rates/subscriber_factory.{type SubscriberFactory}
-import server/utils/logger
+import server/utils/logger.{LogEntry}
 import shared/currency.{Crypto, Fiat}
 import shared/numbers/positive_float
 import shared/rates/rate_request.{type RateRequest, RateRequest}
@@ -182,7 +183,8 @@ pub fn shared_factory_creates_independent_subscribers_test() {
   assert process.receive(first_replies, 0) == Error(Nil)
 }
 
-pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
+pub fn subscribe_uses_cmc_directly_when_kraken_symbol_does_not_exist_test() {
+  let logs = process.new_subject()
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
@@ -219,7 +221,7 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
         |> CmcResponse(CmcStatus(0, None), _)
         |> Ok
       },
-      logger: logger.new(),
+      logger: logger.new_with_sink(glight.Debug, process.send(logs, _)),
     )
   let subscriber_factory = subscriber_factory.create(config)
 
@@ -241,9 +243,11 @@ pub fn subscribe_falls_back_to_cmc_when_kraken_symbol_does_not_exist_test() {
   assert rate_response.rate == Some(expected_price)
   assert rate_response.source == CoinMarketCap
   assert rate_response.timestamp == 100
+  assert process.receive(logs, 0) == Error(Nil)
 }
 
 pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
+  let logs = process.new_subject()
   let interest = process.new_subject()
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
@@ -280,7 +284,7 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
         |> CmcResponse(CmcStatus(0, None), _)
         |> Ok
       },
-      logger: logger.new(),
+      logger: logger.new_with_sink(glight.Warning, process.send(logs, _)),
     )
   let subscriber_factory = subscriber_factory.create(config)
 
@@ -302,6 +306,14 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
   assert rate_response.rate == Some(expected_price)
   assert rate_response.source == CoinMarketCap
   assert rate_response.timestamp == 100
+
+  let assert Ok(LogEntry(level, message, fields)) = process.receive(logs, 0)
+  assert level == glight.Warning
+  assert message == "Timed out waiting for kraken price. Falling back to CMC"
+  assert dict.get(fields, "subscription_id") == Ok("1")
+  assert dict.get(fields, "rate_request.from") == Ok("1")
+  assert dict.get(fields, "rate_request.to") == Ok("2781")
+  assert process.receive(logs, 0) == Error(Nil)
 
   let assert Ok(#(True, pid)) = process.receive(interest, 1000)
   let assert Ok(#(False, _)) = process.receive(interest, 1000)
