@@ -204,8 +204,8 @@ pub fn get_pending_count(counter: SubscriptionCounter, symbol: String) -> Int {
 
 fn get_count(dict: Dict(String, Int), symbol: String) -> Int {
   case dict.get(dict, symbol) {
-    Error(_) -> 0
     Ok(i) -> i
+    Error(_) -> 0
   }
 }
 
@@ -214,7 +214,7 @@ pub fn log_subscription_count(
   logger: Logger,
   symbol: String,
 ) -> Nil {
-  logger.debug_lazy(fn() {
+  logger.debug_lazy(logger, fn() {
     let pending_count = get_pending_count(counter, symbol)
     let active_count = get_active_count(counter, symbol)
 

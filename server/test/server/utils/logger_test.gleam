@@ -6,18 +6,19 @@ import gleam/erlang/process.{type Subject}
 import gleam/list
 import gleam/string
 import glight
-import server/utils/logger
+import server/utils/logger.{LogEntry}
 
 pub fn disabled_debug_never_evaluates_builder_test() {
   [glight.Info, glight.Warning, glight.Error]
   |> list.each(fn(level) {
     use events <- with_log_capture(level)
     let calls = process.new_subject()
+    let context = logger.new()
 
     let result =
-      logger.debug_lazy(fn() {
+      logger.debug_lazy(context, fn() {
         process.send(calls, Nil)
-        #(logger.new(), "Disabled debug event")
+        #(context, "Disabled debug event")
       })
 
     assert result == Nil
@@ -29,11 +30,12 @@ pub fn disabled_debug_never_evaluates_builder_test() {
 pub fn enabled_debug_evaluates_builder_once_in_caller_process_test() {
   use events <- with_log_capture(glight.Debug)
   let calls = process.new_subject()
+  let context = logger.new()
 
   let result =
-    logger.debug_lazy(fn() {
+    logger.debug_lazy(context, fn() {
       process.send(calls, process.self())
-      #(logger.new(), "Enabled debug event")
+      #(context, "Enabled debug event")
     })
 
   assert result == Nil
@@ -51,9 +53,9 @@ pub fn lazy_debug_preserves_eager_report_test() {
     |> logger.with_source("logger_test")
     |> logger.with("received", "payload")
 
-  logger.debug(context, "Received websocket message")
+  assert logger.debug(context, "Received websocket message") == Nil
 
-  logger.debug_lazy(fn() { #(context, "Received websocket message") })
+  logger.debug_lazy(context, fn() { #(context, "Received websocket message") })
 
   let assert Ok(eager_event) = process.receive(events, 0)
   let assert Ok(lazy_event) = process.receive(events, 0)
@@ -79,7 +81,7 @@ pub fn logging_overrides_supplied_msg_and_pid_test() {
     |> logger.with("pid", "supplied pid")
 
   logger.debug(context, "Explicit message")
-  logger.debug_lazy(fn() { #(context, "Explicit message") })
+  logger.debug_lazy(context, fn() { #(context, "Explicit message") })
 
   let assert Ok(eager_event) = process.receive(events, 0)
   let assert Ok(lazy_event) = process.receive(events, 0)
@@ -103,22 +105,22 @@ pub fn lazy_debug_observes_runtime_level_changes_with_same_context_test() {
     #(context, "Runtime level event")
   }
 
-  logger.debug_lazy(build)
+  logger.debug_lazy(context, build)
   assert process.receive(calls, 0) == Error(Nil)
   assert process.receive(events, 0) == Error(Nil)
 
   glight.set_log_level(glight.Debug)
-  logger.debug_lazy(build)
+  logger.debug_lazy(context, build)
   assert process.receive(calls, 0) == Ok(Nil)
   let assert Ok(_) = process.receive(events, 0)
 
   glight.set_log_level(glight.Warning)
-  logger.debug_lazy(build)
+  logger.debug_lazy(context, build)
   assert process.receive(calls, 0) == Error(Nil)
   assert process.receive(events, 0) == Error(Nil)
 
   glight.set_log_level(glight.Debug)
-  logger.debug_lazy(build)
+  logger.debug_lazy(context, build)
   assert process.receive(calls, 0) == Ok(Nil)
   let assert Ok(_) = process.receive(events, 0)
   assert process.receive(calls, 0) == Error(Nil)
@@ -130,7 +132,7 @@ pub fn builder_failure_emits_native_diagnostic_without_propagating_test() {
   let calls = process.new_subject()
 
   let result =
-    logger.debug_lazy(fn() {
+    logger.debug_lazy(logger.new(), fn() {
       process.send(calls, Nil)
       panic as "debug builder failed"
     })
@@ -143,6 +145,67 @@ pub fn builder_failure_emits_native_diagnostic_without_propagating_test() {
   let diagnostic = format_message(event)
   assert string.contains(diagnostic, "LAZY_FUN CRASH")
   assert string.contains(diagnostic, "debug builder failed")
+  assert process.receive(events, 0) == Error(Nil)
+}
+
+pub fn sink_filters_events_and_skips_disabled_debug_builder_test() {
+  let events = process.new_subject()
+  let calls = process.new_subject()
+  let context = logger.new_with_sink(glight.Warning, process.send(events, _))
+
+  logger.debug(context, "Filtered debug")
+  logger.debug_lazy(context, fn() {
+    process.send(calls, Nil)
+    #(context, "Filtered lazy debug")
+  })
+  logger.info(context, "Filtered info")
+  logger.warning(context, "At threshold")
+  logger.error(context, "Above threshold")
+
+  let fields = dict.from_list([#("pid", string.inspect(process.self()))])
+  assert process.receive(calls, 0) == Error(Nil)
+  assert process.receive(events, 0)
+    == Ok(LogEntry(glight.Warning, "At threshold", fields))
+  assert process.receive(events, 0)
+    == Ok(LogEntry(glight.Error, "Above threshold", fields))
+  assert process.receive(events, 0) == Error(Nil)
+}
+
+pub fn sink_uses_the_emitting_pid_and_preserves_structured_fields_test() {
+  let events = process.new_subject()
+  let calls = process.new_subject()
+  let done = process.new_subject()
+  let context =
+    logger.new_with_sink(glight.Debug, fn(entry) {
+      process.send(events, #(process.self(), entry))
+    })
+    |> logger.with_source("logger_test")
+    |> logger.with("pid", "supplied pid")
+    |> logger.with("msg", "supplied message")
+
+  let emitter =
+    process.spawn(fn() {
+      logger.debug(context, "Eager message")
+      logger.debug_lazy(context, fn() {
+        process.send(calls, process.self())
+        let built = logger.with(logger.new(), "detail", "built on demand")
+        #(built, "Lazy message")
+      })
+      process.send(done, Nil)
+    })
+
+  let pid = string.inspect(emitter)
+  let eager_fields = dict.from_list([#("source", "logger_test"), #("pid", pid)])
+  let lazy_fields =
+    dict.from_list([#("detail", "built on demand"), #("pid", pid)])
+
+  assert process.receive(done, 1000) == Ok(Nil)
+  assert process.receive(events, 0)
+    == Ok(#(emitter, LogEntry(glight.Debug, "Eager message", eager_fields)))
+  assert process.receive(events, 0)
+    == Ok(#(emitter, LogEntry(glight.Debug, "Lazy message", lazy_fields)))
+  assert process.receive(calls, 0) == Ok(emitter)
+  assert process.receive(calls, 0) == Error(Nil)
   assert process.receive(events, 0) == Error(Nil)
 }
 
