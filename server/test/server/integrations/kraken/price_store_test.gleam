@@ -70,6 +70,27 @@ pub fn get_store_returns_error_after_table_is_dropped_test() {
   assert price_store.get_store() == Error(Nil)
 }
 
+pub fn retrieved_handle_expires_when_the_table_is_recreated_test() {
+  let old_store = {
+    use _ <- with_price_store
+    let assert Ok(store) = price_store.get_store()
+    store
+  }
+
+  use replacement <- with_price_store
+  let symbol = "BTC/USD"
+  let price = positive_float.from_float_unsafe(90_000.0)
+  price_store.insert(replacement, symbol, price, 1)
+
+  let assert Ok(current_store) = price_store.get_store()
+  assert price_store.get_price(current_store, symbol)
+    == Ok(PriceEntry(price, 1))
+
+  let assert Error(exception.Errored(reason)) =
+    exception.rescue(fn() { price_store.get_price(old_store, symbol) })
+  assert decode.run(reason, atom.decoder()) == Ok(atom.create("badarg"))
+}
+
 pub fn non_owner_can_get_store_and_read_price_test() {
   use store <- with_price_store
 
