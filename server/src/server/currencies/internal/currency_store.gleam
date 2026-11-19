@@ -14,17 +14,17 @@
 //// Individual ETS operations are atomic. Inserting a currency replaces any
 //// existing entry with the same currency ID.
 
-import carpenter/table.{
-  type Set as EtsSet, AutoWriteConcurrency, Public, Set as EtsSet, Table,
-}
-import gleam/erlang/atom.{type Atom}
 import gleam/list
-import gleam/pair
 import gleam/result
 import shared/currency.{type Currency}
 
+type TableId
+
+type CurrencyRow =
+  #(Int, String, Currency)
+
 pub opaque type CurrencyStore {
-  CurrencyStore(EtsSet(Int, Currency))
+  CurrencyStore(TableId)
 }
 
 /// Creates a new `CurrencyStore` by initializing an ETS table.
@@ -39,24 +39,22 @@ pub opaque type CurrencyStore {
 ///
 /// Returns `Error(Nil)` if a table with this name already exists.
 pub fn new() -> Result(CurrencyStore, Nil) {
-  table.build("currencies_store")
-  |> table.privacy(Public)
-  |> table.write_concurrency(AutoWriteConcurrency)
-  |> table.read_concurrency(True)
-  |> table.set
-  |> result.map(CurrencyStore)
+  result.map(create_table(), CurrencyStore)
 }
 
 /// Inserts or updates currencies in the store.
 ///
-/// Each currency is keyed by its `id` field. If a currency with the same `id` 
+/// Each currency is keyed by its `id` field. If a currency with the same `id`
 /// already exists in the store, it will be replaced with the new currency data.
 pub fn insert(store: CurrencyStore, currencies: List(Currency)) -> Nil {
-  let CurrencyStore(set) = store
+  let CurrencyStore(table) = store
 
-  currencies
-  |> list.map(fn(currency) { #(currency.id, currency) })
-  |> table.insert(set, _)
+  let rows =
+    list.map(currencies, fn(currency) {
+      #(currency.id, currency.symbol, currency)
+    })
+  let _ = insert_rows(table, rows)
+  Nil
 }
 
 /// Returns all currencies in the store.
@@ -65,21 +63,19 @@ pub fn insert(store: CurrencyStore, currencies: List(Currency)) -> Nil {
 /// guaranteed order and is not guaranteed to be a consistent snapshot while other
 /// processes are writing to the table.
 pub fn get_all(store: CurrencyStore) -> List(Currency) {
-  store
-  |> get_table_name
-  |> table_to_list
-  |> list.map(pair.second)
+  let CurrencyStore(table) = store
+  list.map(table_to_list(table), fn(row) { row.2 })
 }
 
 /// Looks up a currency by its ID.
 ///
 /// Returns `Ok(currency)` when found, or `Error(Nil)` if the ID is absent.
 pub fn get_by_id(store: CurrencyStore, id: Int) -> Result(Currency, Nil) {
-  let CurrencyStore(set) = store
+  let CurrencyStore(table) = store
 
-  case table.lookup(set, id) {
+  case lookup(table, id) {
     [] -> Error(Nil)
-    [elem, ..] -> Ok(elem.1)
+    [row, ..] -> Ok(row.2)
   }
 }
 
@@ -89,10 +85,8 @@ pub fn get_by_id(store: CurrencyStore, id: Int) -> Result(Currency, Nil) {
 /// guaranteed order and is not guaranteed to be a consistent snapshot while other
 /// processes are writing to the table.
 pub fn get_by_symbol(store: CurrencyStore, symbol: String) -> List(Currency) {
-  store
-  |> get_table_name
-  |> match_by_symbol(symbol)
-  |> list.map(pair.second)
+  let CurrencyStore(table) = store
+  list.map(match_by_symbol(table, symbol), fn(row) { row.2 })
 }
 
 /// Deletes the underlying ETS table associated with the given `CurrencyStore`.
@@ -100,19 +94,25 @@ pub fn get_by_symbol(store: CurrencyStore, symbol: String) -> List(Currency) {
 /// All references to the deleted table become invalid. The table is also destroyed
 /// automatically when its owner process exits.
 pub fn drop(store: CurrencyStore) -> Nil {
-  let CurrencyStore(set) = store
-  table.drop(set)
+  let CurrencyStore(table) = store
+  let _ = delete_table(table)
+  Nil
 }
 
-fn get_table_name(store: CurrencyStore) -> Atom {
-  let CurrencyStore(set) = store
-  let EtsSet(table) = set
-  let Table(name) = table
-  name
-}
+@external(erlang, "currency_store_ffi", "create_table")
+fn create_table() -> Result(TableId, Nil)
+
+@external(erlang, "ets", "insert")
+fn insert_rows(table: TableId, rows: List(CurrencyRow)) -> Bool
 
 @external(erlang, "ets", "tab2list")
-fn table_to_list(table_name: Atom) -> List(#(k, v))
+fn table_to_list(table: TableId) -> List(CurrencyRow)
+
+@external(erlang, "ets", "lookup")
+fn lookup(table: TableId, id: Int) -> List(CurrencyRow)
 
 @external(erlang, "currency_store_ffi", "match_by_symbol")
-fn match_by_symbol(table_name: Atom, symbol: String) -> List(#(Int, Currency))
+fn match_by_symbol(table: TableId, symbol: String) -> List(CurrencyRow)
+
+@external(erlang, "ets", "delete")
+fn delete_table(table: TableId) -> Bool

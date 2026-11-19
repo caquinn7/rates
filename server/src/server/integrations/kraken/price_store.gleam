@@ -6,26 +6,25 @@
 //// The process calling `new()` owns the table, which is destroyed when that process exits.
 //// Access through a `PriceStore` requires the table to remain alive.
 
-import carpenter/table.{type Set as EtsSet, AutoWriteConcurrency, Protected}
-import gleam/erlang/atom.{type Atom}
-import gleam/list
-import gleam/pair
 import gleam/result
 import shared/numbers/positive_float.{type PositiveFloat}
+
+type TableId
+
+type PriceRow =
+  #(String, PriceEntry)
 
 /// A handle to a protected ETS table of prices and provider timestamps, keyed by
 /// Kraken symbol. Any process may read from the store; only its owner may mutate it.
 /// The handle remains valid until the table is dropped or its owning process exits.
 pub opaque type PriceStore {
-  PriceStore(EtsSet(String, PriceEntry))
+  PriceStore(TableId)
 }
 
 /// A stored price and its timestamp in Unix milliseconds.
 pub type PriceEntry {
   PriceEntry(price: PositiveFloat, timestamp: Int)
 }
-
-const table_name = "kraken_price_store"
 
 /// Creates a new `PriceStore` by initializing a protected ETS table.
 ///
@@ -42,13 +41,7 @@ const table_name = "kraken_price_store"
 ///
 /// Returns `Error(Nil)` if a table with this name already exists.
 pub fn new() -> Result(PriceStore, Nil) {
-  table_name
-  |> table.build
-  |> table.privacy(Protected)
-  |> table.write_concurrency(AutoWriteConcurrency)
-  |> table.read_concurrency(True)
-  |> table.set
-  |> result.map(PriceStore)
+  result.map(create_table(), PriceStore)
 }
 
 /// Inserts or replaces a price using the supplied Unix millisecond timestamp unchanged.
@@ -77,7 +70,8 @@ pub fn insert(
   let PriceStore(table) = store
 
   let price_entry = PriceEntry(price, timestamp)
-  table.insert(table, [#(symbol, price_entry)])
+  let _ = insert_row(table, #(symbol, price_entry))
+  Nil
 }
 
 /// Retrieves the last inserted price entry for a given symbol from the `PriceStore`.
@@ -102,20 +96,21 @@ pub fn insert(
 pub fn get_price(store: PriceStore, symbol: String) -> Result(PriceEntry, Nil) {
   let PriceStore(table) = store
 
-  table
-  |> table.lookup(symbol)
-  |> list.first
-  |> result.map(pair.second)
+  case lookup(table, symbol) {
+    [] -> Error(Nil)
+    [#(_, entry), ..] -> Ok(entry)
+  }
 }
 
 /// Removes a price record from the store for the specified currency pair symbol.
-/// 
+///
 /// Only the process that owns the store may call this.
 /// If the symbol does not exist in the store, the operation succeeds silently
 /// without any error.
 pub fn delete_price(store: PriceStore, symbol: String) -> Nil {
   let PriceStore(table) = store
-  table.delete(table, symbol)
+  let _ = delete_row(table, symbol)
+  Nil
 }
 
 /// Returns a reference to an already-initialized `PriceStore`.
@@ -123,20 +118,10 @@ pub fn delete_price(store: PriceStore, symbol: String) -> Nil {
 /// This is intended for use by processes that did not create the store themselves,
 /// but need to read from it.
 ///
-/// Returns `Error(Nil)` if the table does not currently exist, including after
-/// deletion or owner exit. Checking availability does not keep the table alive;
-/// subsequent operations still require a live table.
+/// Returns `Error(Nil)` if the table does not currently exist.
+/// The returned handle identifies that specific table instance.
 pub fn get_store() -> Result(PriceStore, Nil) {
-  use name <- result.try(atom.get(table_name))
-
-  case table_exists(name) {
-    True ->
-      table_name
-      |> table.ref
-      |> result.map(PriceStore)
-
-    False -> Error(Nil)
-  }
+  result.map(find_table(), PriceStore)
 }
 
 /// Deletes the underlying ETS table associated with the given `PriceStore`.
@@ -145,8 +130,24 @@ pub fn get_store() -> Result(PriceStore, Nil) {
 /// not be used after deletion. The table is also destroyed when its owner exits.
 pub fn drop(store: PriceStore) -> Nil {
   let PriceStore(table) = store
-  table.drop(table)
+  let _ = delete_table(table)
+  Nil
 }
 
-@external(erlang, "price_store_ffi", "table_exists")
-fn table_exists(table_name: Atom) -> Bool
+@external(erlang, "price_store_ffi", "create_table")
+fn create_table() -> Result(TableId, Nil)
+
+@external(erlang, "price_store_ffi", "find_table")
+fn find_table() -> Result(TableId, Nil)
+
+@external(erlang, "ets", "insert")
+fn insert_row(table: TableId, row: PriceRow) -> Bool
+
+@external(erlang, "ets", "lookup")
+fn lookup(table: TableId, symbol: String) -> List(PriceRow)
+
+@external(erlang, "ets", "delete")
+fn delete_row(table: TableId, symbol: String) -> Bool
+
+@external(erlang, "ets", "delete")
+fn delete_table(table: TableId) -> Bool
