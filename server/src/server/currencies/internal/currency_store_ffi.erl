@@ -1,10 +1,18 @@
 -module(currency_store_ffi).
--export([match_by_symbol/2]).
+-export([create_table/0, match_by_symbol/2]).
 
-match_by_symbol(TableName, Symbol) ->
-    %% Gleam custom types are represented as tuples: {Constructor, Field1, Field2, ...}
-    %% Crypto: {crypto, Id, Name, Symbol, Rank}
-    %% Fiat: {fiat, Id, Name, Symbol, Sign}
-    %% Both Currency variants must remain five-element tuples with Symbol at position 4.
-    %% Keep this pattern in sync with shared/currency.gleam.
-    ets:match_object(TableName, {'_', {'_', '_', '_', Symbol, '_'}}).
+create_table() ->
+    try ets:new(currencies_store, [
+        named_table, set, public, {read_concurrency, true}, {write_concurrency, auto}
+    ]) of
+        Name ->
+            case ets:whereis(Name) of
+                undefined -> {error, nil};
+                Table -> {ok, Table}
+            end
+    catch
+        error:badarg -> {error, nil}
+    end.
+
+match_by_symbol(Table, Symbol) ->
+    ets:match_object(Table, {'_', Symbol, '_'}).
