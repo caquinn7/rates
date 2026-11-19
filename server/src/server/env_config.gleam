@@ -1,14 +1,8 @@
 import dot_env/env
+import gleam/int
+import gleam/list
 import gleam/result
 import gleam/string
-
-pub type EnvInterface {
-  EnvInterface(
-    get_string: fn(String) -> Result(String, Nil),
-    get_string_or: fn(String, String) -> String,
-    get_int_or: fn(String, Int) -> Int,
-  )
-}
 
 pub type EnvConfig {
   EnvConfig(
@@ -21,38 +15,28 @@ pub type EnvConfig {
 }
 
 pub fn load() -> Result(EnvConfig, String) {
-  load_with_interface(EnvInterface(
-    fn(key) { result.replace_error(env.get_string(key), Nil) },
-    env.get_string_or,
-    env.get_int_or,
-  ))
+  load_with(env.get_string)
 }
 
-pub fn load_with_interface(
-  env_interface: EnvInterface,
+pub fn load_with(
+  get: fn(String) -> Result(String, error),
 ) -> Result(EnvConfig, String) {
-  use secret_key_base <- result.try(
-    "SECRET_KEY_BASE"
-    |> env_interface.get_string
-    |> result.map_error(fn(_) { "SECRET_KEY_BASE is required" }),
+  use secret_key_base <- result.try(required(get, "SECRET_KEY_BASE"))
+  use cmc_api_key <- result.try(required(get, "COIN_MARKET_CAP_API_KEY"))
+
+  let crypto_limit =
+    get("CRYPTO_LIMIT")
+    |> result.replace_error(Nil)
+    |> result.try(int.parse)
+    |> result.unwrap(100)
+
+  use supported_fiat_symbols <- result.try(
+    get("SUPPORTED_FIAT_SYMBOLS")
+    |> result.unwrap("USD")
+    |> parse_fiat_symbols,
   )
 
-  use cmc_api_key <- result.try(
-    "COIN_MARKET_CAP_API_KEY"
-    |> env_interface.get_string
-    |> result.map_error(fn(_) { "COIN_MARKET_CAP_API_KEY is required" }),
-  )
-
-  let crypto_limit = env_interface.get_int_or("CRYPTO_LIMIT", 100)
-
-  let supported_fiat_symbols = case
-    env_interface.get_string("SUPPORTED_FIAT_SYMBOLS")
-  {
-    Error(_) -> ["USD"]
-    Ok(s) -> string.split(s, ",")
-  }
-
-  let log_level = env_interface.get_string_or("LOG_LEVEL", "info")
+  let log_level = result.unwrap(get("LOG_LEVEL"), "info")
 
   Ok(EnvConfig(
     secret_key_base:,
@@ -61,4 +45,28 @@ pub fn load_with_interface(
     supported_fiat_symbols:,
     log_level:,
   ))
+}
+
+fn required(
+  get: fn(String) -> Result(String, error),
+  key: String,
+) -> Result(String, String) {
+  let value = result.unwrap(get(key), "")
+  case string.trim(value) {
+    "" -> Error(key <> " is required")
+    _ -> Ok(value)
+  }
+}
+
+fn parse_fiat_symbols(value: String) -> Result(List(String), String) {
+  let symbols =
+    value
+    |> string.split(",")
+    |> list.map(string.trim)
+    |> list.filter(fn(symbol) { !string.is_empty(symbol) })
+
+  case symbols {
+    [] -> Error("SUPPORTED_FIAT_SYMBOLS must contain at least one symbol")
+    _ -> Ok(symbols)
+  }
 }
