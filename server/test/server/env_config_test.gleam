@@ -1,8 +1,5 @@
 import gleam/dict.{type Dict}
-import gleam/int
-import gleam/list
-import gleam/result
-import server/env_config.{type EnvInterface, EnvConfig, EnvInterface}
+import server/env_config.{type EnvConfig, EnvConfig}
 
 const all_vars = [
   #("SECRET_KEY_BASE", "secret_key"),
@@ -16,71 +13,110 @@ pub fn load_returns_all_values_when_all_values_are_set_test() {
   let assert Ok(config) =
     all_vars
     |> dict.from_list
-    |> mock_env_interface
-    |> env_config.load_with_interface
+    |> load_with_vars
 
   assert EnvConfig("secret_key", "cmc_key", 50, ["USD", "EUR", "GBP"], "debug")
     == config
 }
 
 pub fn load_returns_error_when_secret_key_base_is_not_set_test() {
-  assert Error("SECRET_KEY_BASE is required")
-    == env_config.load_with_interface(env_with_missing("SECRET_KEY_BASE"))
+  assert Error("SECRET_KEY_BASE is required") == load_without("SECRET_KEY_BASE")
 }
 
 pub fn load_returns_error_when_cmc_api_key_is_not_set_test() {
   assert Error("COIN_MARKET_CAP_API_KEY is required")
-    == env_config.load_with_interface(env_with_missing(
-      "COIN_MARKET_CAP_API_KEY",
-    ))
+    == load_without("COIN_MARKET_CAP_API_KEY")
+}
+
+pub fn load_checks_secret_key_base_first_test() {
+  assert Error("SECRET_KEY_BASE is required") == load_with_vars(dict.new())
+}
+
+pub fn load_rejects_blank_secret_key_base_test() {
+  assert Error("SECRET_KEY_BASE is required")
+    == load_with_override("SECRET_KEY_BASE", "")
+  assert Error("SECRET_KEY_BASE is required")
+    == load_with_override("SECRET_KEY_BASE", " \t ")
+}
+
+pub fn load_rejects_blank_cmc_api_key_test() {
+  assert Error("COIN_MARKET_CAP_API_KEY is required")
+    == load_with_override("COIN_MARKET_CAP_API_KEY", "")
+  assert Error("COIN_MARKET_CAP_API_KEY is required")
+    == load_with_override("COIN_MARKET_CAP_API_KEY", " \t ")
+}
+
+pub fn load_preserves_credentials_verbatim_test() {
+  let assert Ok(config) =
+    all_vars
+    |> dict.from_list
+    |> dict.insert("SECRET_KEY_BASE", " secret_key ")
+    |> dict.insert("COIN_MARKET_CAP_API_KEY", " cmc_key ")
+    |> load_with_vars
+
+  assert " secret_key " == config.secret_key_base
+  assert " cmc_key " == config.cmc_api_key
 }
 
 pub fn load_returns_default_crypto_limit_when_not_set_test() {
-  let assert Ok(config) =
-    env_config.load_with_interface(env_with_missing("CRYPTO_LIMIT"))
+  let assert Ok(config) = load_without("CRYPTO_LIMIT")
+
+  assert 100 == config.crypto_limit
+}
+
+pub fn load_returns_default_crypto_limit_when_malformed_test() {
+  let assert Ok(config) = load_with_override("CRYPTO_LIMIT", "invalid")
 
   assert 100 == config.crypto_limit
 }
 
 pub fn load_returns_default_supported_fiat_symbols_when_not_set_test() {
-  let assert Ok(config) =
-    env_config.load_with_interface(env_with_missing("SUPPORTED_FIAT_SYMBOLS"))
+  let assert Ok(config) = load_without("SUPPORTED_FIAT_SYMBOLS")
 
   assert ["USD"] == config.supported_fiat_symbols
 }
 
-pub fn load_returns_default_log_level_when_not_set_test() {
+pub fn load_trims_fiat_symbols_and_discards_empty_tokens_test() {
   let assert Ok(config) =
-    env_config.load_with_interface(env_with_missing("LOG_LEVEL"))
+    load_with_override("SUPPORTED_FIAT_SYMBOLS", "USD, , EUR,")
+
+  assert ["USD", "EUR"] == config.supported_fiat_symbols
+}
+
+pub fn load_preserves_fiat_symbol_case_and_order_test() {
+  let assert Ok(config) =
+    load_with_override("SUPPORTED_FIAT_SYMBOLS", "eur, USD")
+
+  assert ["eur", "USD"] == config.supported_fiat_symbols
+}
+
+pub fn load_rejects_fiat_lists_with_no_symbols_test() {
+  let error = Error("SUPPORTED_FIAT_SYMBOLS must contain at least one symbol")
+
+  assert error == load_with_override("SUPPORTED_FIAT_SYMBOLS", "")
+  assert error == load_with_override("SUPPORTED_FIAT_SYMBOLS", " , , ")
+}
+
+pub fn load_returns_default_log_level_when_not_set_test() {
+  let assert Ok(config) = load_without("LOG_LEVEL")
 
   assert "info" == config.log_level
 }
 
-fn mock_env_interface(vars: Dict(String, String)) -> EnvInterface {
-  EnvInterface(
-    get_string: fn(key) {
-      vars
-      |> dict.get(key)
-      |> result.replace_error(Nil)
-    },
-    get_string_or: fn(key, default) {
-      vars
-      |> dict.get(key)
-      |> result.unwrap(default)
-    },
-    get_int_or: fn(key, default) {
-      vars
-      |> dict.get(key)
-      |> result.try(int.parse)
-      |> result.unwrap(default)
-    },
-  )
+fn load_without(key: String) -> Result(EnvConfig, String) {
+  all_vars
+  |> dict.from_list
+  |> dict.delete(key)
+  |> load_with_vars
 }
 
-fn env_with_missing(key: String) -> EnvInterface {
-  let assert Ok(#(_, vars)) = list.key_pop(all_vars, key)
-
-  vars
+fn load_with_override(key: String, value: String) -> Result(EnvConfig, String) {
+  all_vars
   |> dict.from_list
-  |> mock_env_interface
+  |> dict.insert(key, value)
+  |> load_with_vars
+}
+
+fn load_with_vars(vars: Dict(String, String)) -> Result(EnvConfig, String) {
+  env_config.load_with(dict.get(vars, _))
 }
