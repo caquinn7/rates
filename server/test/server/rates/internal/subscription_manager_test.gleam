@@ -21,8 +21,7 @@ pub fn new_returns_manager_with_no_subscription_test() {
 }
 
 pub fn set_subscription_records_kraken_subscription_test() {
-  let assert Ok(kraken_symbol) =
-    kraken_symbol.new(#("BTC", "USD"), fn(_) { True })
+  let assert Ok(kraken_symbol) = kraken_symbol.new(#(1, 2781), fn(_) { True })
 
   let rate_request = RateRequest(1, 2)
 
@@ -64,8 +63,7 @@ pub fn cmc_subscription_uses_base_interval_when_greater_than_30000_test() {
 }
 
 pub fn switching_from_cmc_to_kraken_restores_base_interval_test() {
-  let assert Ok(kraken_symbol) =
-    kraken_symbol.new(#("BTC", "USD"), fn(_) { True })
+  let assert Ok(kraken_symbol) = kraken_symbol.new(#(1, 2781), fn(_) { True })
   let rate_request = RateRequest(3, 4)
   let assert Ok(manager) = subscription_manager.new(1000)
 
@@ -80,8 +78,7 @@ pub fn switching_from_cmc_to_kraken_restores_base_interval_test() {
 }
 
 pub fn switching_from_kraken_to_cmc_replaces_subscription_test() {
-  let assert Ok(kraken_symbol) =
-    kraken_symbol.new(#("BTC", "USD"), fn(_) { True })
+  let assert Ok(kraken_symbol) = kraken_symbol.new(#(1, 2781), fn(_) { True })
   let rate_request = RateRequest(3, 4)
   let assert Ok(manager) = subscription_manager.new(1000)
 
@@ -99,10 +96,8 @@ pub fn switching_from_kraken_to_cmc_replaces_subscription_test() {
 }
 
 pub fn replacing_kraken_subscription_updates_request_and_symbol_test() {
-  let assert Ok(previous_symbol) =
-    kraken_symbol.new(#("BTC", "USD"), fn(_) { True })
-  let assert Ok(next_symbol) =
-    kraken_symbol.new(#("ETH", "EUR"), fn(_) { True })
+  let assert Ok(previous_symbol) = kraken_symbol.new(#(1, 2781), fn(_) { True })
+  let assert Ok(next_symbol) = kraken_symbol.new(#(1027, 2790), fn(_) { True })
   let rate_request = RateRequest(3, 4)
   let assert Ok(manager) = subscription_manager.new(1000)
 

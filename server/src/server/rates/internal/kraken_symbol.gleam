@@ -1,3 +1,5 @@
+import gleam/result
+import server/rates/internal/kraken_asset
 import shared/numbers/positive_float.{type PositiveFloat}
 
 /// Represents a Kraken currency pair and whether it was found in the direct or reversed form.
@@ -7,19 +9,19 @@ pub opaque type KrakenSymbol {
   Reversed(String)
 }
 
-/// Attempts to resolve a Kraken-compatible pair symbol from the given currency symbols.
-/// Returns a `KrakenSymbol` indicating whether the direct or reversed form was matched.
-/// Returns an error if neither form exists in the Kraken pair list.
+/// Resolves the CoinMarketCap IDs to a supported Kraken pair, preferring the
+/// requested direction. Returns an error if an asset or pair is unavailable.
 pub fn new(
-  currency_symbols: #(String, String),
+  currency_ids: #(Int, Int),
   pair_exists: fn(String) -> Bool,
 ) -> Result(KrakenSymbol, Nil) {
-  let #(from_symbol, to_symbol) = currency_symbols
+  let #(from_id, to_id) = currency_ids
+  use from_symbol <- result.try(kraken_asset.from_cmc_id(from_id))
+  use to_symbol <- result.try(kraken_asset.from_cmc_id(to_id))
   let direct_pair_symbol = from_symbol <> "/" <> to_symbol
 
   case pair_exists(direct_pair_symbol) {
     True -> Ok(Direct(direct_pair_symbol))
-
     False -> {
       let reverse_pair_symbol = to_symbol <> "/" <> from_symbol
       case pair_exists(reverse_pair_symbol) {

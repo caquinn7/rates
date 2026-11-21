@@ -33,7 +33,7 @@ pub type StrategyConfig {
   )
 }
 
-/// Resolves the requested currency IDs to symbols and selects a lookup strategy.
+/// Validates the requested currency IDs and selects a lookup strategy.
 /// Uses Kraken when `create_kraken_symbol` succeeds, otherwise CoinMarketCap.
 ///
 /// Returns `CurrencyNotFound` with the original request and the first currency ID
@@ -41,34 +41,20 @@ pub type StrategyConfig {
 pub fn determine_strategy(
   rate_request: RateRequest,
   get_currency_by_id: fn(Int) -> Result(Currency, Nil),
-  create_kraken_symbol: fn(#(String, String)) -> Result(KrakenSymbol, Nil),
+  create_kraken_symbol: fn(#(Int, Int)) -> Result(KrakenSymbol, Nil),
 ) -> Result(RateSourceStrategy, RateError) {
-  use symbols <- result.try(
-    rate_request
-    |> resolve_currency_symbols(get_currency_by_id)
-    |> result.map_error(CurrencyNotFound(rate_request, _)),
-  )
+  let validate_currency = fn(id) {
+    id
+    |> get_currency_by_id
+    |> result.replace_error(CurrencyNotFound(rate_request, id))
+  }
+  use _ <- result.try(validate_currency(rate_request.from))
+  use _ <- result.try(validate_currency(rate_request.to))
 
-  Ok(case create_kraken_symbol(symbols) {
+  Ok(case create_kraken_symbol(#(rate_request.from, rate_request.to)) {
     Ok(symbol) -> KrakenStrategy(symbol)
     Error(_) -> CmcStrategy
   })
-}
-
-fn resolve_currency_symbols(
-  rate_request: RateRequest,
-  get_currency_by_id: fn(Int) -> Result(Currency, Nil),
-) -> Result(#(String, String), Int) {
-  let try_get_symbol = fn(id) {
-    id
-    |> get_currency_by_id
-    |> result.replace_error(id)
-    |> result.map(fn(currency) { currency.symbol })
-  }
-
-  use from_symbol <- result.try(try_get_symbol(rate_request.from))
-  use to_symbol <- result.try(try_get_symbol(rate_request.to))
-  Ok(#(from_symbol, to_symbol))
 }
 
 /// Fetches a quote using the selected strategy, falling back from Kraken to CMC

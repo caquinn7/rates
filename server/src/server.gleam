@@ -125,7 +125,7 @@ fn fetch_and_store_currencies(
   request_cmc_fiats: RequestCmcFiats,
   currency_store: CurrencyStore,
   logger: Logger,
-) {
+) -> Nil {
   let currencies_result =
     currency_catalog_loader.get_currencies(
       supported_fiat_symbols,
