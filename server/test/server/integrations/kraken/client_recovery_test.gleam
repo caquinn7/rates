@@ -28,21 +28,42 @@ import server/utils/logger.{type LogEntry, LogEntry}
 import server/utils/time
 import shared/numbers/positive_float
 
+/// Controls how the scripted Kraken socket responds to JSON pings.
 type PongMode {
+  /// Replies with a pong carrying the ping's request ID.
   Echo
+
+  /// Leaves the reply to the test, which can send a pong or let the ping expire.
   Silent
+
+  /// Replies with a pong whose request ID is one greater than the ping's.
   WrongId
 }
 
+/// Scripts the fixture's response to a WebSocket connection attempt.
 type Plan {
+  /// Accepts with the given pong mode and automatic ticker replies. Sends an
+  /// instrument snapshot on subscribe when `snapshot` is `True`.
   Accept(PongMode, snapshot: Bool)
+
+  /// Accepts with matching pongs and an instrument snapshot. The test sends
+  /// ticker confirmations and quotes explicitly.
   ManualTickers
+
+  /// Rejects the WebSocket upgrade with HTTP 503.
   Reject
+
+  /// Waits the given number of milliseconds before accepting with matching
+  /// pongs, an instrument snapshot, and automatic ticker replies.
   DelayedAccept(Int)
 }
 
+/// Commands a test can send to an open fixture socket.
 type Control {
+  /// Sends a WebSocket text frame containing the supplied payload.
   Send(String)
+
+  /// Closes the fixture socket to simulate a normal disconnect.
   Close
 }
 
@@ -54,20 +75,37 @@ pub type Request {
   Ping(Int)
 }
 
+/// Reports a WebSocket connection accepted by the fixture.
 type Opened {
-  Opened(attempt: Int, control: Subject(Control), pid: Pid)
+  Opened(
+    /// Zero-based attempt number. Rejected attempts also advance the count.
+    attempt: Int,
+    /// Subject for sending commands to the open socket.
+    control: Subject(Control),
+    /// Fixture socket process used for liveness checks and abrupt disconnects.
+    pid: Pid,
+  )
 }
 
+/// Reports connection attempts and client requests from the scripted server.
 type Fixture {
   Fixture(
+    /// Reports each accepted WebSocket when its socket process starts.
     opened: Subject(Opened),
+    /// Reports each decoded client request with its connection attempt number.
     requests: Subject(#(Int, Request)),
+    /// Reports every attempt number and its monotonic timestamp in milliseconds,
+    /// including attempts the server rejects.
     attempts: Subject(#(Int, Int)),
   )
 }
 
+/// Requests a plan for the next connection attempt and advances the sequence.
 type NextAttempt {
-  NextAttempt(Subject(#(Int, Plan)))
+  NextAttempt(
+    /// Receives the zero-based attempt number and its plan.
+    Subject(#(Int, Plan)),
+  )
 }
 
 fn config() {
@@ -82,6 +120,10 @@ fn config() {
     retry_max_ms: 120,
     jitter_ms: fn() { 0 },
   )
+}
+
+fn manual_keepalive_config() {
+  session.Config(..config(), ping_interval_ms: 60_000, pong_timeout_ms: 60_000)
 }
 
 /// Run application WebSocket tests against the same scripted Kraken endpoint.
@@ -117,6 +159,51 @@ pub fn missing_pong_reconnects_even_while_other_messages_arrive_test() {
   assert process.is_alive(client.pid)
   assert !process.is_alive(first.pid)
   assert process.is_alive(second.pid)
+}
+
+pub fn ping_interval_skips_a_second_ping_while_waiting_for_pong_test() {
+  use fixture, url <- with_server([Accept(Silent, True)])
+  use client, _, _ <- with_client(fixture, url, manual_keepalive_config())
+  assert next_request(fixture, 0) == InstrumentSubscribe
+
+  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
+  let assert Ping(id) = next_request(fixture, 0)
+
+  // The ticker request shows the session handled the preceding ping interval.
+  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
+  process.send(client.data, Subscribe("ETH/USD"))
+  let assert TickerSubscribe(["ETH/USD"], _) = next_request(fixture, 0)
+
+  process.send(client.data, GenerationEvent(0, PongDeadlineReached(id)))
+  let _ = await_open(fixture, 1)
+  assert process.is_alive(client.pid)
+}
+
+pub fn obsolete_pong_deadline_keeps_the_same_connection_usable_test() {
+  use fixture, url <- with_server([Accept(Silent, True)])
+  use client, _, _ <- with_client(fixture, url, manual_keepalive_config())
+  assert next_request(fixture, 0) == InstrumentSubscribe
+
+  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
+  let assert Ping(old_id) = next_request(fixture, 0)
+
+  // Send all three events from this process to control their order.
+  process.send(
+    client.data,
+    GenerationEvent(
+      0,
+      ConnectionEvent(connection.Received(response.Pong(old_id))),
+    ),
+  )
+  process.send(client.data, GenerationEvent(0, PongDeadlineReached(old_id)))
+  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
+  let assert Ping(new_id) = next_request(fixture, 0)
+  assert new_id != old_id
+
+  process.send(client.data, GenerationEvent(0, PongDeadlineReached(old_id)))
+  process.send(client.data, Subscribe("ETH/USD"))
+  let assert TickerSubscribe(["ETH/USD"], _) = next_request(fixture, 0)
+  assert process.receive(fixture.opened, 0) == Error(Nil)
 }
 
 pub fn wrong_pong_id_does_not_prevent_reconnect_test() {
@@ -314,6 +401,30 @@ pub fn instrument_updates_keep_existing_pairs_and_add_new_listings_test() {
   assert process.receive(fixture.opened, 0) == Error(Nil)
 }
 
+pub fn first_interest_in_an_unsupported_pair_waits_for_listing_test() {
+  use fixture, url <- with_server([])
+  use client, opened, _ <- with_client(fixture, url, manual_keepalive_config())
+  assert next_request(fixture, 0) == InstrumentSubscribe
+  assert !pairs.exists("XRP/USD")
+
+  process.send(client.data, Subscribe("XRP/USD"))
+  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
+  let assert Ping(_) = next_request(fixture, 0)
+
+  process.send(
+    opened.control,
+    Send(instrument_json("update", [#("XRP/USD", "online")])),
+  )
+  let assert TickerSubscribe(["XRP/USD"], _) = next_request(fixture, 0)
+
+  let assert Ok(store) = price_store.get_store()
+  let _ = await_symbol_price(store, "XRP/USD", 100.0, 100)
+  assert pairs.exists("XRP/USD")
+
+  process.send(client.data, Unsubscribe("XRP/USD"))
+  assert next_request(fixture, 0) == TickerUnsubscribe(["XRP/USD"])
+}
+
 pub fn relisting_restores_shared_interest_and_requires_fresh_confirmation_test() {
   use fixture, url <- with_server([ManualTickers])
   let cfg = session.Config(..config(), ping_interval_ms: 10_000)
@@ -402,6 +513,38 @@ pub fn relisting_restores_shared_interest_and_requires_fresh_confirmation_test()
   let _ =
     await_request(fixture, 0, fn(req) { req == TickerUnsubscribe(["BTC/USD"]) })
   assert process.is_alive(client.pid)
+}
+
+pub fn second_snapshot_evicts_removed_pairs_on_the_same_connection_test() {
+  use fixture, url <- with_server([])
+  use client, opened, _ <- with_client(fixture, url, manual_keepalive_config())
+  assert next_request(fixture, 0) == InstrumentSubscribe
+
+  process.send(client.data, Subscribe("BTC/USD"))
+  process.send(client.data, Subscribe("ETH/USD"))
+  let assert TickerSubscribe(["BTC/USD"], _) = next_request(fixture, 0)
+  let assert TickerSubscribe(["ETH/USD"], _) = next_request(fixture, 0)
+
+  let assert Ok(store) = price_store.get_store()
+  let _ = await_price(store, 100.0, 100)
+  let eth = await_symbol_price(store, "ETH/USD", 100.0, 100)
+
+  process.send(
+    opened.control,
+    Send(instrument_json("snapshot", [#("ETH/USD", "online")])),
+  )
+  assert next_request(fixture, 0) == TickerUnsubscribe(["BTC/USD"])
+  await_pair("BTC/USD", False, 100)
+  assert price_store.get_price(store, "BTC/USD") == Error(Nil)
+  assert pairs.exists("ETH/USD")
+  assert price_store.get_price(store, "ETH/USD") == Ok(eth)
+
+  // Receiving the ping next confirms the snapshot caused one ticker request.
+  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
+  let assert Ping(_) = next_request(fixture, 0)
+  process.send(opened.control, Send(ticker_json("ETH/USD", 101)))
+  let _ = await_symbol_price(store, "ETH/USD", 101.0, 100)
+  assert process.receive(fixture.opened, 0) == Error(Nil)
 }
 
 pub fn reconnect_snapshot_evicts_removed_pairs_and_restores_listed_tickers_test() {
@@ -1049,6 +1192,12 @@ fn is_ticker_subscribe(symbol, request) {
     TickerSubscribe([requested], _) -> requested == symbol
     _ -> False
   }
+}
+
+fn next_request(fixture: Fixture, attempt: Int) -> Request {
+  let #(actual, request) = unwrap(process.receive(fixture.requests, 2000))
+  assert actual == attempt
+  request
 }
 
 fn await_request(fixture: Fixture, attempt, matches) {

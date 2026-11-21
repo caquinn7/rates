@@ -1,25 +1,6 @@
 import gleam/json.{type Json}
 import gleam/option.{type Option, None, Some}
 
-// {
-//     "method": "subscribe",
-//     "params": {
-//         "channel": "instrument",
-//         "snapshot": true
-//     },
-//     "req_id": 79
-// }
-
-// {
-//     "method": "subscribe",
-//     "params": {
-//         "channel": "ticker",
-//         "symbol": [
-//             "BTC/USD"
-//         ]
-//     }
-// }
-
 /// Requests sent to Kraken's WebSocket API for instrument discovery,
 /// ticker subscriptions, and connection keepalive.
 pub type KrakenRequest {
