@@ -36,6 +36,7 @@ type PongMode {
 
 type Plan {
   Accept(PongMode, snapshot: Bool)
+  ManualTickers
   Reject
   DelayedAccept(Int)
 }
@@ -48,7 +49,7 @@ type Control {
 pub type Request {
   InstrumentSubscribe
   InstrumentUnsubscribe
-  TickerSubscribe(List(String))
+  TickerSubscribe(List(String), Int)
   TickerUnsubscribe(List(String))
   Ping(Int)
 }
@@ -86,13 +87,13 @@ fn config() {
 /// Run application WebSocket tests against the same scripted Kraken endpoint.
 pub fn with_kraken(run) {
   use fixture, url <- with_server([])
-  use client, _ <- with_client(fixture, url, config())
+  use client, _, _ <- with_client(fixture, url, config())
   run(client, fixture.requests)
 }
 
 pub fn idle_socket_sends_correlated_pings_without_ticker_subscriptions_test() {
   use fixture, url <- with_server([])
-  use client, _ <- with_client(fixture, url, config())
+  use client, _, _ <- with_client(fixture, url, config())
 
   let assert Ping(first) = await_request(fixture, 0, is_ping)
   let assert Ping(second) = await_request(fixture, 0, is_ping)
@@ -107,7 +108,7 @@ pub fn idle_socket_sends_correlated_pings_without_ticker_subscriptions_test() {
 
 pub fn missing_pong_reconnects_even_while_other_messages_arrive_test() {
   use fixture, url <- with_server([Accept(Silent, True)])
-  use client, first <- with_client(fixture, url, config())
+  use client, first, _ <- with_client(fixture, url, config())
 
   let assert Ping(_) = await_request(fixture, 0, is_ping)
   process.send(first.control, Send("{\"channel\":\"heartbeat\"}"))
@@ -120,7 +121,7 @@ pub fn missing_pong_reconnects_even_while_other_messages_arrive_test() {
 
 pub fn wrong_pong_id_does_not_prevent_reconnect_test() {
   use fixture, url <- with_server([Accept(WrongId, True)])
-  use client, _ <- with_client(fixture, url, config())
+  use client, _, _ <- with_client(fixture, url, config())
 
   let _ = await_open(fixture, 1)
 
@@ -129,7 +130,7 @@ pub fn wrong_pong_id_does_not_prevent_reconnect_test() {
 
 pub fn late_pong_from_previous_connection_cannot_satisfy_new_ping_test() {
   use fixture, url <- with_server([Accept(Silent, True), Accept(Silent, True)])
-  use client, _ <- with_client(fixture, url, config())
+  use client, _, _ <- with_client(fixture, url, config())
 
   let assert Ping(old_id) = await_request(fixture, 0, is_ping)
 
@@ -158,7 +159,7 @@ pub fn late_pong_from_previous_connection_cannot_satisfy_new_ping_test() {
 
 pub fn stale_deadline_cannot_end_new_instrument_discovery_test() {
   use fixture, url <- with_server([Accept(Echo, True), Accept(Echo, False)])
-  use client, first <- with_client(fixture, url, config())
+  use client, first, ready <- with_client(fixture, url, config())
 
   process.send(first.control, Close)
   let recovered = await_open(fixture, 1)
@@ -166,7 +167,7 @@ pub fn stale_deadline_cannot_end_new_instrument_discovery_test() {
 
   process.send(client.data, GenerationEvent(0, DiscoveryDeadlineReached))
   let assert Some(snapshot) =
-    unwrap(json.parse(instrument_snapshot, response.decoder()))
+    unwrap(json.parse(instrument_snapshot(), response.decoder()))
 
   // Send both events from this process so the stale deadline is handled first.
   process.send(
@@ -174,7 +175,7 @@ pub fn stale_deadline_cannot_end_new_instrument_discovery_test() {
     GenerationEvent(1, ConnectionEvent(connection.Received(snapshot))),
   )
 
-  let _ = await_request(fixture, 1, fn(req) { req == InstrumentUnsubscribe })
+  let _ = await_ready(ready, client.pid, 1)
   assert process.is_alive(client.pid)
   assert process.is_alive(recovered.pid)
   assert process.receive(fixture.opened, 0) == Error(Nil)
@@ -182,7 +183,7 @@ pub fn stale_deadline_cannot_end_new_instrument_discovery_test() {
 
 pub fn repeated_reconnects_leave_only_the_current_worker_and_socket_test() {
   use fixture, url <- with_server([])
-  use client, first <- with_client(fixture, url, config())
+  use client, first, ready <- with_client(fixture, url, config())
 
   let _ =
     list.fold([1, 2, 3], first, fn(previous, attempt) {
@@ -191,8 +192,7 @@ pub fn repeated_reconnects_leave_only_the_current_worker_and_socket_test() {
 
       process.send(previous.control, Close)
       let opened = await_open(fixture, attempt)
-      let _ =
-        await_request(fixture, attempt, fn(req) { req == InstrumentUnsubscribe })
+      let _ = await_ready(ready, client.pid, attempt)
 
       await_dead(worker, 100)
       await_dead(socket, 100)
@@ -206,11 +206,10 @@ pub fn repeated_reconnects_leave_only_the_current_worker_and_socket_test() {
 
 pub fn unexpected_worker_exit_reconnects_and_preserves_subscription_state_test() {
   use fixture, url <- with_server([])
-  use client, _ <- with_client(fixture, url, config())
+  use client, _, _ <- with_client(fixture, url, config())
 
   process.send(client.data, Subscribe("BTC/USD"))
-  let _ =
-    await_request(fixture, 0, fn(req) { req == TickerSubscribe(["BTC/USD"]) })
+  let _ = await_request(fixture, 0, is_ticker_subscribe("BTC/USD", _))
 
   let assert Ok(store) = price_store.get_store()
   let cached = await_price(store, 100.0, 100)
@@ -223,8 +222,7 @@ pub fn unexpected_worker_exit_reconnects_and_preserves_subscription_state_test()
   // An unexpected worker exit provides no connection.Failed notification.
   process.kill(worker)
   let recovered = await_open(fixture, 1)
-  let _ =
-    await_request(fixture, 1, fn(req) { req == TickerSubscribe(["BTC/USD"]) })
+  let _ = await_request(fixture, 1, is_ticker_subscribe("BTC/USD", _))
 
   await_dead(worker, 100)
   await_dead(socket, 100)
@@ -249,14 +247,12 @@ pub fn unexpected_worker_exit_reconnects_and_preserves_subscription_state_test()
 
 pub fn invalid_ticker_timestamps_preserve_cached_prices_test() {
   use fixture, url <- with_server([])
-  use client, opened <- with_client(fixture, url, config())
+  use client, opened, _ <- with_client(fixture, url, config())
 
   process.send(client.data, Subscribe("BTC/USD"))
-  let _ =
-    await_request(fixture, 0, fn(req) { req == TickerSubscribe(["BTC/USD"]) })
+  let _ = await_request(fixture, 0, is_ticker_subscribe("BTC/USD", _))
   process.send(client.data, Subscribe("ETH/USD"))
-  let _ =
-    await_request(fixture, 0, fn(req) { req == TickerSubscribe(["ETH/USD"]) })
+  let _ = await_request(fixture, 0, is_ticker_subscribe("ETH/USD", _))
 
   let assert Ok(store) = price_store.get_store()
   let cached = await_price(store, 100.0, 100)
@@ -277,9 +273,174 @@ pub fn invalid_ticker_timestamps_preserve_cached_prices_test() {
   assert process.is_alive(client.pid)
 }
 
+pub fn instrument_updates_keep_existing_pairs_and_add_new_listings_test() {
+  use fixture, url <- with_server([])
+  use client, opened, _ <- with_client(fixture, url, config())
+
+  process.send(client.data, Subscribe("BTC/USD"))
+  let _ =
+    await_request(fixture, 0, fn(request) {
+      assert request != InstrumentUnsubscribe
+      is_ticker_subscribe("BTC/USD", request)
+    })
+  let assert Ok(store) = price_store.get_store()
+  let cached = await_price(store, 100.0, 100)
+  assert !pairs.exists("XRP/USD")
+
+  process.send(opened.control, Send(instrument_json("update", [])))
+  process.send(
+    opened.control,
+    Send(
+      instrument_json("update", [
+        #("BTC/USD", "maintenance"),
+        #("XRP/USD", "online"),
+      ]),
+    ),
+  )
+  await_pair("XRP/USD", True, 100)
+
+  assert pairs.exists("BTC/USD")
+  assert pairs.exists("ETH/USD")
+  assert price_store.get_price(store, "BTC/USD") == Ok(cached)
+
+  process.send(client.data, Subscribe("XRP/USD"))
+  let _ =
+    await_request(fixture, 0, fn(request) {
+      assert request != InstrumentUnsubscribe
+      assert request != TickerUnsubscribe(["BTC/USD"])
+      is_ticker_subscribe("XRP/USD", request)
+    })
+  let _ = await_symbol_price(store, "XRP/USD", 100.0, 100)
+  assert process.receive(fixture.opened, 0) == Error(Nil)
+}
+
+pub fn relisting_restores_shared_interest_and_requires_fresh_confirmation_test() {
+  use fixture, url <- with_server([ManualTickers])
+  let cfg = session.Config(..config(), ping_interval_ms: 10_000)
+  use client, opened, _ <- with_client(fixture, url, cfg)
+
+  process.send(client.data, Subscribe("BTC/USD"))
+  process.send(client.data, Subscribe("BTC/USD"))
+  let assert TickerSubscribe(_, old_id) =
+    await_request(fixture, 0, is_ticker_subscribe("BTC/USD", _))
+  process.send(
+    opened.control,
+    Send(ticker_confirmation_json("BTC/USD", old_id)),
+  )
+  process.send(opened.control, Send(ticker_json("BTC/USD", 100)))
+
+  let assert Ok(store) = price_store.get_store()
+  let _ = await_price(store, 100.0, 100)
+  process.send(
+    opened.control,
+    Send(instrument_json("update", [#("BTC/USD", "delisted")])),
+  )
+  let _ =
+    await_request(fixture, 0, fn(req) { req == TickerUnsubscribe(["BTC/USD"]) })
+  await_pair("BTC/USD", False, 100)
+  assert price_store.get_price(store, "BTC/USD") == Error(Nil)
+
+  // A client can look up a pair just before it is removed and release it later.
+  process.send(client.data, Subscribe("BTC/USD"))
+  process.send(client.data, Unsubscribe("BTC/USD"))
+  process.send(client.data, Subscribe("ETH/USD"))
+  let assert TickerSubscribe(_, eth_id) =
+    await_request(fixture, 0, fn(request) {
+      assert !is_ticker_subscribe("BTC/USD", request)
+      assert request != TickerUnsubscribe(["BTC/USD"])
+      is_ticker_subscribe("ETH/USD", request)
+    })
+  process.send(
+    opened.control,
+    Send(ticker_confirmation_json("ETH/USD", eth_id)),
+  )
+
+  process.send(opened.control, Send(ticker_json("BTC/USD", 999)))
+  process.send(
+    opened.control,
+    Send(instrument_json("update", [#("BTC/USD", "online")])),
+  )
+  let assert TickerSubscribe(_, new_id) =
+    await_request(fixture, 0, is_ticker_subscribe("BTC/USD", _))
+  assert new_id != old_id
+  assert pairs.exists("BTC/USD")
+  assert price_store.get_price(store, "BTC/USD") == Error(Nil)
+
+  // Use the ETH quote as a barrier after messages with the wrong ID or symbol.
+  process.send(
+    opened.control,
+    Send(ticker_confirmation_json("BTC/USD", old_id)),
+  )
+  process.send(
+    opened.control,
+    Send(ticker_confirmation_json("ETH/USD", new_id)),
+  )
+  process.send(opened.control, Send(ticker_json("BTC/USD", 999)))
+  process.send(opened.control, Send(ticker_json("ETH/USD", 101)))
+  let _ = await_symbol_price(store, "ETH/USD", 101.0, 100)
+  assert price_store.get_price(store, "BTC/USD") == Error(Nil)
+
+  process.send(
+    opened.control,
+    Send(ticker_confirmation_json("BTC/USD", new_id)),
+  )
+  process.send(opened.control, Send(ticker_json("BTC/USD", 102)))
+  let _ = await_price(store, 102.0, 100)
+
+  // The first release keeps the shared ticker alive. A ping on the same session
+  // lets the test check all outgoing requests through that release.
+  process.send(client.data, Unsubscribe("BTC/USD"))
+  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
+  let _ =
+    await_request(fixture, 0, fn(request) {
+      assert !is_ticker_subscribe("BTC/USD", request)
+      assert request != TickerUnsubscribe(["BTC/USD"])
+      is_ping(request)
+    })
+
+  process.send(client.data, Unsubscribe("BTC/USD"))
+  let _ =
+    await_request(fixture, 0, fn(req) { req == TickerUnsubscribe(["BTC/USD"]) })
+  assert process.is_alive(client.pid)
+}
+
+pub fn reconnect_snapshot_evicts_removed_pairs_and_restores_listed_tickers_test() {
+  use fixture, url <- with_server([Accept(Echo, True), Accept(Echo, False)])
+  use client, first, ready <- with_client(fixture, url, config())
+
+  process.send(client.data, Subscribe("BTC/USD"))
+  process.send(client.data, Subscribe("ETH/USD"))
+  let assert Ok(store) = price_store.get_store()
+  let _ = await_price(store, 100.0, 100)
+  let eth = await_symbol_price(store, "ETH/USD", 100.0, 100)
+
+  process.send(first.control, Close)
+  let second = await_open(fixture, 1)
+  let _ = await_request(fixture, 1, fn(req) { req == InstrumentSubscribe })
+  process.send(
+    second.control,
+    Send(instrument_json("snapshot", [#("ETH/USD", "online")])),
+  )
+
+  let fields = await_ready(ready, client.pid, 1)
+  assert dict.get(fields, "restored_symbols") == Ok("1")
+  let _ =
+    await_request(fixture, 1, fn(request) {
+      assert !is_ticker_subscribe("BTC/USD", request)
+      is_ticker_subscribe("ETH/USD", request)
+    })
+
+  assert !pairs.exists("BTC/USD")
+  assert pairs.exists("ETH/USD")
+  assert price_store.get_price(store, "BTC/USD") == Error(Nil)
+  assert price_store.get_price(store, "ETH/USD") == Ok(eth)
+  process.send(second.control, Send(ticker_json("ETH/USD", 101)))
+  let _ = await_symbol_price(store, "ETH/USD", 101.0, 100)
+}
+
 pub fn shutdown_during_reconnect_handshake_cleans_up_the_attempt_test() {
   use fixture, url <- with_server([Accept(Echo, True), DelayedAccept(200)])
-  use client, first <- with_client(fixture, url, config())
+  use client, first, _ <- with_client(fixture, url, config())
 
   process.send(first.control, Close)
   let _ = await_attempt(fixture, 1)
@@ -313,8 +474,7 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
 
   process.send(client.data, Subscribe("BTC/USD"))
   process.send(client.data, Subscribe("BTC/USD"))
-  let _ =
-    await_request(fixture, 0, fn(req) { req == TickerSubscribe(["BTC/USD"]) })
+  let _ = await_request(fixture, 0, is_ticker_subscribe("BTC/USD", _))
 
   let assert Ok(store) = price_store.get_store()
   let old = await_price(store, 100.0, 100)
@@ -336,7 +496,7 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
   assert receive_session_log(logs, session_pid, time.monotonic_time_ms())
     == Error(Nil)
 
-  process.send(second.control, Send(instrument_snapshot))
+  process.send(second.control, Send(instrument_snapshot()))
   let recovered =
     await_session_log(
       logs,
@@ -349,8 +509,7 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
   let assert Ok(downtime) = dict.get(recovered, "downtime_ms")
   assert unwrap(int.parse(downtime)) >= 0
 
-  let _ =
-    await_request(fixture, 1, fn(req) { req == TickerSubscribe(["BTC/USD"]) })
+  let _ = await_request(fixture, 1, is_ticker_subscribe("BTC/USD", _))
   process.send(second.control, Send(ticker_json("BTC/USD", 101)))
   let _ = await_price(store, 101.0, 100)
 
@@ -365,7 +524,7 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
         )),
       ),
       ConnectionEvent(
-        connection.Received(TickerSubscribeConfirmation("BTC/USD")),
+        connection.Received(TickerSubscribeConfirmation("BTC/USD", 0)),
       ),
       ConnectionEvent(connection.Failed("late failure")),
       PongDeadlineReached(0),
@@ -395,11 +554,11 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
 
 pub fn abrupt_close_reconnects_and_client_shutdown_cleans_up_workers_test() {
   use fixture, url <- with_server([])
-  use client, first <- with_client(fixture, url, config())
+  use client, first, ready <- with_client(fixture, url, config())
 
   process.kill(first.pid)
   let _ = await_open(fixture, 1)
-  let _ = await_request(fixture, 1, fn(req) { req == InstrumentUnsubscribe })
+  let _ = await_ready(ready, client.pid, 1)
 
   let assert [worker] = monitored_processes(client.pid)
   let assert [socket] = linked_processes(worker)
@@ -464,7 +623,6 @@ pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
       "{\"channel\":\"status\",\"type\":\"update\"}",
       "{\"method\":\"unsubscribe\",\"success\":true}",
       "{\"method\":\"subscribe\",\"success\":true,\"result\":{\"channel\":\"instrument\"}}",
-      "{\"channel\":\"instrument\",\"type\":\"update\",\"data\":{\"pairs\":[]}}",
       invalid_json,
       invalid_pong,
       pong_json(42),
@@ -493,11 +651,10 @@ pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
 
 pub fn outage_subscription_changes_determine_what_is_replayed_test() {
   use fixture, url <- with_server([Accept(Echo, True), Reject, Reject])
-  use client, first <- with_client(fixture, url, config())
+  use client, first, ready <- with_client(fixture, url, config())
 
   process.send(client.data, Subscribe("BTC/USD"))
-  let _ =
-    await_request(fixture, 0, fn(req) { req == TickerSubscribe(["BTC/USD"]) })
+  let _ = await_request(fixture, 0, is_ticker_subscribe("BTC/USD", _))
 
   process.send(first.control, Close)
   let _ = await_attempt(fixture, 1)
@@ -509,9 +666,9 @@ pub fn outage_subscription_changes_determine_what_is_replayed_test() {
 
   let _ = await_open(fixture, 3)
 
-  // Subscription replay follows instrument unsubscribe on each new connection.
-  let _ = await_request(fixture, 3, fn(req) { req == InstrumentUnsubscribe })
-  let assert #(3, TickerSubscribe(["ETH/USD"])) =
+  let _ = await_ready(ready, client.pid, 3)
+  let _ = await_request(fixture, 3, fn(req) { req == InstrumentSubscribe })
+  let assert #(3, TickerSubscribe(["ETH/USD"], _)) =
     unwrap(process.receive(fixture.requests, 1000))
 
   process.send(client.data, Unsubscribe("ETH/USD"))
@@ -594,7 +751,7 @@ pub fn stable_connection_resets_retry_delay_test() {
     })
 
   use fixture, url <- with_server([Accept(Echo, True), Reject])
-  use _, first <- with_client(fixture, url, cfg)
+  use _, first, _ <- with_client(fixture, url, cfg)
   let _ = await_attempt(fixture, 0)
 
   process.send(first.control, Close)
@@ -619,12 +776,17 @@ pub fn stable_connection_resets_retry_delay_test() {
   assert attempted - scheduled < 100
 }
 
-pub fn absent_instrument_snapshot_reconnects_test() {
+pub fn instrument_update_does_not_complete_discovery_test() {
   use fixture, url <- with_server([Accept(Echo, False)])
   let cfg = session.Config(..config(), discovery_timeout_ms: 150)
   use client <- start_client(url, cfg)
 
-  let _ = await_open(fixture, 0)
+  let first = await_open(fixture, 0)
+  let _ = await_request(fixture, 0, fn(req) { req == InstrumentSubscribe })
+  process.send(
+    first.control,
+    Send(instrument_json("update", [#("BTC/USD", "online")])),
+  )
   let _ = await_open(fixture, 1)
 
   assert process.is_alive(client.pid)
@@ -720,16 +882,25 @@ fn handle_connection_attempt(req, sequence, fixture: Fixture) {
       |> http_response.set_body(mist.Bytes(bytes_tree.new()))
 
     Accept(pong, snapshot) ->
-      accept_connection(req, fixture, attempt, pong, snapshot)
+      accept_connection(req, fixture, attempt, pong, snapshot, True)
+
+    ManualTickers -> accept_connection(req, fixture, attempt, Echo, True, False)
 
     DelayedAccept(delay_ms) -> {
       process.sleep(delay_ms)
-      accept_connection(req, fixture, attempt, Echo, True)
+      accept_connection(req, fixture, attempt, Echo, True, True)
     }
   }
 }
 
-fn accept_connection(req, fixture: Fixture, attempt, pong, snapshot) {
+fn accept_connection(
+  req,
+  fixture: Fixture,
+  attempt,
+  pong,
+  snapshot,
+  auto_tickers,
+) {
   mist.websocket(
     req,
     on_init: fn(_) {
@@ -755,7 +926,14 @@ fn accept_connection(req, fixture: Fixture, attempt, pong, snapshot) {
           let request = unwrap(json.parse(text, request_decoder()))
           process.send(fixture.requests, #(attempt, request))
 
-          respond_to_request(socket, request, attempt, pong, snapshot)
+          respond_to_request(
+            socket,
+            request,
+            attempt,
+            pong,
+            snapshot,
+            auto_tickers,
+          )
           mist.continue(state)
         }
 
@@ -766,9 +944,9 @@ fn accept_connection(req, fixture: Fixture, attempt, pong, snapshot) {
   )
 }
 
-fn respond_to_request(socket, request, attempt, pong, snapshot) {
+fn respond_to_request(socket, request, attempt, pong, snapshot, auto_tickers) {
   case request {
-    InstrumentSubscribe if snapshot -> send_frame(socket, instrument_snapshot)
+    InstrumentSubscribe if snapshot -> send_frame(socket, instrument_snapshot())
 
     Ping(id) ->
       case pong {
@@ -777,9 +955,9 @@ fn respond_to_request(socket, request, attempt, pong, snapshot) {
         Silent -> Nil
       }
 
-    TickerSubscribe(symbols) ->
+    TickerSubscribe(symbols, id) if auto_tickers ->
       list.each(symbols, fn(symbol) {
-        send_frame(socket, ticker_confirmation_json(symbol))
+        send_frame(socket, ticker_confirmation_json(symbol, id))
 
         // Delay the recovery quote until tests explicitly request it.
         case attempt {
@@ -804,10 +982,29 @@ fn start_client_with_logger(url, cfg, client_logger, run) {
 }
 
 fn with_client(fixture, url, cfg, run) {
-  use client <- start_client(url, cfg)
+  let ready = process.new_subject()
+  let client_logger =
+    logger.new_with_sink(glight.Info, fn(entry) {
+      case entry.message {
+        "Kraken connection ready" -> process.send(ready, entry)
+        _ -> Nil
+      }
+    })
+
+  use client <- start_client_with_logger(url, cfg, client_logger)
   let opened = await_open(fixture, 0)
-  let _ = await_request(fixture, 0, fn(req) { req == InstrumentUnsubscribe })
-  run(client, opened)
+  let _ = await_ready(ready, client.pid, 0)
+  run(client, opened, ready)
+}
+
+fn await_ready(ready, pid, generation) {
+  await_session_log(
+    ready,
+    string.inspect(pid),
+    glight.Info,
+    "Kraken connection ready",
+    generation,
+  )
 }
 
 fn request_decoder() {
@@ -827,10 +1024,13 @@ fn request_decoder() {
             ["params", "symbol"],
             decode.list(decode.string),
           )
-          decode.success(case method {
-            "subscribe" -> TickerSubscribe(symbols)
-            _ -> TickerUnsubscribe(symbols)
-          })
+          case method {
+            "subscribe" -> {
+              use id <- decode.field("req_id", decode.int)
+              decode.success(TickerSubscribe(symbols, id))
+            }
+            _ -> decode.success(TickerUnsubscribe(symbols))
+          }
         }
       }
     }
@@ -840,6 +1040,13 @@ fn request_decoder() {
 fn is_ping(request) {
   case request {
     Ping(_) -> True
+    _ -> False
+  }
+}
+
+fn is_ticker_subscribe(symbol, request) {
+  case request {
+    TickerSubscribe([requested], _) -> requested == symbol
     _ -> False
   }
 }
@@ -932,6 +1139,17 @@ fn await_price(store, expected, retries) {
   await_symbol_price(store, "BTC/USD", expected, retries)
 }
 
+fn await_pair(symbol, expected, retries) {
+  case pairs.exists(symbol) == expected {
+    True -> Nil
+    False -> {
+      assert retries > 0
+      process.sleep(5)
+      await_pair(symbol, expected, retries - 1)
+    }
+  }
+}
+
 fn await_symbol_price(store, symbol, expected, retries) {
   let price = positive_float.from_float_unsafe(expected)
   case price_store.get_price(store, symbol) {
@@ -980,8 +1198,10 @@ fn pong_json(id) {
   "{\"method\":\"pong\",\"req_id\":" <> int.to_string(id) <> "}"
 }
 
-fn ticker_confirmation_json(symbol) {
-  "{\"method\":\"subscribe\",\"success\":true,\"result\":{\"channel\":\"ticker\",\"symbol\":\""
+fn ticker_confirmation_json(symbol, id) {
+  "{\"method\":\"subscribe\",\"success\":true,\"req_id\":"
+  <> int.to_string(id)
+  <> ",\"result\":{\"channel\":\"ticker\",\"symbol\":\""
   <> symbol
   <> "\"}}"
 }
@@ -1000,8 +1220,32 @@ fn ticker_json_with_timestamp(symbol, price, timestamp) {
   <> "\"}]}"
 }
 
-const instrument_snapshot =
-  "{\"channel\":\"instrument\",\"type\":\"snapshot\",\"data\":{\"pairs\":[{\"symbol\":\"BTC/USD\",\"base\":\"BTC\",\"quote\":\"USD\"},{\"symbol\":\"ETH/USD\",\"base\":\"ETH\",\"quote\":\"USD\"}]}}"
+fn instrument_json(kind, instruments) {
+  json.object([
+    #("channel", json.string("instrument")),
+    #("type", json.string(kind)),
+    #(
+      "data",
+      json.object([
+        #(
+          "pairs",
+          json.array(instruments, fn(instrument) {
+            let #(symbol, status) = instrument
+            json.object([
+              #("symbol", json.string(symbol)),
+              #("status", json.string(status)),
+            ])
+          }),
+        ),
+      ]),
+    ),
+  ])
+  |> json.to_string
+}
+
+fn instrument_snapshot() {
+  instrument_json("snapshot", [#("BTC/USD", "online"), #("ETH/USD", "online")])
+}
 
 @external(erlang, "process_test_ffi", "monitored_processes")
 fn monitored_processes(pid: Pid) -> List(Pid)

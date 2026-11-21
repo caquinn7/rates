@@ -67,7 +67,8 @@ pub fn closing_one_browser_preserves_shared_symbol_until_last_browser_closes_tes
   let first_subscriber = unwrap(process.receive(subscribers, 1000))
   let _ = unwrap(process.receive(first_replies, 1000))
 
-  assert await_ticker_request(requests) == fixture.TickerSubscribe(["BTC/USD"])
+  let assert fixture.TickerSubscribe(["BTC/USD"], _) =
+    await_ticker_request(requests)
 
   browser_subscribe(second, [#("second", bitcoin_id)])
   let second_subscriber = unwrap(process.receive(subscribers, 1000))
@@ -104,12 +105,12 @@ pub fn abrupt_browser_tcp_disconnect_cancels_all_its_subscriptions_test() {
   let _ = unwrap(process.receive(replies, 1000))
   let _ = unwrap(process.receive(replies, 1000))
 
-  let subscribed = [
-    await_ticker_request(requests),
-    await_ticker_request(requests),
-  ]
-  assert list.contains(subscribed, fixture.TickerSubscribe(["BTC/USD"]))
-  assert list.contains(subscribed, fixture.TickerSubscribe(["ETH/USD"]))
+  let assert fixture.TickerSubscribe([first_symbol], _) =
+    await_ticker_request(requests)
+  let assert fixture.TickerSubscribe([second_symbol], _) =
+    await_ticker_request(requests)
+  assert list.sort([first_symbol, second_symbol], string.compare)
+    == ["BTC/USD", "ETH/USD"]
 
   // No WebSocket close frame: killing the client closes the underlying TCP socket.
   stop_process(browser.pid)
@@ -576,7 +577,7 @@ fn await_ticker_request(
   let #(_, message) = unwrap(process.receive(requests, 1000))
 
   case message {
-    fixture.TickerSubscribe(_) | fixture.TickerUnsubscribe(_) -> message
+    fixture.TickerSubscribe(_, _) | fixture.TickerUnsubscribe(_) -> message
     _ -> await_ticker_request(requests)
   }
 }
@@ -596,7 +597,7 @@ fn assert_no_ticker_until(
   let remaining = int.max(0, deadline - time.monotonic_time_ms())
 
   case process.receive(requests, remaining) {
-    Ok(#(_, fixture.TickerSubscribe(_)))
+    Ok(#(_, fixture.TickerSubscribe(_, _)))
     | Ok(#(_, fixture.TickerUnsubscribe(_))) ->
       panic as "Unexpected upstream subscription change"
 

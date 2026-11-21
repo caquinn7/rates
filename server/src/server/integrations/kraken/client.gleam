@@ -6,20 +6,20 @@
 //// - Subscribing to and unsubscribing from ticker channels
 //// - Tracking which symbols are actively subscribed and by how many clients
 //// - Writing the latest prices to a shared `PriceStore`
-//// - Populating the global `pairs` registry with the set of supported symbols
+//// - Keeping the global `pairs` registry current
 ////
 //// Price updates are stored in a shared `PriceStore`, which other parts of the
 //// application can query independently. Supported trading pairs are also exposed
 //// globally via the `pairs` module. The client requests an instrument snapshot
-//// on each connection, including reconnects, to refresh this registry. After
-//// receiving the snapshot, it sends an unsubscribe for the instrument channel.
+//// on each connection and stays subscribed to apply pair changes as they arrive.
 ////
 //// Use `new` to create the actor and start the WebSocket session. Use
 //// `subscribe` and `unsubscribe` to manage interest in specific symbols.
 ////
 //// Initial handshake failures are returned to the caller. After startup, socket
 //// failures reconnect automatically and restore remaining subscription interest.
-//// Cached prices retain their original timestamps until fresh data arrives.
+//// Cached prices retain their original timestamps until fresh data arrives
+//// or discovery and instrument updates remove the pair.
 
 import gleam/erlang/process.{type Subject}
 import gleam/otp/actor.{type StartError}
@@ -37,7 +37,7 @@ pub opaque type KrakenClient {
 /// Waits for the initial handshake and returns an error if startup fails.
 /// Calls `create_price_store` in the session process after the handshake;
 /// instrument discovery continues asynchronously. Later connection failures
-/// reconnect automatically while preserving subscriptions and cached prices.
+/// reconnect automatically while preserving interest and prices for listed pairs.
 pub fn new(
   logger: Logger,
   create_price_store: fn() -> PriceStore,
@@ -65,9 +65,8 @@ pub fn new_with_url(
 }
 
 /// Adds one client's interest in a symbol, including while disconnected or
-/// discovering instruments. Sends an upstream subscription only when ready and
-/// the first reference is added; further references share that subscription.
-/// Symbols excluded by the latest known instrument snapshot are ignored.
+/// discovering instruments. Interested clients share one upstream subscription
+/// while the session is ready and the symbol is eligible.
 /// The request is handled asynchronously.
 pub fn subscribe(client: KrakenClient, symbol: String) -> Nil {
   let KrakenClient(subject) = client
@@ -75,8 +74,8 @@ pub fn subscribe(client: KrakenClient, symbol: String) -> Nil {
 }
 
 /// Removes one client's interest in a symbol, including while disconnected.
-/// Sends an upstream unsubscribe only when ready and the last reference is
-/// removed. Untracked symbols are ignored. The request is handled asynchronously.
+/// Sends an upstream unsubscribe when the last reference to a requested ticker
+/// is removed. The request is handled asynchronously.
 pub fn unsubscribe(client: KrakenClient, symbol: String) -> Nil {
   let KrakenClient(subject) = client
   actor.send(subject, session.Unsubscribe(symbol))

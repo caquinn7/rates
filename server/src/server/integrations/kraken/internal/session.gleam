@@ -3,6 +3,7 @@
 //// and client reference counts.
 
 import gleam/bool
+import gleam/dict.{type Dict}
 import gleam/erlang/process.{type Monitor, type Pid, type Subject, type Timer}
 import gleam/int
 import gleam/list
@@ -16,8 +17,8 @@ import server/integrations/kraken/internal/request.{
   Instruments, KrakenRequest, Ping, Tickers,
 }
 import server/integrations/kraken/internal/response.{
-  type KrakenResponse, InstrumentsResponse, Pong, TickerResponse,
-  TickerSubscribeConfirmation,
+  type InstrumentPair, type KrakenResponse, InstrumentSnapshot, InstrumentUpdate,
+  Pong, TickerResponse, TickerSubscribeConfirmation,
 }
 import server/integrations/kraken/internal/subscription_counter.{
   type SubscriptionCounter,
@@ -87,12 +88,12 @@ pub fn default_config() -> Config {
 /// connection recovery.
 pub type Message {
   /// Adds one client's interest in a symbol, retaining it through reconnects.
-  /// The first interest is subscribed upstream once ready. Symbols excluded by
-  /// the latest known instrument snapshot are ignored.
+  /// The first interest is subscribed upstream once the symbol is eligible
+  /// and the session is ready.
   Subscribe(String)
 
   /// Removes one client's interest in a symbol. Sends an upstream unsubscribe
-  /// when ready and the last reference is removed. Untracked symbols are ignored.
+  /// when the last reference to a requested ticker is removed.
   Unsubscribe(String)
 
   /// Confirms a monitored connection worker has exited so a retry can be
@@ -135,7 +136,7 @@ pub type Event {
 }
 
 /// Connection lifecycle and the resources available in each phase.
-/// Subscription interest and cached prices survive transitions between phases.
+/// Subscription interest and eligible cached prices survive phase transitions.
 type Phase {
   /// Waiting for the worker to establish a WebSocket connection.
   /// A successful handshake starts instrument discovery.
@@ -201,9 +202,10 @@ type State {
     generation: Int,
     supported_symbols: Option(Set(String)),
     subscriptions: SubscriptionCounter,
+    pending_ticker_requests: Dict(String, Int),
     timers: Timers,
     retry_delay_ms: Int,
-    next_ping_id: Int,
+    next_request_id: Int,
     disconnected_at: Option(Int),
   )
 }
@@ -218,7 +220,7 @@ type State {
 /// Instrument discovery continues asynchronously; subscription interest received
 /// during discovery is retained until the session is ready. Later connection
 /// failures trigger automatic retries, preserving subscription interest and
-/// cached prices with their original timestamps.
+/// cached prices for pairs still listed, with their original timestamps.
 pub fn start(
   logger: Logger,
   create_store: fn() -> PriceStore,
@@ -247,9 +249,10 @@ pub fn start(
         generation: 0,
         supported_symbols: None,
         subscriptions: subscription_counter.new(),
+        pending_ticker_requests: dict.new(),
         timers: empty_timers(),
         retry_delay_ms: config.retry_base_ms,
-        next_ping_id: 0,
+        next_request_id: 0,
         disconnected_at: None,
       )
 
@@ -278,79 +281,21 @@ fn await_initial_connection(selector, config: Config) {
   }
 }
 
-/// Starts a connection worker owned by this session and monitors its process.
-/// Forwards connection notifications to the session, tagging each with the given
-/// connection attempt number so events from older attempts can be ignored.
-/// Returns the worker PID and monitor used to detect its exit and begin recovery.
-fn start_worker(
-  self: Subject(Message),
-  logger: Logger,
-  url: String,
-  config: Config,
-  generation: Int,
-) -> Worker {
-  let pid =
-    connection.start(
-      process.self(),
-      fn(event) {
-        process.send(self, GenerationEvent(generation, ConnectionEvent(event)))
-      },
-      logger,
-      url,
-      config.connect_timeout_ms,
-      config.send_text,
-    )
-  Worker(pid, process.monitor(pid))
-}
-
-/// Begins instrument discovery after a successful WebSocket handshake.
-/// Requests the instrument snapshot, schedules the first keepalive ping check
-/// and discovery deadline, and enters `Discovering` with the worker and socket.
-/// When the first snapshot arrives, the session sends an instrument unsubscribe
-/// and restores remaining ticker interest. This sequence repeats on each reconnect.
-fn begin_discovery(
-  state: State,
-  worker: Worker,
-  socket: connection.Socket,
-) -> State {
-  connection.send(socket, KrakenRequest(request.Subscribe, Instruments, None))
-
-  let ping =
-    schedule_event(state, state.config.ping_interval_ms, PingIntervalElapsed)
-
-  let discovery =
-    schedule_event(
-      state,
-      state.config.discovery_timeout_ms,
-      DiscoveryDeadlineReached,
-    )
-
-  State(
-    ..state,
-    phase: Discovering(worker, socket),
-    timers: Timers(..state.timers, ping: Some(ping), discovery: Some(discovery)),
-  )
-}
-
 /// Handles subscription commands, worker exits, and connection or timer events.
 /// Updates client interest across reconnects and schedules recovery when the
 /// current worker exits. Ignores unrelated worker notifications and events from
 /// a different connection attempt before dispatching accepted events to `handle_event`.
 fn handle_message(state: State, message: Message) -> State {
   case message {
-    Subscribe(symbol) -> subscribe(state, symbol)
+    Subscribe(symbol) -> add_interest(state, symbol)
 
     Unsubscribe(symbol) -> {
       let #(send_unsubscribe, subscriptions) =
         subscription_counter.remove_subscription(state.subscriptions, symbol)
 
-      case state.phase, send_unsubscribe {
-        Ready(_, socket), True ->
-          connection.send(
-            socket,
-            KrakenRequest(request.Unsubscribe, Tickers([symbol]), None),
-          )
-        _, _ -> Nil
+      let state = case state.phase, send_unsubscribe {
+        Ready(_, socket), True -> unsubscribe_ticker(state, socket, symbol)
+        _, _ -> state
       }
 
       State(..state, subscriptions:)
@@ -421,7 +366,7 @@ fn handle_event(state: State, event: Event) -> State {
       case state.timers.pong {
         Some(_) -> State(..state, timers:)
         None -> {
-          let req_id = state.next_ping_id
+          let req_id = state.next_request_id
           connection.send(socket, Ping(req_id))
           let deadline =
             schedule_event(
@@ -431,7 +376,7 @@ fn handle_event(state: State, event: Event) -> State {
             )
           State(
             ..state,
-            next_ping_id: req_id + 1,
+            next_request_id: req_id + 1,
             timers: Timers(..timers, pong: Some(#(req_id, deadline))),
           )
         }
@@ -479,46 +424,6 @@ fn handle_event(state: State, event: Event) -> State {
   }
 }
 
-/// Registers interest in a symbol, ignoring symbols excluded by the latest known
-/// instrument snapshot. Before the first snapshot, records interest without
-/// checking support; discovery determines which subscriptions to send.
-fn subscribe(state: State, symbol: String) -> State {
-  case state.supported_symbols {
-    Some(symbols) -> {
-      use <- bool.guard(!set.contains(symbols, symbol), state)
-      add_interest(state, symbol)
-    }
-    None -> add_interest(state, symbol)
-  }
-}
-
-/// Increments the symbol's reference count. Sends a Kraken subscription only for
-/// the first interest while ready; further interests share that subscription.
-/// While not ready, records interest for replay after instrument discovery.
-fn add_interest(state: State, symbol: String) -> State {
-  let #(send_subscribe, subscriptions) =
-    subscription_counter.add_subscription(state.subscriptions, symbol)
-
-  case state.phase, send_subscribe {
-    Ready(_, socket), True ->
-      connection.send(
-        socket,
-        KrakenRequest(request.Subscribe, Tickers([symbol]), None),
-      )
-    _, _ -> Nil
-  }
-
-  State(..state, subscriptions:)
-}
-
-/// Applies decoded Kraken responses during instrument discovery or normal operation.
-/// Matching pongs clear their deadline. Handling the first instrument snapshot
-/// on each connection updates supported pairs, sends an instrument unsubscribe,
-/// restores remaining ticker interest, and makes the session ready. Additional
-/// instrument snapshots are ignored while ready.
-/// While ready, subscription confirmations activate pending interest and ticker
-/// updates refresh cached prices only for confirmed subscriptions. Responses that
-/// do not apply to the current phase or tracked interest are ignored.
 fn receive_message(state: State, message: KrakenResponse) -> State {
   case message, state.phase {
     Pong(req_id), _ -> {
@@ -531,78 +436,49 @@ fn receive_message(state: State, message: KrakenResponse) -> State {
       }
     }
 
-    InstrumentsResponse(instruments), Discovering(worker, socket) -> {
-      let symbols =
-        instruments
-        |> list.map(fn(pair) { pair.symbol })
-        |> set.from_list
-
-      pairs.set(symbols)
-
-      connection.send(
-        socket,
-        KrakenRequest(request.Unsubscribe, Instruments, None),
-      )
-
-      let restore =
-        state.subscriptions
-        |> subscription_counter.symbols
-        |> list.filter(set.contains(symbols, _))
-
-      list.each(restore, fn(symbol) {
-        connection.send(
-          socket,
-          KrakenRequest(request.Subscribe, Tickers([symbol]), None),
-        )
-      })
-
-      cancel_timer(state.timers.discovery)
-
-      let stable =
-        schedule_event(
-          state,
-          state.config.stable_connection_ms,
-          StabilityIntervalElapsed,
-        )
-
-      let downtime = case state.disconnected_at {
-        Some(started) -> time.monotonic_time_ms() - started
-        None -> 0
-      }
-
-      state.logger
-      |> logger.with("generation", int.to_string(state.generation))
-      |> logger.with("downtime_ms", int.to_string(downtime))
-      |> logger.with("restored_symbols", int.to_string(list.length(restore)))
-      |> logger.info("Kraken connection ready")
-
-      State(
-        ..state,
-        phase: Ready(worker, socket),
-        supported_symbols: Some(symbols),
-        disconnected_at: None,
-        timers: Timers(..state.timers, discovery: None, stable: Some(stable)),
-      )
+    InstrumentSnapshot(instruments), Discovering(worker, socket) -> {
+      let symbols = list.fold(instruments, set.new(), apply_instrument)
+      finish_discovery(replace_pairs(state, symbols), worker, socket, symbols)
     }
 
-    TickerSubscribeConfirmation(symbol), Ready(_, _) -> {
-      // Obsolete/duplicate confirmations must not bring down the ETS owner.
+    InstrumentSnapshot(instruments), Ready(_, _) ->
+      replace_pairs(state, list.fold(instruments, set.new(), apply_instrument))
+
+    InstrumentUpdate(instruments), Ready(_, _) -> {
+      let current = option.unwrap(state.supported_symbols, set.new())
+      replace_pairs(state, list.fold(instruments, current, apply_instrument))
+    }
+
+    TickerSubscribeConfirmation(symbol, req_id), Ready(_, _) -> {
+      // A delisted and relisted ticker can receive an old ack on this socket.
       use <- bool.guard(
-        subscription_counter.is_actively_subscribed(state.subscriptions, symbol),
+        dict.get(state.pending_ticker_requests, symbol) != Ok(req_id),
         state,
       )
 
       case
         subscription_counter.confirm_subscription(state.subscriptions, symbol)
       {
-        Ok(subscriptions) -> State(..state, subscriptions:)
+        Ok(subscriptions) ->
+          State(
+            ..state,
+            subscriptions:,
+            pending_ticker_requests: dict.delete(
+              state.pending_ticker_requests,
+              symbol,
+            ),
+          )
         Error(_) -> state
       }
     }
 
     TickerResponse(symbol, price, timestamp), Ready(_, _) -> {
       case
-        subscription_counter.is_actively_subscribed(state.subscriptions, symbol)
+        supports(state, symbol)
+        && subscription_counter.is_actively_subscribed(
+          state.subscriptions,
+          symbol,
+        )
       {
         True -> price_store.insert(state.price_store, symbol, price, timestamp)
         False -> Nil
@@ -612,6 +488,105 @@ fn receive_message(state: State, message: KrakenResponse) -> State {
 
     _, _ -> state
   }
+}
+
+/// Starts a connection worker owned by this session and monitors its process.
+/// Forwards connection notifications to the session, tagging each with the given
+/// connection attempt number so events from older attempts can be ignored.
+/// Returns the worker PID and monitor used to detect its exit and begin recovery.
+fn start_worker(
+  self: Subject(Message),
+  logger: Logger,
+  url: String,
+  config: Config,
+  generation: Int,
+) -> Worker {
+  let pid =
+    connection.start(
+      process.self(),
+      fn(event) {
+        process.send(self, GenerationEvent(generation, ConnectionEvent(event)))
+      },
+      logger,
+      url,
+      config.connect_timeout_ms,
+      config.send_text,
+    )
+  Worker(pid, process.monitor(pid))
+}
+
+/// Begins instrument discovery after a successful WebSocket handshake.
+/// Requests the instrument snapshot, schedules the first keepalive ping check
+/// and discovery deadline, and enters `Discovering` with the worker and socket.
+/// Keeps the instrument subscription open for updates after the first snapshot.
+fn begin_discovery(
+  state: State,
+  worker: Worker,
+  socket: connection.Socket,
+) -> State {
+  connection.send(socket, KrakenRequest(request.Subscribe, Instruments, None))
+
+  let ping =
+    schedule_event(state, state.config.ping_interval_ms, PingIntervalElapsed)
+
+  let discovery =
+    schedule_event(
+      state,
+      state.config.discovery_timeout_ms,
+      DiscoveryDeadlineReached,
+    )
+
+  State(
+    ..state,
+    phase: Discovering(worker, socket),
+    timers: Timers(..state.timers, ping: Some(ping), discovery: Some(discovery)),
+  )
+}
+
+/// Marks the connection ready after its first instrument snapshot is applied.
+/// Requests tickers for supported pairs with client interest, cancels the
+/// snapshot deadline, and starts the stability timer for resetting retry backoff.
+fn finish_discovery(
+  state: State,
+  worker: Worker,
+  socket: connection.Socket,
+  symbols: Set(String),
+) -> State {
+  let restore =
+    state.subscriptions
+    |> subscription_counter.symbols
+    |> list.filter(set.contains(symbols, _))
+  let state =
+    list.fold(restore, state, fn(state, symbol) {
+      subscribe_ticker(state, socket, symbol)
+    })
+
+  cancel_timer(state.timers.discovery)
+
+  let stable =
+    schedule_event(
+      state,
+      state.config.stable_connection_ms,
+      StabilityIntervalElapsed,
+    )
+
+  let downtime = case state.disconnected_at {
+    Some(started) -> time.monotonic_time_ms() - started
+    None -> 0
+  }
+
+  state.logger
+  |> logger.with("generation", int.to_string(state.generation))
+  |> logger.with("downtime_ms", int.to_string(downtime))
+  |> logger.with("restored_symbols", int.to_string(list.length(restore)))
+  |> logger.info("Kraken connection ready")
+
+  State(
+    ..state,
+    phase: Ready(worker, socket),
+    disconnected_at: None,
+    timers: Timers(..state.timers, discovery: None, stable: Some(stable)),
+  )
 }
 
 /// Begins recovery after a connection failure, ignoring repeated calls while
@@ -644,6 +619,7 @@ fn disconnect(state: State, reason: String) -> State {
         phase: Stopping(worker),
         timers: empty_timers(),
         disconnected_at:,
+        pending_ticker_requests: dict.new(),
         subscriptions: subscription_counter.prepare_for_reconnect(
           state.subscriptions,
         ),
@@ -669,6 +645,129 @@ fn schedule_reconnect(state: State) -> State {
     ..state,
     phase: WaitingToReconnect,
     retry_delay_ms: int.min(state.retry_delay_ms * 2, state.config.retry_max_ms),
+  )
+}
+
+/// Publishes the first pair registry and subsequent membership changes.
+/// Evicts cached prices for removed pairs before publishing the new set.
+/// While ready, stops tickers for removed pairs and requests tickers for newly
+/// supported pairs with pending client interest. Interest survives pair removal.
+fn replace_pairs(state: State, symbols: Set(String)) -> State {
+  // Metadata-only updates need no persistent_term write.
+  use <- bool.guard(state.supported_symbols == Some(symbols), state)
+
+  let previous = option.unwrap(state.supported_symbols, set.new())
+  let removed = set.difference(previous, symbols)
+  let state =
+    set.fold(removed, state, fn(state, symbol) {
+      // Evict cached prices before publishing the new registry to readers.
+      price_store.delete_price(state.price_store, symbol)
+
+      case state.phase {
+        Ready(_, socket) -> {
+          let state = unsubscribe_ticker(state, socket, symbol)
+          State(
+            ..state,
+            subscriptions: subscription_counter.suspend(
+              state.subscriptions,
+              symbol,
+            ),
+          )
+        }
+        _ -> state
+      }
+    })
+
+  pairs.set(symbols)
+  let state = State(..state, supported_symbols: Some(symbols))
+
+  case state.phase {
+    Ready(_, socket) ->
+      set.fold(set.difference(symbols, previous), state, fn(state, symbol) {
+        case
+          subscription_counter.get_pending_count(state.subscriptions, symbol)
+        {
+          0 -> state
+          _ -> subscribe_ticker(state, socket, symbol)
+        }
+      })
+    _ -> state
+  }
+}
+
+/// Applies one pair from a snapshot or update to the set of supported symbols.
+/// Removes the pair for `delisted` and includes it for every other status.
+fn apply_instrument(symbols: Set(String), pair: InstrumentPair) -> Set(String) {
+  case pair.status {
+    "delisted" -> set.delete(symbols, pair.symbol)
+    _ -> set.insert(symbols, pair.symbol)
+  }
+}
+
+/// Checks whether a symbol belongs to the latest known pair registry.
+/// Returns `False` before the first snapshot.
+fn supports(state: State, symbol: String) -> Bool {
+  case state.supported_symbols {
+    Some(symbols) -> set.contains(symbols, symbol)
+    None -> False
+  }
+}
+
+/// Counts a subscriber's interest even if the pair was delisted between lookup
+/// and `Subscribe`, so its matching `Unsubscribe` removes that same interest.
+fn add_interest(state: State, symbol: String) -> State {
+  let #(first_interest, subscriptions) =
+    subscription_counter.add_subscription(state.subscriptions, symbol)
+  let state = State(..state, subscriptions:)
+
+  case state.phase {
+    Ready(_, socket) if first_interest ->
+      case supports(state, symbol) {
+        True -> subscribe_ticker(state, socket, symbol)
+        False -> state
+      }
+    _ -> state
+  }
+}
+
+fn subscribe_ticker(
+  state: State,
+  socket: connection.Socket,
+  symbol: String,
+) -> State {
+  let req_id = state.next_request_id
+  connection.send(
+    socket,
+    KrakenRequest(request.Subscribe, Tickers([symbol]), Some(req_id)),
+  )
+  State(
+    ..state,
+    next_request_id: req_id + 1,
+    pending_ticker_requests: dict.insert(
+      state.pending_ticker_requests,
+      symbol,
+      req_id,
+    ),
+  )
+}
+
+fn unsubscribe_ticker(
+  state: State,
+  socket: connection.Socket,
+  symbol: String,
+) -> State {
+  let requested =
+    dict.has_key(state.pending_ticker_requests, symbol)
+    || subscription_counter.is_actively_subscribed(state.subscriptions, symbol)
+  use <- bool.guard(!requested, state)
+
+  connection.send(
+    socket,
+    KrakenRequest(request.Unsubscribe, Tickers([symbol]), None),
+  )
+  State(
+    ..state,
+    pending_ticker_requests: dict.delete(state.pending_ticker_requests, symbol),
   )
 }
 

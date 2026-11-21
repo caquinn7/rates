@@ -10,10 +10,13 @@ import shared/numbers/positive_float.{type PositiveFloat}
 pub type KrakenResponse {
   /// Trading pairs from an instrument snapshot, used to populate the registry
   /// of supported symbols and enable ticker subscriptions.
-  InstrumentsResponse(List(InstrumentPair))
+  InstrumentSnapshot(List(InstrumentPair))
 
-  /// Acknowledges a successful ticker subscription for the given symbol.
-  TickerSubscribeConfirmation(String)
+  /// Changes to individual pairs on the instrument channel.
+  InstrumentUpdate(List(InstrumentPair))
+
+  /// Acknowledges a successful ticker subscription for the symbol and request ID.
+  TickerSubscribeConfirmation(symbol: String, req_id: Int)
 
   /// A symbol, its positive last traded price, and the provider's ticker timestamp
   /// in Unix milliseconds. The decoder uses the first data entry in the message.
@@ -24,21 +27,19 @@ pub type KrakenResponse {
   Pong(req_id: Int)
 }
 
-/// Trading pair listed in a Kraken instrument snapshot, such as `BTC/USD`.
+/// The instrument fields used to decide whether a pair is eligible for prices.
 pub type InstrumentPair {
   InstrumentPair(
     /// Kraken's subscription symbol for the pair, such as `BTC/USD`.
     symbol: String,
-    /// Asset being priced, such as `BTC`.
-    base: String,
-    /// Asset the price is expressed in, such as `USD`.
-    quote: String,
+    /// Kraken's trading status for the pair, such as `online` or `delisted`.
+    status: String,
   )
 }
 
 /// Selects a response decoder using the message's method, channel, and type.
 /// Returns `None` for message kinds the session does not consume, including
-/// heartbeats, status messages, unsubscribe confirmations, and instrument updates.
+/// heartbeats, status messages, and unsubscribe confirmations.
 /// Supported messages with invalid fields retain their specific decoding errors.
 pub fn decoder() -> Decoder(Option(KrakenResponse)) {
   use method <- decode.optional_field("method", "", decode.string)
@@ -65,11 +66,17 @@ fn channel_decoder() {
 
   case channel {
     "instrument" | "ticker" -> {
-      use kind <- decode.field("type", decode.string)
-      case channel, kind {
-        "instrument", "snapshot" -> decode.map(instruments_decoder(), Some)
+      use type_ <- decode.field("type", decode.string)
+
+      case channel, type_ {
+        "instrument", "snapshot" ->
+          decode.map(instrument_snapshot_decoder(), Some)
+
+        "instrument", "update" -> decode.map(instrument_update_decoder(), Some)
+
         "ticker", "snapshot" | "ticker", "update" ->
           decode.map(ticker_data_decoder(), Some)
+
         _, _ -> decode.success(None)
       }
     }
@@ -78,55 +85,25 @@ fn channel_decoder() {
   }
 }
 
-fn instruments_decoder() {
-  // {
-  //     "channel": "instrument",
-  //     "type": "snapshot",
-  //     "data": {
-  //         "assets": [
-  //             {
-  //                 "id": "USD",
-  //                 "status": "enabled",
-  //                 "precision": 4,
-  //                 "precision_display": 2,
-  //                 "borrowable": true,
-  //                 "collateral_value": 1.00,
-  //                 "margin_rate": 0.050000
-  //             }
-  //         ],
-  //         "pairs": [
-  //             {
-  //                 "symbol": "BTC/USD",
-  //                 "base": "BTC",
-  //                 "quote": "USD",
-  //                 "status": "online",
-  //                 "qty_precision": 8,
-  //                 "qty_increment": 0.00000001,
-  //                 "price_precision": 1,
-  //                 "cost_precision": 5,
-  //                 "marginable": true,
-  //                 "has_index": true,
-  //                 "cost_min": 0.50,
-  //                 "margin_initial": 0.20,
-  //                 "position_limit_long": 300,
-  //                 "position_limit_short": 240,
-  //                 "tick_size": 0.1,
-  //                 "price_increment": 0.1,
-  //                 "qty_min": 0.00005000
-  //             }
-  //         ]
-  //     }
-  // }
+fn instrument_snapshot_decoder() {
+  use pairs <- decode.subfield(["data", "pairs"], decode.list(pair_decoder()))
+  decode.success(InstrumentSnapshot(pairs))
+}
 
-  let pair_decoder = fn() {
-    use symbol <- decode.field("symbol", decode.string)
-    use base <- decode.field("base", decode.string)
-    use quote <- decode.field("quote", decode.string)
-    decode.success(InstrumentPair(symbol:, base:, quote:))
+fn instrument_update_decoder() {
+  let data_decoder = {
+    use pairs <- decode.optional_field("pairs", [], decode.list(pair_decoder()))
+    decode.success(InstrumentUpdate(pairs))
   }
 
-  use pairs <- decode.subfield(["data", "pairs"], decode.list(pair_decoder()))
-  decode.success(InstrumentsResponse(pairs))
+  use update <- decode.field("data", data_decoder)
+  decode.success(update)
+}
+
+fn pair_decoder() {
+  use symbol <- decode.field("symbol", decode.string)
+  use status <- decode.field("status", decode.string)
+  decode.success(InstrumentPair(symbol:, status:))
 }
 
 fn pong_decoder() {
@@ -135,54 +112,21 @@ fn pong_decoder() {
 }
 
 fn ticker_subscribe_confirmation_decoder() {
-  // {
-  //     "method": "subscribe",
-  //     "req_id": 69,
-  //     "result": {
-  //         "channel": "ticker",
-  //         "event_trigger": "trades",
-  //         "snapshot": true,
-  //         "symbol": "BTC/USD"
-  //     },
-  //     "success": true,
-  //     "time_in": "2025-04-27T15:38:26.540456Z",
-  //     "time_out": "2025-04-27T15:38:26.540489Z"
-  // }
-
-  // {
-  //     "error": "Currency pair not supported xxx/USD",
-  //     "method": "subscribe",
-  //     "req_id": 69,
-  //     "success": false,
-  //     "symbol": "xxx/USD",
-  //     "time_in": "2025-04-27T15:37:48.652299Z",
-  //     "time_out": "2025-04-27T15:37:48.652337Z"
-  // }
   use success <- decode.field("success", decode.bool)
   use <- bool.guard(
     !success,
     decode.failure(
-      TickerSubscribeConfirmation(""),
+      TickerSubscribeConfirmation("", 0),
       "successful ticker subscription",
     ),
   )
 
   use symbol <- decode.subfield(["result", "symbol"], decode.string)
-  decode.success(TickerSubscribeConfirmation(symbol))
+  use req_id <- decode.field("req_id", decode.int)
+  decode.success(TickerSubscribeConfirmation(symbol, req_id))
 }
 
 fn ticker_data_decoder() {
-  // {
-  //     "channel": "ticker",
-  //     "type": "update",
-  //     "data": [
-  //         {
-  //             "symbol": "BTC/USD",
-  //             "last": 75804.6,
-  //             "timestamp": "2026-11-08T13:56:00.550875Z"
-  //         }
-  //     ]
-  // }
   let ticker_decoder = fn() {
     use symbol <- decode.field("symbol", decode.string)
     use last <- decode.field("last", positive_float.decoder())

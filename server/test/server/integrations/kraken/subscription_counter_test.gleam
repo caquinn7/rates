@@ -27,6 +27,35 @@ pub fn reconnect_preserves_pending_and_active_reference_counts_test() {
   assert list.contains(symbols, "ETH/USD")
 }
 
+pub fn suspend_moves_only_the_requested_active_count_to_pending_test() {
+  let #(_, counter) =
+    subscription_counter.new()
+    |> subscription_counter.add_subscription("BTC/USD")
+  let #(_, counter) = subscription_counter.add_subscription(counter, "BTC/USD")
+  let assert Ok(counter) =
+    subscription_counter.confirm_subscription(counter, "BTC/USD")
+
+  let #(_, counter) = subscription_counter.add_subscription(counter, "ETH/USD")
+  let assert Ok(counter) =
+    subscription_counter.confirm_subscription(counter, "ETH/USD")
+
+  let counter = subscription_counter.suspend(counter, "BTC/USD")
+
+  assert subscription_counter.get_pending_count(counter, "BTC/USD") == 2
+  assert subscription_counter.get_active_count(counter, "BTC/USD") == 0
+  assert subscription_counter.get_pending_count(counter, "ETH/USD") == 0
+  assert subscription_counter.get_active_count(counter, "ETH/USD") == 1
+}
+
+pub fn suspend_preserves_the_counter_for_pending_and_untracked_symbols_test() {
+  let #(_, counter) =
+    subscription_counter.new()
+    |> subscription_counter.add_subscription("BTC/USD")
+
+  assert subscription_counter.suspend(counter, "BTC/USD") == counter
+  assert subscription_counter.suspend(counter, "ETH/USD") == counter
+}
+
 pub fn add_subscription_should_subscribe_and_add_to_pending_on_first_request_test() {
   let #(should_subscribe, counter) =
     subscription_counter.new()

@@ -4,7 +4,8 @@ import gleam/option.{type Option, None, Some}
 // {
 //     "method": "subscribe",
 //     "params": {
-//         "channel": "instrument"
+//         "channel": "instrument",
+//         "snapshot": true
 //     },
 //     "req_id": 79
 // }
