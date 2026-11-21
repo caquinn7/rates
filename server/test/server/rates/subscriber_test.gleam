@@ -2,10 +2,13 @@ import exception
 import gleam/dict
 import gleam/erlang/atom.{type Atom}
 import gleam/erlang/process.{type Pid, type Subject}
+import gleam/httpc
 import gleam/list
 import gleam/option.{None, Some}
 import glight
-import server/integrations/coin_market_cap/client.{CmcResponse, CmcStatus}
+import server/integrations/coin_market_cap/client.{
+  CmcResponse, CmcStatus, HttpError,
+}
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
 }
@@ -412,6 +415,117 @@ fn assert_failed_fallback_releases_interest(start_with_kraken_price: Bool) {
   assert process.receive(interest, 0) == Error(Nil)
   assert process.receive(replies, 0) == Error(Nil)
   assert process.receive(updates, 0) == Error(Nil)
+}
+
+pub fn overflowing_kraken_reciprocal_falls_back_and_keeps_refreshing_test() {
+  let interest = process.new_subject()
+  let replies = process.new_subject()
+  let updates = process.new_subject()
+  let logs = process.new_subject()
+  // USD/BTC needs the reciprocal of BTC/USD. This valid Kraken price
+  // overflows when inverted.
+  let kraken_price = positive_float.from_float_unsafe(1.0e-309)
+  let cmc_price = positive_float.from_float_unsafe(0.00002)
+  let request = RateRequest(2781, 1)
+  let currencies = [
+    Crypto(1, "Bitcoin", "BTC", Some(1)),
+    Fiat(2781, "United States Dollar", "USD", "$"),
+  ]
+  let assert Ok(manager) = subscription_manager.new(1000)
+  let assert Ok(id) = subscription_id.new("reciprocal-overflow")
+  let assert Ok(target) =
+    subscriber.new_with_scheduler(
+      id,
+      replies,
+      subscriber.Config(
+        get_currency: fn(id) {
+          list.find(currencies, fn(currency) { currency.id == id })
+        },
+        kraken_interface: KrakenInterface(
+          get_kraken_symbol: kraken_symbol.new(_, fn(pair) { pair == "BTC/USD" }),
+          subscribe: fn(symbol) {
+            process.send(interest, #(True, symbol, process.self()))
+          },
+          unsubscribe: fn(symbol) {
+            process.send(interest, #(False, symbol, process.self()))
+          },
+          check_for_price: fn(_) { Ok(PriceEntry(kraken_price, 100)) },
+        ),
+        request_cmc_conversion: fn(parameters) {
+          assert parameters.id == request.from
+          assert parameters.convert_id == request.to
+          case get_and_increment("reciprocal_overflow_cmc_requests") {
+            0 -> Error(HttpError(httpc.ResponseTimeout))
+            1 ->
+              Ok(CmcResponse(
+                CmcStatus(0, None),
+                Some(CmcConversion(
+                  parameters.id,
+                  "USD",
+                  "United States Dollar",
+                  positive_float.from_float_unsafe(1.0),
+                  dict.from_list([#("1", QuoteItem(Some(cmc_price), 200))]),
+                )),
+              ))
+            _ -> panic as "Unexpected CMC request"
+          }
+        },
+        subscription_manager: manager,
+        logger: logger.new_with_sink(glight.Warning, process.send(logs, _)),
+      ),
+      record_schedule(updates),
+    )
+  use <- exception.defer(fn() { subscriber.stop(target) })
+
+  let assert_overflow_warning = fn() {
+    let assert Ok(LogEntry(level, message, fields)) =
+      process.receive(logs, 1000)
+    assert level == glight.Warning
+    assert message
+      == "Reversed Kraken price is out of range. Falling back to CMC"
+    assert dict.get(fields, "subscription_id") == Ok("reciprocal-overflow")
+    assert dict.get(fields, "rate_request.from") == Ok("2781")
+    assert dict.get(fields, "rate_request.to") == Ok("1")
+  }
+
+  // The first CMC request times out. The subscriber must still release
+  // its Kraken interest and schedule another refresh.
+  subscriber.subscribe(target, request)
+  let assert Ok(#(True, symbol, pid)) = process.receive(interest, 1000)
+  let monitor = process.monitor(pid)
+  assert kraken_symbol.to_string(symbol) == "BTC/USD"
+  let assert Ok(#(first_subscriber, Error(CmcError(failed_request, _)))) =
+    process.receive(replies, 1000)
+  assert first_subscriber == target
+  assert failed_request == request
+  assert_overflow_warning()
+  assert process.receive(interest, 1000) == Ok(#(False, symbol, pid))
+
+  // Deliver the scheduled refresh immediately. It probes Kraken again,
+  // hits the same overflow, and gets a quote from CMC on the second attempt.
+  let refresh = await_scheduled_update(updates, 30_000)
+  refresh()
+  assert process.receive(interest, 1000) == Ok(#(True, symbol, pid))
+  let assert Ok(#(next_subscriber, Ok(response))) =
+    process.receive(replies, 1000)
+  assert next_subscriber == target
+  assert response.from == request.from
+  assert response.to == request.to
+  assert response.source == CoinMarketCap
+  assert response.rate == Some(cmc_price)
+  assert response.timestamp == 200
+  assert_overflow_warning()
+  assert process.receive(interest, 1000) == Ok(#(False, symbol, pid))
+  let _ = await_scheduled_update(updates, 30_000)
+
+  // Wait for the subscriber to stop before checking for duplicate events.
+  subscriber.stop(target)
+  let assert Ok(_) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+  assert process.receive(interest, 0) == Error(Nil)
+  assert process.receive(logs, 0) == Error(Nil)
 }
 
 pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {

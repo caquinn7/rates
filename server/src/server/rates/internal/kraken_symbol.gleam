@@ -40,17 +40,16 @@ pub fn to_string(symbol: KrakenSymbol) -> String {
   }
 }
 
-/// Applies the symbol direction to a price. Returns the price as-is for DirectSymbol,
-/// or the inverse for ReversedSymbol
+/// Returns the direct price or its reciprocal for a reversed pair.
+/// Returns `Error(Nil)` if the reciprocal is outside the representable range.
 pub fn apply_price_direction(
   symbol: KrakenSymbol,
   price: PositiveFloat,
-) -> PositiveFloat {
+) -> Result(PositiveFloat, Nil) {
   case symbol {
-    Direct(..) -> price
+    Direct(..) -> Ok(price)
     Reversed(..) ->
-      price
-      |> positive_float.with_value(fn(p) { 1.0 /. p })
-      |> positive_float.from_float_unsafe
+      positive_float.from_float_unsafe(1.0)
+      |> positive_float.divide(by: price)
   }
 }

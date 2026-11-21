@@ -10,13 +10,23 @@ import shared/rates/rate_response.{type RateResponse, RateResponse}
 
 /// The lookup strategy selected for a currency pair.
 pub type RateSourceStrategy {
-  /// Tries Kraken, falling back to CoinMarketCap if no price is available.
+  /// Tries Kraken, falling back to CoinMarketCap if no usable price is available.
   /// Carries the resolved Kraken pair and its price direction.
   KrakenStrategy(KrakenSymbol)
 
   /// Requests a CoinMarketCap conversion directly.
   /// Selected when no supported Kraken pair can be resolved.
   CmcStrategy
+}
+
+/// Why the rate strategy falls back from Kraken to CoinMarketCap.
+pub type KrakenFallbackReason {
+  /// The Kraken price lookup found no quote for the resolved pair.
+  PriceUnavailable
+
+  /// The reciprocal required for the reversed pair is outside the range of
+  /// positive, finite floats.
+  ReciprocalOutOfRange
 }
 
 pub type StrategyConfig {
@@ -28,8 +38,8 @@ pub type StrategyConfig {
     /// Requests a CoinMarketCap conversion for the supplied amount and currency IDs.
     /// Returns the decoded provider response or an HTTP/JSON decoding error.
     request_cmc_conversion: RequestCmcConversion,
-    /// Called before requesting CMC when a Kraken price lookup fails.
-    on_kraken_fallback: fn() -> Nil,
+    /// Reports why the Kraken price could not be used before requesting CMC.
+    on_kraken_fallback: fn(KrakenFallbackReason) -> Nil,
   )
 }
 
@@ -57,12 +67,11 @@ pub fn determine_strategy(
   })
 }
 
-/// Fetches a quote using the selected strategy, falling back from Kraken to CMC
-/// when the Kraken lookup fails. Calls `on_kraken_fallback` before that CMC request.
+/// Fetches a quote using the selected strategy. If the Kraken price is missing
+/// or its reciprocal is out of range, calls `on_kraken_fallback` before requesting CMC.
 ///
-/// Returns `#(result, fell_back_from_kraken)`. The flag is `True` when a failed
-/// Kraken lookup led to a CMC request, even if that request fails. It is `False`
-/// for a successful Kraken lookup or a direct CMC strategy.
+/// Returns `#(result, fell_back_from_kraken)`. The flag is `True` for a fallback
+/// to CMC, even if that request fails.
 pub fn execute_strategy(
   strategy: RateSourceStrategy,
   rate_request: RateRequest,
@@ -81,26 +90,31 @@ fn execute_kraken_strategy(
   kraken_symbol: KrakenSymbol,
   config: StrategyConfig,
 ) -> #(Result(RateResponse, RateError), Bool) {
-  let kraken_price_result = config.check_for_kraken_price(kraken_symbol)
-  case kraken_price_result {
-    Ok(price_entry) -> {
-      let price =
-        kraken_symbol.apply_price_direction(kraken_symbol, price_entry.price)
+  let kraken_response = {
+    use price_entry <- result.try(
+      kraken_symbol
+      |> config.check_for_kraken_price
+      |> result.replace_error(PriceUnavailable),
+    )
+    use price <- result.try(
+      kraken_symbol
+      |> kraken_symbol.apply_price_direction(price_entry.price)
+      |> result.replace_error(ReciprocalOutOfRange),
+    )
 
-      #(
-        Ok(RateResponse(
-          rate_request.from,
-          rate_request.to,
-          Some(price),
-          rate_response.Kraken,
-          price_entry.timestamp,
-        )),
-        False,
-      )
-    }
+    Ok(RateResponse(
+      rate_request.from,
+      rate_request.to,
+      Some(price),
+      rate_response.Kraken,
+      price_entry.timestamp,
+    ))
+  }
 
-    Error(_) -> {
-      config.on_kraken_fallback()
+  case kraken_response {
+    Ok(response) -> #(Ok(response), False)
+    Error(reason) -> {
+      config.on_kraken_fallback(reason)
       #(execute_cmc_strategy(rate_request, config), True)
     }
   }
