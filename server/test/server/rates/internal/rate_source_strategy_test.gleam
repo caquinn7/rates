@@ -10,7 +10,8 @@ import server/integrations/coin_market_cap/cmc_conversion.{
 import server/integrations/kraken/price_store.{PriceEntry}
 import server/rates/internal/kraken_symbol
 import server/rates/internal/rate_source_strategy.{
-  CmcStrategy, KrakenStrategy, StrategyConfig,
+  type KrakenFallbackReason, CmcStrategy, KrakenStrategy, PriceUnavailable,
+  StrategyConfig,
 }
 import server/rates/rate_error.{CmcError, CurrencyNotFound}
 import shared/currency.{Crypto, Fiat}
@@ -20,15 +21,20 @@ import shared/rates/rate_response
 
 const btc = Crypto(1, "Bitcoin", "BTC", Some(1))
 
+const other_btc = Crypto(32_295, "Bullish Trump Coin", "BTC", None)
+
 const usd = Fiat(2781, "US Dollar", "USD", "$")
 
-pub fn determine_strategy_returns_currency_not_found_when_first_currency_id_not_found_test() {
-  let rate_request = RateRequest(from: 1, to: 2)
+type FallbackEvent {
+  KrakenFallback(KrakenFallbackReason)
+  CmcRequested
+}
+
+pub fn determine_strategy_reports_source_first_when_both_currencies_are_unknown_test() {
+  let rate_request = RateRequest(from: 1, to: 2781)
   let get_currency_by_id = fn(id) {
-    case id {
-      2 -> Ok(usd)
-      _ -> Error(Nil)
-    }
+    assert id == rate_request.from
+    Error(Nil)
   }
   let create_kraken_symbol = fn(_) {
     panic as "Should not be called - kraken symbol failure not expected"
@@ -44,11 +50,11 @@ pub fn determine_strategy_returns_currency_not_found_when_first_currency_id_not_
   assert Error(CurrencyNotFound(rate_request, 1)) == result
 }
 
-pub fn determine_strategy_returns_currency_not_found_when_second_currency_id_not_found_test() {
-  let rate_request = RateRequest(from: 1, to: 2)
+pub fn determine_strategy_checks_for_unknown_target_even_when_source_is_unmapped_test() {
+  let rate_request = RateRequest(from: 32_295, to: 2781)
   let get_currency_by_id = fn(id) {
     case id {
-      1 -> Ok(btc)
+      32_295 -> Ok(other_btc)
       _ -> Error(Nil)
     }
   }
@@ -63,34 +69,37 @@ pub fn determine_strategy_returns_currency_not_found_when_second_currency_id_not
       create_kraken_symbol,
     )
 
-  assert Error(CurrencyNotFound(rate_request, 2)) == result
+  assert Error(CurrencyNotFound(rate_request, 2781)) == result
 }
 
 pub fn determine_strategy_returns_kraken_strategy_when_symbol_resolved_test() {
-  let rate_request = RateRequest(from: 1, to: 2)
+  let rate_request = RateRequest(from: 1, to: 2781)
   let get_currency_by_id = fn(id) {
     case id {
       1 -> Ok(btc)
-      2 -> Ok(usd)
+      2781 -> Ok(usd)
       _ -> Error(Nil)
     }
   }
-  let create_kraken_symbol = kraken_symbol.new(_, fn(_) { True })
+  let create_kraken_symbol = kraken_symbol.new(_, fn(symbol) {
+    symbol == "BTC/USD"
+  })
 
-  let assert Ok(KrakenStrategy(_)) =
+  let assert Ok(KrakenStrategy(symbol)) =
     rate_source_strategy.determine_strategy(
       rate_request,
       get_currency_by_id,
       create_kraken_symbol,
     )
+  assert kraken_symbol.to_string(symbol) == "BTC/USD"
 }
 
 pub fn determine_strategy_returns_cmc_strategy_when_symbol_not_resolved_test() {
-  let rate_request = RateRequest(from: 1, to: 2)
+  let rate_request = RateRequest(from: 1, to: 2781)
   let get_currency_by_id = fn(id) {
     case id {
       1 -> Ok(btc)
-      2 -> Ok(usd)
+      2781 -> Ok(usd)
       _ -> Error(Nil)
     }
   }
@@ -106,12 +115,49 @@ pub fn determine_strategy_returns_cmc_strategy_when_symbol_not_resolved_test() {
   assert Ok(CmcStrategy) == result
 }
 
+pub fn asset_sharing_bitcoins_ticker_uses_cmc_with_original_ids_in_either_direction_test() {
+  let get_currency_by_id = fn(id) {
+    case id {
+      32_295 -> Ok(other_btc)
+      2781 -> Ok(usd)
+      _ -> Error(Nil)
+    }
+  }
+
+  let assert_direct_cmc = fn(rate_request) {
+    let assert Ok(CmcStrategy) =
+      rate_source_strategy.determine_strategy(
+        rate_request,
+        get_currency_by_id,
+        kraken_symbol.new(_, fn(symbol) { symbol == "BTC/USD" }),
+      )
+
+    let config =
+      StrategyConfig(
+        check_for_kraken_price: fn(_) { panic as "Unmapped ID reached Kraken" },
+        request_cmc_conversion: fn(parameters) {
+          assert parameters.id == rate_request.from
+          assert parameters.convert_id == rate_request.to
+          Ok(CmcResponse(CmcStatus(400, None), None))
+        },
+        on_kraken_fallback: fn(_) { panic as "Expected direct CMC strategy" },
+      )
+    let #(result, fell_back) =
+      rate_source_strategy.execute_strategy(CmcStrategy, rate_request, config)
+
+    let assert Error(CmcError(_, _)) = result
+    assert !fell_back
+  }
+  assert_direct_cmc(RateRequest(32_295, 2781))
+  assert_direct_cmc(RateRequest(2781, 32_295))
+}
+
 pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test() {
-  let rate_request = RateRequest(from: 1, to: 2)
+  let rate_request = RateRequest(from: 1, to: 2781)
   let get_currency_by_id = fn(id) {
     case id {
       1 -> Ok(btc)
-      2 -> Ok(usd)
+      2781 -> Ok(usd)
       _ -> Error(Nil)
     }
   }
@@ -135,7 +181,7 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
       request_cmc_conversion: fn(_) {
         panic as "Should not call CMC on Kraken success"
       },
-      on_kraken_fallback: fn() { panic as "Kraken failure not expected" },
+      on_kraken_fallback: fn(_) { panic as "Kraken failure not expected" },
     )
 
   let #(result, should_downgrade) =
@@ -143,7 +189,7 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
 
   let assert Ok(response) = result
   assert response.from == 1
-  assert response.to == 2
+  assert response.to == 2781
   assert response.rate == Some(expected_price)
   assert response.source == rate_response.Kraken
   assert response.timestamp == 1000
@@ -152,7 +198,7 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
 
 pub fn inverse_kraken_rates_preserve_the_provider_timestamp_test() {
   let assert Ok(symbol) =
-    kraken_symbol.new(#("USD", "BTC"), fn(symbol) { symbol == "BTC/USD" })
+    kraken_symbol.new(#(2781, 1), fn(symbol) { symbol == "BTC/USD" })
   let config =
     StrategyConfig(
       check_for_kraken_price: fn(_) {
@@ -162,7 +208,7 @@ pub fn inverse_kraken_rates_preserve_the_provider_timestamp_test() {
         ))
       },
       request_cmc_conversion: fn(_) { panic as "CMC must not be used" },
-      on_kraken_fallback: fn() { panic as "Kraken failure not expected" },
+      on_kraken_fallback: fn(_) { panic as "Kraken failure not expected" },
     )
 
   let #(result, should_downgrade) =
@@ -179,11 +225,11 @@ pub fn inverse_kraken_rates_preserve_the_provider_timestamp_test() {
 }
 
 pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
-  let rate_request = RateRequest(from: 1, to: 2)
+  let rate_request = RateRequest(from: 1, to: 2781)
   let get_currency_by_id = fn(id) {
     case id {
       1 -> Ok(btc)
-      2 -> Ok(usd)
+      2781 -> Ok(usd)
       _ -> Error(Nil)
     }
   }
@@ -201,7 +247,7 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
   let expected_price = positive_float.from_float_unsafe(100_000.0)
   let events = process.new_subject()
   let request_cmc_conversion = fn(conversion_params: CmcConversionParameters) {
-    process.send(events, "CMC requested")
+    process.send(events, CmcRequested)
     Ok(CmcResponse(
       CmcStatus(0, None),
       Some(CmcConversion(
@@ -209,7 +255,7 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
         "BTC",
         "Bitcoin",
         positive_float.from_float_unsafe(1.0),
-        dict.from_list([#("2", QuoteItem(Some(expected_price), 1000))]),
+        dict.from_list([#("2781", QuoteItem(Some(expected_price), 1000))]),
       )),
     ))
   }
@@ -218,7 +264,9 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
     StrategyConfig(
       check_for_kraken_price: fn(_) { Error(Nil) },
       request_cmc_conversion:,
-      on_kraken_fallback: fn() { process.send(events, "Kraken fallback") },
+      on_kraken_fallback: fn(reason) {
+        process.send(events, KrakenFallback(reason))
+      },
     )
 
   let #(result, should_downgrade) =
@@ -226,18 +274,18 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
 
   let assert Ok(response) = result
   assert response.from == 1
-  assert response.to == 2
+  assert response.to == 2781
   assert response.rate == Some(expected_price)
   assert response.source == rate_response.CoinMarketCap
   assert response.timestamp == 1000
   assert should_downgrade
-  assert process.receive(events, 0) == Ok("Kraken fallback")
-  assert process.receive(events, 0) == Ok("CMC requested")
+  assert process.receive(events, 0) == Ok(KrakenFallback(PriceUnavailable))
+  assert process.receive(events, 0) == Ok(CmcRequested)
   assert process.receive(events, 0) == Error(Nil)
 }
 
 pub fn execute_strategy_returns_cmc_response_when_successful_test() {
-  let rate_request = RateRequest(1, 2)
+  let rate_request = RateRequest(1, 2781)
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
   let cmc_get_rate = fn(conversion_params: CmcConversionParameters) {
@@ -248,7 +296,7 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
         "BTC",
         "Bitcoin",
         positive_float.from_float_unsafe(1.0),
-        dict.from_list([#("2", QuoteItem(Some(expected_price), 1000))]),
+        dict.from_list([#("2781", QuoteItem(Some(expected_price), 1000))]),
       )),
     ))
   }
@@ -257,7 +305,7 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
     StrategyConfig(
       check_for_kraken_price: fn(_) { Error(Nil) },
       request_cmc_conversion: cmc_get_rate,
-      on_kraken_fallback: fn() {
+      on_kraken_fallback: fn(_) {
         panic as "Should not be called for CMC strategy"
       },
     )
@@ -267,7 +315,7 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
 
   let assert Ok(response) = result
   assert response.from == 1
-  assert response.to == 2
+  assert response.to == 2781
   assert response.rate == Some(expected_price)
   assert response.source == rate_response.CoinMarketCap
   assert response.timestamp == 1000
@@ -275,11 +323,11 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
 }
 
 pub fn execute_strategy_returns_error_when_cmc_fails_test() {
-  let rate_request = RateRequest(from: 1, to: 2)
+  let rate_request = RateRequest(from: 1, to: 2781)
   let get_currency_by_id = fn(id) {
     case id {
       1 -> Ok(btc)
-      2 -> Ok(usd)
+      2781 -> Ok(usd)
       _ -> Error(Nil)
     }
   }
@@ -304,7 +352,7 @@ pub fn execute_strategy_returns_error_when_cmc_fails_test() {
         panic as "Should not call Kraken for CMC strategy"
       },
       request_cmc_conversion: request_cmc_conversion,
-      on_kraken_fallback: fn() {
+      on_kraken_fallback: fn(_) {
         panic as "Should not be called for CMC strategy"
       },
     )

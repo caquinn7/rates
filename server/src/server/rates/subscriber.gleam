@@ -1,7 +1,7 @@
 //// Periodically sends exchange-rate results for one client subscription.
 ////
 //// Prefers Kraken's live price store and falls back to CoinMarketCap when a pair
-//// or price is unavailable. CMC refreshes retry Kraken selection to allow recovery.
+//// or usable price is unavailable. CMC refreshes retry Kraken selection to allow recovery.
 ////
 //// Kraken refreshes use the configured base interval. CMC refreshes use that interval
 //// or 30 seconds, whichever is longer. Recovery to Kraken restores the base interval.
@@ -16,7 +16,8 @@ import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/kraken_interface.{type KrakenInterface}
 import server/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/rates/internal/rate_source_strategy.{
-  type RateSourceStrategy, CmcStrategy, KrakenStrategy, StrategyConfig,
+  type KrakenFallbackReason, type RateSourceStrategy, CmcStrategy,
+  KrakenStrategy, PriceUnavailable, ReciprocalOutOfRange, StrategyConfig,
 }
 import server/rates/internal/subscription_manager.{
   type SubscriptionManager, Cmc, Kraken,
@@ -90,7 +91,7 @@ type State {
     reply_to: Subject(SubscriptionResult),
     /// Active rate request, selected source, and refresh interval policy.
     subscription_manager: SubscriptionManager,
-    /// Logger for diagnostics, including Kraken price lookup timeouts.
+    /// Logger for diagnostics, including Kraken fallback reasons.
     logger: Logger,
     /// Scheduling override; `None` uses `process.send_after`.
     scheduler: Option(Scheduler),
@@ -296,13 +297,12 @@ fn fetch_reply_and_reschedule(
     StrategyConfig(
       check_for_kraken_price: context.kraken_interface.check_for_price,
       request_cmc_conversion: context.request_cmc_conversion,
-      on_kraken_fallback: fn() {
-        log_wait_for_kraken_price_timeout(
-          state.logger,
-          state.self.id,
-          rate_request,
-        )
-      },
+      on_kraken_fallback: log_kraken_fallback(
+        state.logger,
+        state.self.id,
+        rate_request,
+        _,
+      ),
     )
   let #(result, should_downgrade) =
     rate_source_strategy.execute_strategy(strategy, rate_request, config)
@@ -416,14 +416,22 @@ fn schedule_next_update(state: State) -> State {
   State(..state, pending_refresh: Some(refresh_token))
 }
 
-fn log_wait_for_kraken_price_timeout(
+fn log_kraken_fallback(
   logger: Logger,
   subscription_id: SubscriptionId,
   rate_req: RateRequest,
+  reason: KrakenFallbackReason,
 ) -> Nil {
+  let message = case reason {
+    PriceUnavailable ->
+      "Timed out waiting for kraken price. Falling back to CMC"
+    ReciprocalOutOfRange ->
+      "Reversed Kraken price is out of range. Falling back to CMC"
+  }
+
   logger
   |> logger.with("subscription_id", subscription_id.to_string(subscription_id))
   |> logger.with("rate_request.from", int.to_string(rate_req.from))
   |> logger.with("rate_request.to", int.to_string(rate_req.to))
-  |> logger.warning("Timed out waiting for kraken price. Falling back to CMC")
+  |> logger.warning(message)
 }

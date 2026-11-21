@@ -7,9 +7,9 @@ import server/utils/retry
 /// interest, and retrieve prices with provider timestamps.
 pub type KrakenInterface {
   KrakenInterface(
-    /// Resolves source and target symbols to a direct or reversed Kraken pair.
-    /// Returns `Error(Nil)` if neither direction is supported.
-    get_kraken_symbol: fn(#(String, String)) -> Result(KrakenSymbol, Nil),
+    /// Resolves verified CoinMarketCap IDs to a direct or reversed Kraken pair.
+    /// Returns `Error(Nil)` if an asset or pair is unavailable.
+    get_kraken_symbol: fn(#(Int, Int)) -> Result(KrakenSymbol, Nil),
     /// Asynchronously registers one subscriber's interest in the pair.
     subscribe: fn(KrakenSymbol) -> Nil,
     /// Asynchronously releases one subscriber's interest in the pair.
@@ -49,7 +49,6 @@ pub fn new(
       |> kraken_symbol.to_string
       |> price_store.get_price(price_store, _)
     }
-
     retry.attempt(get_price, 5, 50)
   }
 
