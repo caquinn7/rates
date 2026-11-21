@@ -1,16 +1,7 @@
 import gleam/json
 import gleam/option.{None, Some}
 import server/integrations/kraken/internal/request.{
-  Instruments, KrakenRequest, Ping, Subscribe, Tickers, Unsubscribe,
-}
-
-pub fn encode_application_ping_without_subscription_params_test() {
-  let encoded =
-    Ping(42)
-    |> request.encode
-    |> json.to_string
-
-  assert encoded == "{\"method\":\"ping\",\"req_id\":42}"
+  Instruments, KrakenRequest, Subscribe, Tickers, Unsubscribe,
 }
 
 pub fn encode_subscribe_instruments_with_req_id_test() {

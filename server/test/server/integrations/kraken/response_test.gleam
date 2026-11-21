@@ -3,36 +3,10 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
 import server/integrations/kraken/internal/response.{
-  InstrumentPair, InstrumentSnapshot, InstrumentUpdate, Pong, TickerResponse,
+  InstrumentPair, InstrumentSnapshot, InstrumentUpdate, TickerResponse,
   TickerSubscribeConfirmation,
 }
 import shared/numbers/positive_float
-
-pub fn decode_correlated_pong_test() {
-  "{\"method\":\"pong\",\"req_id\":42}"
-  |> json.parse(response.decoder())
-  |> should.equal(Ok(Some(Pong(42))))
-}
-
-pub fn decode_live_kraken_pong_without_success_field_test() {
-  "{\"method\":\"pong\",\"req_id\":42,\"time_in\":\"2026-10-31T15:49:04.391605Z\",\"time_out\":\"2026-10-31T15:49:04.391618Z\"}"
-  |> json.parse(response.decoder())
-  |> should.equal(Ok(Some(Pong(42))))
-}
-
-pub fn malformed_or_uncorrelated_pongs_are_not_liveness_confirmations_test() {
-  list.each(
-    [
-      "{\"method\":\"pong\"}",
-      "{\"method\":\"pong\",\"req_id\":\"42\"}",
-      "{\"method\":\"subscribe\",\"req_id\":42}",
-    ],
-    fn(text) {
-      text |> json.parse(response.decoder()) |> should.be_error
-      Nil
-    },
-  )
-}
 
 pub fn decode_asset_only_instrument_updates_test() {
   [
@@ -233,7 +207,6 @@ pub fn decode_instrument_response_test() {
 pub fn malformed_responses_preserve_the_selected_decoders_field_errors_test() {
   list.each(
     [
-      #("{\"method\":\"pong\",\"req_id\":\"42\"}", ["req_id"]),
       #(
         "{\"channel\":\"ticker\",\"type\":\"update\",\"data\":[{\"symbol\":\"BTC/USD\",\"last\":\"invalid\"}]}",
         ["data", "0", "last"],

@@ -6,7 +6,7 @@ import server/utils/time
 import shared/numbers/positive_float.{type PositiveFloat}
 
 /// Messages decoded from Kraken's WebSocket API for instrument discovery,
-/// subscription tracking, price updates, and keepalive.
+/// subscription tracking and price updates.
 pub type KrakenResponse {
   /// Trading pairs from an instrument snapshot, used to populate the registry
   /// of supported symbols and enable ticker subscriptions.
@@ -21,10 +21,6 @@ pub type KrakenResponse {
   /// A symbol, its positive last traded price, and the provider's ticker timestamp
   /// in Unix milliseconds. The decoder uses the first data entry in the message.
   TickerResponse(symbol: String, price: PositiveFloat, timestamp: Int)
-
-  /// Reply to a Kraken JSON ping, carrying its request ID so the session can
-  /// match the outstanding ping and clear its pong deadline.
-  Pong(req_id: Int)
 }
 
 /// The instrument fields used to decide whether a pair is eligible for prices.
@@ -45,8 +41,6 @@ pub fn decoder() -> Decoder(Option(KrakenResponse)) {
   use method <- decode.optional_field("method", "", decode.string)
 
   case method {
-    "pong" -> decode.map(pong_decoder(), Some)
-
     "subscribe" -> {
       use channel <- decode.subfield(["result", "channel"], decode.string)
       case channel {
@@ -104,11 +98,6 @@ fn pair_decoder() {
   use symbol <- decode.field("symbol", decode.string)
   use status <- decode.field("status", decode.string)
   decode.success(InstrumentPair(symbol:, status:))
-}
-
-fn pong_decoder() {
-  use req_id <- decode.field("req_id", decode.int)
-  decode.success(Pong(req_id))
 }
 
 fn ticker_subscribe_confirmation_decoder() {

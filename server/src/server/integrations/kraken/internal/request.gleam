@@ -2,14 +2,11 @@ import gleam/json.{type Json}
 import gleam/option.{type Option, None, Some}
 
 /// Requests sent to Kraken's WebSocket API for instrument discovery,
-/// ticker subscriptions, and connection keepalive.
+/// and ticker subscriptions.
 pub type KrakenRequest {
   /// Subscribes to or unsubscribes from the instrument or ticker channel.
   /// The optional request ID can be used to match Kraken's response.
   KrakenRequest(method: Method, params: Params, req_id: Option(Int))
-
-  /// A JSON keepalive ping whose request ID is echoed in the pong response.
-  Ping(req_id: Int)
 }
 
 /// The subscription operation to perform for the channel and symbols in `Params`.
@@ -32,28 +29,9 @@ pub type Params {
 }
 
 /// Encodes a request as a JSON object for Kraken's WebSocket API.
-/// Pings include their request ID; subscribe and unsubscribe requests include
-/// `req_id` only when supplied.
+/// Includes `req_id` when supplied.
 pub fn encode(kraken_req: KrakenRequest) -> Json {
-  case kraken_req {
-    Ping(req_id) -> encode_ping(req_id)
-    KrakenRequest(method, params, req_id) ->
-      encode_subscription(method, params, req_id)
-  }
-}
-
-fn encode_ping(req_id: Int) -> Json {
-  json.object([
-    #("method", json.string("ping")),
-    #("req_id", json.int(req_id)),
-  ])
-}
-
-fn encode_subscription(
-  method: Method,
-  params: Params,
-  req_id: Option(Int),
-) -> Json {
+  let KrakenRequest(method:, params:, req_id:) = kraken_req
   case req_id {
     Some(i) ->
       json.object([
