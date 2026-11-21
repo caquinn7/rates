@@ -191,13 +191,15 @@ type Timers {
   )
 }
 
+/// Startup dependencies reused across connection attempts.
+type Context {
+  Context(logger: Logger, url: String, config: Config)
+}
+
 type State {
   State(
     self: Subject(Message),
-    logger: Logger,
     price_store: PriceStore,
-    url: String,
-    config: Config,
     phase: Phase,
     generation: Int,
     supported_symbols: Option(Set(String)),
@@ -227,8 +229,10 @@ pub fn start(
   url: String,
   config: Config,
 ) -> actor.StartResult(Subject(Message)) {
+  let context = Context(logger:, url:, config:)
+
   actor.new_with_initialiser(config.connect_timeout_ms + 1000, fn(self) {
-    let worker = start_worker(self, logger, url, config, 0)
+    let worker = start_worker(context, self, 0)
 
     let selector =
       process.new_selector()
@@ -241,10 +245,7 @@ pub fn start(
     let state =
       State(
         self:,
-        logger:,
         price_store: create_store(),
-        url:,
-        config:,
         phase: Connecting(worker),
         generation: 0,
         supported_symbols: None,
@@ -257,14 +258,14 @@ pub fn start(
       )
 
     state
-    |> begin_discovery(worker, socket)
+    |> begin_discovery(config, worker, socket)
     |> actor.initialised
     |> actor.selecting(selector)
     |> actor.returning(self)
     |> Ok
   })
   |> actor.on_message(fn(state, message) {
-    actor.continue(handle_message(state, message))
+    actor.continue(handle_message(context, state, message))
   })
   |> actor.start
 }
@@ -285,7 +286,7 @@ fn await_initial_connection(selector, config: Config) {
 /// Updates client interest across reconnects and schedules recovery when the
 /// current worker exits. Ignores unrelated worker notifications and events from
 /// a different connection attempt before dispatching accepted events to `handle_event`.
-fn handle_message(state: State, message: Message) -> State {
+fn handle_message(context: Context, state: State, message: Message) -> State {
   case message {
     Subscribe(symbol) -> add_interest(state, symbol)
 
@@ -309,9 +310,8 @@ fn handle_message(state: State, message: Message) -> State {
           | Stopping(worker)
           if pid == worker.pid && monitor == worker.monitor
         -> {
-          state
-          |> disconnect(string.inspect(reason))
-          |> schedule_reconnect
+          let state = disconnect(state, context.logger, string.inspect(reason))
+          schedule_reconnect(context, state)
         }
 
         _ -> state
@@ -322,7 +322,7 @@ fn handle_message(state: State, message: Message) -> State {
 
     GenerationEvent(generation, event) -> {
       use <- bool.guard(generation != state.generation, state)
-      handle_event(state, event)
+      handle_event(context, state, event)
     }
   }
 }
@@ -332,21 +332,21 @@ fn handle_message(state: State, message: Message) -> State {
 /// in the relevant phase: begins discovery, processes Kraken responses, checks
 /// keepalive deadlines, resets retry backoff, or starts the next connection attempt.
 /// Events that do not apply to the current phase or pending ping are ignored.
-fn handle_event(state: State, event: Event) -> State {
+fn handle_event(context: Context, state: State, event: Event) -> State {
   case event, state.phase {
     ConnectionEvent(event), phase -> {
       case event, phase {
         connection.Connected(socket), Connecting(worker) ->
-          begin_discovery(state, worker, socket)
+          begin_discovery(state, context.config, worker, socket)
 
         connection.Failed(reason), Connecting(_)
         | connection.Failed(reason), Discovering(_, _)
         | connection.Failed(reason), Ready(_, _)
-        -> disconnect(state, reason)
+        -> disconnect(state, context.logger, reason)
 
         connection.Received(message), Discovering(_, _)
         | connection.Received(message), Ready(_, _)
-        -> receive_message(state, message)
+        -> receive_message(context, state, message)
 
         _, _ -> state
       }
@@ -358,7 +358,7 @@ fn handle_event(state: State, event: Event) -> State {
       let next_ping =
         schedule_event(
           state,
-          state.config.ping_interval_ms,
+          context.config.ping_interval_ms,
           PingIntervalElapsed,
         )
       let timers = Timers(..state.timers, ping: Some(next_ping))
@@ -371,7 +371,7 @@ fn handle_event(state: State, event: Event) -> State {
           let deadline =
             schedule_event(
               state,
-              state.config.pong_timeout_ms,
+              context.config.pong_timeout_ms,
               PongDeadlineReached(req_id),
             )
           State(
@@ -386,31 +386,28 @@ fn handle_event(state: State, event: Event) -> State {
     PongDeadlineReached(req_id), _ -> {
       case state.timers.pong {
         Some(#(expected, _)) if req_id == expected ->
-          disconnect(state, "Kraken pong deadline exceeded")
+          disconnect(state, context.logger, "Kraken pong deadline exceeded")
         _ -> state
       }
     }
 
     DiscoveryDeadlineReached, Discovering(_, _) ->
-      disconnect(state, "Kraken instrument snapshot deadline exceeded")
+      disconnect(
+        state,
+        context.logger,
+        "Kraken instrument snapshot deadline exceeded",
+      )
 
     StabilityIntervalElapsed, Ready(_, _) ->
       State(
         ..state,
-        retry_delay_ms: state.config.retry_base_ms,
+        retry_delay_ms: context.config.retry_base_ms,
         timers: Timers(..state.timers, stable: None),
       )
 
     ReconnectDelayElapsed, WaitingToReconnect -> {
       let generation = state.generation + 1
-      let worker =
-        start_worker(
-          state.self,
-          state.logger,
-          state.url,
-          state.config,
-          generation,
-        )
+      let worker = start_worker(context, state.self, generation)
 
       State(
         ..state,
@@ -424,7 +421,11 @@ fn handle_event(state: State, event: Event) -> State {
   }
 }
 
-fn receive_message(state: State, message: KrakenResponse) -> State {
+fn receive_message(
+  context: Context,
+  state: State,
+  message: KrakenResponse,
+) -> State {
   case message, state.phase {
     Pong(req_id), _ -> {
       case state.timers.pong {
@@ -438,7 +439,13 @@ fn receive_message(state: State, message: KrakenResponse) -> State {
 
     InstrumentSnapshot(instruments), Discovering(worker, socket) -> {
       let symbols = list.fold(instruments, set.new(), apply_instrument)
-      finish_discovery(replace_pairs(state, symbols), worker, socket, symbols)
+      finish_discovery(
+        context,
+        replace_pairs(state, symbols),
+        worker,
+        socket,
+        symbols,
+      )
     }
 
     InstrumentSnapshot(instruments), Ready(_, _) ->
@@ -495,10 +502,8 @@ fn receive_message(state: State, message: KrakenResponse) -> State {
 /// connection attempt number so events from older attempts can be ignored.
 /// Returns the worker PID and monitor used to detect its exit and begin recovery.
 fn start_worker(
+  context: Context,
   self: Subject(Message),
-  logger: Logger,
-  url: String,
-  config: Config,
   generation: Int,
 ) -> Worker {
   let pid =
@@ -507,10 +512,10 @@ fn start_worker(
       fn(event) {
         process.send(self, GenerationEvent(generation, ConnectionEvent(event)))
       },
-      logger,
-      url,
-      config.connect_timeout_ms,
-      config.send_text,
+      context.logger,
+      context.url,
+      context.config.connect_timeout_ms,
+      context.config.send_text,
     )
   Worker(pid, process.monitor(pid))
 }
@@ -521,20 +526,16 @@ fn start_worker(
 /// Keeps the instrument subscription open for updates after the first snapshot.
 fn begin_discovery(
   state: State,
+  config: Config,
   worker: Worker,
   socket: connection.Socket,
 ) -> State {
   connection.send(socket, KrakenRequest(request.Subscribe, Instruments, None))
 
-  let ping =
-    schedule_event(state, state.config.ping_interval_ms, PingIntervalElapsed)
+  let ping = schedule_event(state, config.ping_interval_ms, PingIntervalElapsed)
 
   let discovery =
-    schedule_event(
-      state,
-      state.config.discovery_timeout_ms,
-      DiscoveryDeadlineReached,
-    )
+    schedule_event(state, config.discovery_timeout_ms, DiscoveryDeadlineReached)
 
   State(
     ..state,
@@ -547,6 +548,7 @@ fn begin_discovery(
 /// Requests tickers for supported pairs with client interest, cancels the
 /// snapshot deadline, and starts the stability timer for resetting retry backoff.
 fn finish_discovery(
+  context: Context,
   state: State,
   worker: Worker,
   socket: connection.Socket,
@@ -566,7 +568,7 @@ fn finish_discovery(
   let stable =
     schedule_event(
       state,
-      state.config.stable_connection_ms,
+      context.config.stable_connection_ms,
       StabilityIntervalElapsed,
     )
 
@@ -575,7 +577,7 @@ fn finish_discovery(
     None -> 0
   }
 
-  state.logger
+  context.logger
   |> logger.with("generation", int.to_string(state.generation))
   |> logger.with("downtime_ms", int.to_string(downtime))
   |> logger.with("restored_symbols", int.to_string(list.length(restore)))
@@ -595,14 +597,14 @@ fn finish_discovery(
 /// Preserves cached prices and the start of the current outage, and marks all
 /// remaining subscription interest as pending for replay on the next connection.
 /// The worker's exit notification schedules the retry.
-fn disconnect(state: State, reason: String) -> State {
+fn disconnect(state: State, logger: Logger, reason: String) -> State {
   case state.phase {
     Stopping(_) | WaitingToReconnect -> state
 
     Connecting(worker) | Discovering(worker, _) | Ready(worker, _) -> {
       cancel_all_timers(state.timers)
 
-      state.logger
+      logger
       |> logger.with("generation", int.to_string(state.generation))
       |> logger.with("reason", reason)
       |> logger.warning("Kraken connection lost")
@@ -632,11 +634,11 @@ fn disconnect(state: State, reason: String) -> State {
 /// jitter, logs the delay, and enters `WaitingToReconnect`. Doubles the delay
 /// for the following retry up to `retry_max_ms`; jitter is added after the cap.
 /// Called once the previous worker's exit has been observed.
-fn schedule_reconnect(state: State) -> State {
-  let delay = state.retry_delay_ms + state.config.jitter_ms()
+fn schedule_reconnect(context: Context, state: State) -> State {
+  let delay = state.retry_delay_ms + context.config.jitter_ms()
   let _ = schedule_event(state, delay, ReconnectDelayElapsed)
 
-  state.logger
+  context.logger
   |> logger.with("generation", int.to_string(state.generation))
   |> logger.with("delay_ms", int.to_string(delay))
   |> logger.warning("Retrying Kraken connection")
@@ -644,7 +646,10 @@ fn schedule_reconnect(state: State) -> State {
   State(
     ..state,
     phase: WaitingToReconnect,
-    retry_delay_ms: int.min(state.retry_delay_ms * 2, state.config.retry_max_ms),
+    retry_delay_ms: int.min(
+      state.retry_delay_ms * 2,
+      context.config.retry_max_ms,
+    ),
   )
 }
 
