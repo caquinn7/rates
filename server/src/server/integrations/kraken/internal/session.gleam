@@ -159,19 +159,6 @@ type Worker {
   )
 }
 
-/// Timers for instrument discovery and connection stability.
-/// The session can cancel them when discovery completes or the connection fails.
-type Timers {
-  Timers(
-    /// Deadline for the first instrument snapshot on the current connection.
-    /// Cleared when discovery completes or the connection is lost.
-    discovery: Option(Timer),
-    /// Timer that resets retry backoff after the connection remains ready for
-    /// the configured period. Cleared when it fires or the connection is lost.
-    stable: Option(Timer),
-  )
-}
-
 /// Startup dependencies reused across connection attempts.
 type Context {
   Context(logger: Logger, url: String, config: Config)
@@ -179,16 +166,31 @@ type Context {
 
 type State {
   State(
+    /// Receives client commands, connection notifications, and timer events.
     self: Subject(Message),
+    /// Handle to the session-owned ETS table, reused across reconnects.
     price_store: PriceStore,
+    /// Current connection phase, including any worker and socket handles.
     phase: Phase,
+    /// Zero-based connection attempt number used to discard stale events.
     generation: Int,
+    /// Eligible symbols from the latest instrument data, kept across reconnects.
+    /// `None` until the first instrument snapshot.
     supported_symbols: Option(Set(String)),
+    /// Client interest counts by symbol. Confirmed interest returns to pending
+    /// when the connection drops.
     subscriptions: SubscriptionCounter,
+    /// IDs of outstanding ticker subscribe requests, keyed by symbol.
+    /// Used to match acknowledgments to the current request.
     pending_ticker_requests: Dict(String, Int),
-    timers: Timers,
+    /// Snapshot deadline during discovery or backoff reset timer while ready.
+    phase_timer: Option(Timer),
+    /// Delay before the next reconnect attempt, in milliseconds before jitter.
     retry_delay_ms: Int,
+    /// ID for the next ticker subscribe request. The sequence spans reconnects.
     next_request_id: Int,
+    /// Monotonic timestamp in milliseconds when the current outage began.
+    /// Cleared when the connection becomes ready.
     disconnected_at: Option(Int),
   )
 }
@@ -232,7 +234,7 @@ pub fn start(
         supported_symbols: None,
         subscriptions: subscription_counter.new(),
         pending_ticker_requests: dict.new(),
-        timers: empty_timers(),
+        phase_timer: None,
         retry_delay_ms: config.retry_base_ms,
         next_request_id: 0,
         disconnected_at: None,
@@ -343,19 +345,14 @@ fn handle_event(context: Context, state: State, event: Event) -> State {
       State(
         ..state,
         retry_delay_ms: context.config.retry_base_ms,
-        timers: Timers(..state.timers, stable: None),
+        phase_timer: None,
       )
 
     ReconnectDelayElapsed, WaitingToReconnect -> {
       let generation = state.generation + 1
       let worker = start_worker(context, state.self, generation)
 
-      State(
-        ..state,
-        generation:,
-        phase: Connecting(worker),
-        timers: empty_timers(),
-      )
+      State(..state, generation:, phase: Connecting(worker))
     }
 
     _, _ -> state
@@ -470,7 +467,7 @@ fn begin_discovery(
   State(
     ..state,
     phase: Discovering(worker, socket),
-    timers: Timers(..state.timers, discovery: Some(discovery)),
+    phase_timer: Some(discovery),
   )
 }
 
@@ -493,7 +490,7 @@ fn finish_discovery(
       subscribe_ticker(state, socket, symbol)
     })
 
-  cancel_timer(state.timers.discovery)
+  cancel_timer(state.phase_timer)
 
   let stable =
     schedule_event(
@@ -517,13 +514,13 @@ fn finish_discovery(
     ..state,
     phase: Ready(worker, socket),
     disconnected_at: None,
-    timers: Timers(discovery: None, stable: Some(stable)),
+    phase_timer: Some(stable),
   )
 }
 
 /// Begins recovery after a connection failure, ignoring repeated calls while
-/// stopping or waiting to reconnect. Cancels timers, logs the failure, requests
-/// worker termination, and enters `Stopping` until the worker's exit is observed.
+/// stopping or waiting to reconnect. Cancels the phase timer, logs the failure,
+/// requests worker termination, and enters `Stopping` until the worker exits.
 /// Preserves cached prices and the start of the current outage, and marks all
 /// remaining subscription interest as pending for replay on the next connection.
 /// The worker's exit notification schedules the retry.
@@ -532,7 +529,7 @@ fn disconnect(state: State, logger: Logger, reason: String) -> State {
     Stopping(_) | WaitingToReconnect -> state
 
     Connecting(worker) | Discovering(worker, _) | Ready(worker, _) -> {
-      cancel_all_timers(state.timers)
+      cancel_timer(state.phase_timer)
 
       logger
       |> logger.with("generation", int.to_string(state.generation))
@@ -549,7 +546,7 @@ fn disconnect(state: State, logger: Logger, reason: String) -> State {
       State(
         ..state,
         phase: Stopping(worker),
-        timers: empty_timers(),
+        phase_timer: None,
         disconnected_at:,
         pending_ticker_requests: dict.new(),
         subscriptions: subscription_counter.prepare_for_reconnect(
@@ -718,10 +715,6 @@ fn schedule_event(state: State, delay_ms: Int, event: Event) -> Timer {
   )
 }
 
-fn empty_timers() -> Timers {
-  Timers(None, None)
-}
-
 fn cancel_timer(timer: Option(Timer)) -> Nil {
   case timer {
     Some(timer) -> {
@@ -730,9 +723,4 @@ fn cancel_timer(timer: Option(Timer)) -> Nil {
     }
     None -> Nil
   }
-}
-
-fn cancel_all_timers(timers: Timers) -> Nil {
-  [timers.discovery, timers.stable]
-  |> list.each(cancel_timer)
 }

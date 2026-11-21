@@ -1,8 +1,8 @@
 import gleam/json.{type Json}
 import gleam/option.{type Option, None, Some}
 
-/// Requests sent to Kraken's WebSocket API for instrument discovery,
-/// and ticker subscriptions.
+/// Requests sent to Kraken's WebSocket API for instrument discovery and ticker
+/// subscriptions.
 pub type KrakenRequest {
   /// Subscribes to or unsubscribes from the instrument or ticker channel.
   /// The optional request ID can be used to match Kraken's response.
