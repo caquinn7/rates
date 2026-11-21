@@ -7,7 +7,7 @@ import gleam/http/response as http_response
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/otp/actor
 import gleam/string
 import glight
@@ -19,8 +19,7 @@ import server/integrations/kraken/internal/response.{
 }
 import server/integrations/kraken/internal/session.{
   ConnectionEvent, DiscoveryDeadlineReached, GenerationEvent,
-  PingIntervalElapsed, PongDeadlineReached, ReconnectDelayElapsed,
-  StabilityIntervalElapsed, Subscribe, Unsubscribe,
+  ReconnectDelayElapsed, StabilityIntervalElapsed, Subscribe, Unsubscribe,
 }
 import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
@@ -28,33 +27,21 @@ import server/utils/logger.{type LogEntry, LogEntry}
 import server/utils/time
 import shared/numbers/positive_float
 
-/// Controls how the scripted Kraken socket responds to JSON pings.
-type PongMode {
-  /// Replies with a pong carrying the ping's request ID.
-  Echo
-
-  /// Leaves the reply to the test, which can send a pong or let the ping expire.
-  Silent
-
-  /// Replies with a pong whose request ID is one greater than the ping's.
-  WrongId
-}
-
 /// Scripts the fixture's response to a WebSocket connection attempt.
 type Plan {
-  /// Accepts with the given pong mode and automatic ticker replies. Sends an
-  /// instrument snapshot on subscribe when `snapshot` is `True`.
-  Accept(PongMode, snapshot: Bool)
+  /// Accepts with automatic ticker replies. Sends an instrument snapshot on
+  /// subscribe when `snapshot` is `True`.
+  Accept(snapshot: Bool)
 
-  /// Accepts with matching pongs and an instrument snapshot. The test sends
-  /// ticker confirmations and quotes explicitly.
+  /// Accepts and sends an instrument snapshot. The test sends ticker
+  /// confirmations and quotes explicitly.
   ManualTickers
 
   /// Rejects the WebSocket upgrade with HTTP 503.
   Reject
 
-  /// Waits the given number of milliseconds before accepting with matching
-  /// pongs, an instrument snapshot, and automatic ticker replies.
+  /// Waits the given number of milliseconds before accepting with an
+  /// instrument snapshot and automatic ticker replies.
   DelayedAccept(Int)
 }
 
@@ -72,7 +59,7 @@ pub type Request {
   InstrumentUnsubscribe
   TickerSubscribe(List(String), Int)
   TickerUnsubscribe(List(String))
-  Ping(Int)
+  UnexpectedMethod(String)
 }
 
 /// Reports a WebSocket connection accepted by the fixture.
@@ -112,8 +99,6 @@ fn config() {
   session.Config(
     ..session.default_config(),
     connect_timeout_ms: 500,
-    ping_interval_ms: 80,
-    pong_timeout_ms: 40,
     discovery_timeout_ms: 500,
     stable_connection_ms: 10_000,
     retry_base_ms: 30,
@@ -122,9 +107,11 @@ fn config() {
   )
 }
 
-fn manual_keepalive_config() {
-  session.Config(..config(), ping_interval_ms: 60_000, pong_timeout_ms: 60_000)
+fn inactivity_test_config() {
+  session.Config(..config(), inactivity_timeout_ms: 500)
 }
+
+const heartbeat = "{\"channel\":\"heartbeat\"}"
 
 /// Run application WebSocket tests against the same scripted Kraken endpoint.
 pub fn with_kraken(run) {
@@ -133,119 +120,68 @@ pub fn with_kraken(run) {
   run(client, fixture.requests)
 }
 
-pub fn idle_socket_sends_correlated_pings_without_ticker_subscriptions_test() {
+pub fn heartbeats_keep_the_socket_open_until_inbound_traffic_stops_test() {
+  let logs = process.new_subject()
+  let client_logger = logger.new_with_sink(glight.Info, process.send(logs, _))
+  let cfg = inactivity_test_config()
   use fixture, url <- with_server([])
-  use client, _, _ <- with_client(fixture, url, config())
+  use client <- start_client_with_logger(url, cfg, client_logger)
 
-  let assert Ping(first) = await_request(fixture, 0, is_ping)
-  let assert Ping(second) = await_request(fixture, 0, is_ping)
-  let assert Ping(third) = await_request(fixture, 0, is_ping)
-
-  assert second == first + 1
-  assert third == second + 1
-
-  assert process.is_alive(client.pid)
-  assert process.receive(fixture.opened, 0) == Error(Nil)
-}
-
-pub fn missing_pong_reconnects_even_while_other_messages_arrive_test() {
-  use fixture, url <- with_server([Accept(Silent, True)])
-  use client, first, _ <- with_client(fixture, url, config())
-
-  let assert Ping(_) = await_request(fixture, 0, is_ping)
-  process.send(first.control, Send("{\"channel\":\"heartbeat\"}"))
-  let second = await_open(fixture, 1)
-
-  assert process.is_alive(client.pid)
-  assert !process.is_alive(first.pid)
-  assert process.is_alive(second.pid)
-}
-
-pub fn ping_interval_skips_a_second_ping_while_waiting_for_pong_test() {
-  use fixture, url <- with_server([Accept(Silent, True)])
-  use client, _, _ <- with_client(fixture, url, manual_keepalive_config())
+  let first = await_open(fixture, 0)
+  let _ = await_ready(logs, client.pid, 0)
   assert next_request(fixture, 0) == InstrumentSubscribe
 
-  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
-  let assert Ping(id) = next_request(fixture, 0)
+  assert_periodic_text_keeps_socket_open(fixture, first, heartbeat)
 
-  // The ticker request shows the session handled the preceding ping interval.
-  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
-  process.send(client.data, Subscribe("ETH/USD"))
-  let assert TickerSubscribe(["ETH/USD"], _) = next_request(fixture, 0)
-
-  process.send(client.data, GenerationEvent(0, PongDeadlineReached(id)))
+  let reason = await_retry_logs(logs, string.inspect(client.pid), 0, 30)
+  assert string.contains(reason, "Kraken inbound inactivity timeout")
   let _ = await_open(fixture, 1)
-  assert process.is_alive(client.pid)
+  let _ = await_ready(logs, client.pid, 1)
 }
 
-pub fn obsolete_pong_deadline_keeps_the_same_connection_usable_test() {
-  use fixture, url <- with_server([Accept(Silent, True)])
-  use client, _, _ <- with_client(fixture, url, manual_keepalive_config())
+pub fn ticker_updates_keep_the_socket_open_without_heartbeats_test() {
+  use fixture, url <- with_server([])
+  use client, opened, _ <- with_client(fixture, url, inactivity_test_config())
   assert next_request(fixture, 0) == InstrumentSubscribe
 
-  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
-  let assert Ping(old_id) = next_request(fixture, 0)
+  process.send(client.data, Subscribe("BTC/USD"))
+  let assert TickerSubscribe(["BTC/USD"], _) = next_request(fixture, 0)
+  let assert Ok(store) = price_store.get_store()
+  let _ = await_price(store, 100.0, 100)
 
-  // Send all three events from this process to control their order.
-  process.send(
-    client.data,
-    GenerationEvent(
-      0,
-      ConnectionEvent(connection.Received(response.Pong(old_id))),
-    ),
+  assert_periodic_text_keeps_socket_open(
+    fixture,
+    opened,
+    ticker_json("BTC/USD", 101),
   )
-  process.send(client.data, GenerationEvent(0, PongDeadlineReached(old_id)))
-  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
-  let assert Ping(new_id) = next_request(fixture, 0)
-  assert new_id != old_id
-
-  process.send(client.data, GenerationEvent(0, PongDeadlineReached(old_id)))
-  process.send(client.data, Subscribe("ETH/USD"))
-  let assert TickerSubscribe(["ETH/USD"], _) = next_request(fixture, 0)
-  assert process.receive(fixture.opened, 0) == Error(Nil)
+  let _ = await_price(store, 101.0, 100)
 }
 
-pub fn wrong_pong_id_does_not_prevent_reconnect_test() {
-  use fixture, url <- with_server([Accept(WrongId, True)])
-  use client, _, _ <- with_client(fixture, url, config())
-
-  let _ = await_open(fixture, 1)
-
-  assert process.is_alive(client.pid)
-}
-
-pub fn late_pong_from_previous_connection_cannot_satisfy_new_ping_test() {
-  use fixture, url <- with_server([Accept(Silent, True), Accept(Silent, True)])
-  use client, _, _ <- with_client(fixture, url, config())
-
-  let assert Ping(old_id) = await_request(fixture, 0, is_ping)
-
-  let _ = await_open(fixture, 1)
-  let assert Ping(new_id) = await_request(fixture, 1, is_ping)
-  assert new_id != old_id
-
-  process.send(
-    client.data,
-    GenerationEvent(
-      0,
-      ConnectionEvent(connection.Received(response.Pong(old_id))),
-    ),
+pub fn malformed_text_counts_as_activity_and_logs_a_warning_test() {
+  let logs = process.new_subject()
+  let client_logger = logger.new_with_sink(glight.Info, process.send(logs, _))
+  use fixture, url <- with_server([])
+  use client <- start_client_with_logger(
+    url,
+    inactivity_test_config(),
+    client_logger,
   )
-  process.send(
-    client.data,
-    GenerationEvent(
-      1,
-      ConnectionEvent(connection.Received(response.Pong(old_id))),
-    ),
-  )
-  let _ = await_open(fixture, 2)
 
-  assert process.is_alive(client.pid)
+  let opened = await_open(fixture, 0)
+  let _ = await_ready(logs, client.pid, 0)
+  assert next_request(fixture, 0) == InstrumentSubscribe
+
+  let malformed = "{not-json"
+  assert_periodic_text_keeps_socket_open(fixture, opened, malformed)
+
+  let LogEntry(level, message, fields) = unwrap(process.receive(logs, 0))
+  assert level == glight.Warning
+  assert message == "Unable to decode Kraken response"
+  assert dict.get(fields, "response") == Ok(malformed)
 }
 
 pub fn stale_deadline_cannot_end_new_instrument_discovery_test() {
-  use fixture, url <- with_server([Accept(Echo, True), Accept(Echo, False)])
+  use fixture, url <- with_server([Accept(True), Accept(False)])
   use client, first, ready <- with_client(fixture, url, config())
 
   process.send(first.control, Close)
@@ -403,13 +339,13 @@ pub fn instrument_updates_keep_existing_pairs_and_add_new_listings_test() {
 
 pub fn first_interest_in_an_unsupported_pair_waits_for_listing_test() {
   use fixture, url <- with_server([])
-  use client, opened, _ <- with_client(fixture, url, manual_keepalive_config())
+  use client, opened, _ <- with_client(fixture, url, config())
   assert next_request(fixture, 0) == InstrumentSubscribe
   assert !pairs.exists("XRP/USD")
 
   process.send(client.data, Subscribe("XRP/USD"))
-  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
-  let assert Ping(_) = next_request(fixture, 0)
+  process.send(client.data, Subscribe("ETH/USD"))
+  let assert TickerSubscribe(["ETH/USD"], _) = next_request(fixture, 0)
 
   process.send(
     opened.control,
@@ -427,8 +363,7 @@ pub fn first_interest_in_an_unsupported_pair_waits_for_listing_test() {
 
 pub fn relisting_restores_shared_interest_and_requires_fresh_confirmation_test() {
   use fixture, url <- with_server([ManualTickers])
-  let cfg = session.Config(..config(), ping_interval_ms: 10_000)
-  use client, opened, _ <- with_client(fixture, url, cfg)
+  use client, opened, _ <- with_client(fixture, url, config())
 
   process.send(client.data, Subscribe("BTC/USD"))
   process.send(client.data, Subscribe("BTC/USD"))
@@ -498,26 +433,19 @@ pub fn relisting_restores_shared_interest_and_requires_fresh_confirmation_test()
   process.send(opened.control, Send(ticker_json("BTC/USD", 102)))
   let _ = await_price(store, 102.0, 100)
 
-  // The first release keeps the shared ticker alive. A ping on the same session
-  // lets the test check all outgoing requests through that release.
+  // The first BTC release keeps its shared ticker alive, so ETH is next.
   process.send(client.data, Unsubscribe("BTC/USD"))
-  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
-  let _ =
-    await_request(fixture, 0, fn(request) {
-      assert !is_ticker_subscribe("BTC/USD", request)
-      assert request != TickerUnsubscribe(["BTC/USD"])
-      is_ping(request)
-    })
+  process.send(client.data, Unsubscribe("ETH/USD"))
+  assert next_request(fixture, 0) == TickerUnsubscribe(["ETH/USD"])
 
   process.send(client.data, Unsubscribe("BTC/USD"))
-  let _ =
-    await_request(fixture, 0, fn(req) { req == TickerUnsubscribe(["BTC/USD"]) })
+  assert next_request(fixture, 0) == TickerUnsubscribe(["BTC/USD"])
   assert process.is_alive(client.pid)
 }
 
 pub fn second_snapshot_evicts_removed_pairs_on_the_same_connection_test() {
   use fixture, url <- with_server([])
-  use client, opened, _ <- with_client(fixture, url, manual_keepalive_config())
+  use client, opened, _ <- with_client(fixture, url, config())
   assert next_request(fixture, 0) == InstrumentSubscribe
 
   process.send(client.data, Subscribe("BTC/USD"))
@@ -539,16 +467,17 @@ pub fn second_snapshot_evicts_removed_pairs_on_the_same_connection_test() {
   assert pairs.exists("ETH/USD")
   assert price_store.get_price(store, "ETH/USD") == Ok(eth)
 
-  // Receiving the ping next confirms the snapshot caused one ticker request.
-  process.send(client.data, GenerationEvent(0, PingIntervalElapsed))
-  let assert Ping(_) = next_request(fixture, 0)
   process.send(opened.control, Send(ticker_json("ETH/USD", 101)))
   let _ = await_symbol_price(store, "ETH/USD", 101.0, 100)
+
+  // The next request confirms the snapshot produced one ticker unsubscribe.
+  process.send(client.data, Unsubscribe("ETH/USD"))
+  assert next_request(fixture, 0) == TickerUnsubscribe(["ETH/USD"])
   assert process.receive(fixture.opened, 0) == Error(Nil)
 }
 
 pub fn reconnect_snapshot_evicts_removed_pairs_and_restores_listed_tickers_test() {
-  use fixture, url <- with_server([Accept(Echo, True), Accept(Echo, False)])
+  use fixture, url <- with_server([Accept(True), Accept(False)])
   use client, first, ready <- with_client(fixture, url, config())
 
   process.send(client.data, Subscribe("BTC/USD"))
@@ -582,7 +511,7 @@ pub fn reconnect_snapshot_evicts_removed_pairs_and_restores_listed_tickers_test(
 }
 
 pub fn shutdown_during_reconnect_handshake_cleans_up_the_attempt_test() {
-  use fixture, url <- with_server([Accept(Echo, True), DelayedAccept(200)])
+  use fixture, url <- with_server([Accept(True), DelayedAccept(200)])
   use client, first, _ <- with_client(fixture, url, config())
 
   process.send(first.control, Close)
@@ -600,7 +529,7 @@ pub fn shutdown_during_reconnect_handshake_cleans_up_the_attempt_test() {
 pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_test() {
   let logs = process.new_subject()
   let client_logger = logger.new_with_sink(glight.Info, process.send(logs, _))
-  use fixture, url <- with_server([Accept(Echo, True), Accept(Echo, False)])
+  use fixture, url <- with_server([Accept(True), Accept(False)])
   use client <- start_client_with_logger(url, config(), client_logger)
 
   let first = await_open(fixture, 0)
@@ -633,9 +562,8 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
   assert !process.is_alive(first_socket)
   assert price_store.get_price(store, "BTC/USD") == Ok(old)
 
-  // A ping confirms the replacement is running while the snapshot is withheld.
+  // The replacement requests a snapshot before it can become ready.
   let _ = await_request(fixture, 1, fn(req) { req == InstrumentSubscribe })
-  let _ = await_request(fixture, 1, is_ping)
   assert receive_session_log(logs, session_pid, time.monotonic_time_ms())
     == Error(Nil)
 
@@ -670,8 +598,6 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
         connection.Received(TickerSubscribeConfirmation("BTC/USD", 0)),
       ),
       ConnectionEvent(connection.Failed("late failure")),
-      PongDeadlineReached(0),
-      PingIntervalElapsed,
       DiscoveryDeadlineReached,
       ReconnectDelayElapsed,
       StabilityIntervalElapsed,
@@ -680,7 +606,8 @@ pub fn normal_close_preserves_cache_counts_and_ignores_old_connection_events_tes
   )
 
   process.send(client.data, Unsubscribe("BTC/USD"))
-  let _ = await_request(fixture, 1, is_ping)
+  process.send(client.data, Subscribe("ETH/USD"))
+  let assert TickerSubscribe(["ETH/USD"], _) = next_request(fixture, 1)
 
   let assert Ok(current) = price_store.get_price(store, "BTC/USD")
   assert current.price == positive_float.from_float_unsafe(101.0)
@@ -723,15 +650,23 @@ pub fn worker_reports_socket_failure_before_its_own_normal_exit_test() {
       logger.new(),
       url,
       500,
+      config().inactivity_timeout_ms,
       connection.send_text,
     )
   use <- exception.defer(fn() { stop_process(worker) })
 
   let assert Ok(connection.Connected(socket)) = process.receive(events, 1000)
 
-  connection.send(socket, kraken_request.Ping(42))
-  assert process.receive(events, 1000)
-    == Ok(connection.Received(response.Pong(42)))
+  connection.send(
+    socket,
+    kraken_request.KrakenRequest(
+      kraken_request.Subscribe,
+      kraken_request.Instruments,
+      None,
+    ),
+  )
+  let assert Ok(connection.Received(response.InstrumentSnapshot(_))) =
+    process.receive(events, 1000)
 
   let assert [socket_pid] = linked_processes(worker)
   process.kill(socket_pid)
@@ -751,6 +686,7 @@ pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
       logger.new_with_sink(glight.Warning, process.send(logs, _)),
       url,
       500,
+      config().inactivity_timeout_ms,
       connection.send_text,
     )
   use <- exception.defer(fn() { stop_process(worker) })
@@ -759,7 +695,8 @@ pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
   let assert Ok(connection.Connected(_)) = process.receive(events, 1000)
 
   let invalid_json = "{not-json"
-  let invalid_pong = "{\"method\":\"pong\",\"req_id\":\"not an integer\"}"
+  let invalid_snapshot =
+    "{\"channel\":\"instrument\",\"type\":\"snapshot\",\"data\":{}}"
   list.each(
     [
       "{\"channel\":\"heartbeat\"}",
@@ -767,17 +704,17 @@ pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
       "{\"method\":\"unsubscribe\",\"success\":true}",
       "{\"method\":\"subscribe\",\"success\":true,\"result\":{\"channel\":\"instrument\"}}",
       invalid_json,
-      invalid_pong,
-      pong_json(42),
+      invalid_snapshot,
+      instrument_snapshot(),
     ],
     fn(text) { process.send(opened.control, Send(text)) },
   )
 
-  assert process.receive(events, 1000)
-    == Ok(connection.Received(response.Pong(42)))
+  let assert Ok(connection.Received(response.InstrumentSnapshot(_))) =
+    process.receive(events, 1000)
 
-  // The pong arrives after the socket handles the preceding frames.
-  list.each([invalid_json, invalid_pong], fn(text) {
+  // The snapshot arrives after the socket handles the preceding frames.
+  list.each([invalid_json, invalid_snapshot], fn(text) {
     let LogEntry(level, message, fields) = unwrap(process.receive(logs, 0))
     assert level == glight.Warning
     assert message == "Unable to decode Kraken response"
@@ -793,7 +730,7 @@ pub fn malformed_and_ignored_messages_do_not_interrupt_connection_test() {
 }
 
 pub fn outage_subscription_changes_determine_what_is_replayed_test() {
-  use fixture, url <- with_server([Accept(Echo, True), Reject, Reject])
+  use fixture, url <- with_server([Accept(True), Reject, Reject])
   use client, first, ready <- with_client(fixture, url, config())
 
   process.send(client.data, Subscribe("BTC/USD"))
@@ -832,7 +769,7 @@ pub fn repeated_handshake_failures_back_off_and_cap_with_jitter_test() {
     })
 
   use fixture, url <- with_server([
-    Accept(Echo, True),
+    Accept(True),
     Reject,
     Reject,
     Reject,
@@ -893,8 +830,8 @@ pub fn stable_connection_resets_retry_delay_test() {
       0
     })
 
-  use fixture, url <- with_server([Accept(Echo, True), Reject])
-  use _, first, _ <- with_client(fixture, url, cfg)
+  use fixture, url <- with_server([Accept(True), Reject])
+  use client, first, ready <- with_client(fixture, url, cfg)
   let _ = await_attempt(fixture, 0)
 
   process.send(first.control, Close)
@@ -905,11 +842,8 @@ pub fn stable_connection_resets_retry_delay_test() {
   let _ = unwrap(process.receive(delays, 1000))
   let _ = unwrap(process.receive(delays, 1000))
 
-  // More than 150ms of successful pings after the recovered snapshot.
-  list.each([1, 2, 3], fn(_) {
-    let _ = await_request(fixture, 2, is_ping)
-    Nil
-  })
+  let _ = await_ready(ready, client.pid, 2)
+  process.sleep(cfg.stable_connection_ms + 100)
 
   process.send(second.control, Close)
   let assert Ok(scheduled) = process.receive(delays, 1000)
@@ -920,7 +854,7 @@ pub fn stable_connection_resets_retry_delay_test() {
 }
 
 pub fn instrument_update_does_not_complete_discovery_test() {
-  use fixture, url <- with_server([Accept(Echo, False)])
+  use fixture, url <- with_server([Accept(False)])
   let cfg = session.Config(..config(), discovery_timeout_ms: 150)
   use client <- start_client(url, cfg)
 
@@ -933,6 +867,24 @@ pub fn instrument_update_does_not_complete_discovery_test() {
   let _ = await_open(fixture, 1)
 
   assert process.is_alive(client.pid)
+}
+
+pub fn heartbeats_do_not_extend_the_instrument_snapshot_deadline_test() {
+  let logs = process.new_subject()
+  let client_logger = logger.new_with_sink(glight.Info, process.send(logs, _))
+  let cfg =
+    session.Config(..inactivity_test_config(), discovery_timeout_ms: 700)
+  use fixture, url <- with_server([Accept(False)])
+  use client <- start_client_with_logger(url, cfg, client_logger)
+
+  let first = await_open(fixture, 0)
+  assert next_request(fixture, 0) == InstrumentSubscribe
+  send_periodic_text(first, heartbeat)
+
+  let reason = await_retry_logs(logs, string.inspect(client.pid), 0, 30)
+  assert reason == "Kraken instrument snapshot deadline exceeded"
+  let _ = await_open(fixture, 1)
+  let _ = await_ready(logs, client.pid, 1)
 }
 
 pub fn send_failure_reconnects_without_recreating_price_store_test() {
@@ -1004,7 +956,7 @@ fn start_connection_sequence(plans) {
     let NextAttempt(reply) = message
     let #(attempt, plans) = state
     let #(plan, remaining) = case plans {
-      [] -> #(Accept(Echo, True), [])
+      [] -> #(Accept(True), [])
       [plan, ..rest] -> #(plan, rest)
     }
 
@@ -1024,26 +976,18 @@ fn handle_connection_attempt(req, sequence, fixture: Fixture) {
       http_response.new(503)
       |> http_response.set_body(mist.Bytes(bytes_tree.new()))
 
-    Accept(pong, snapshot) ->
-      accept_connection(req, fixture, attempt, pong, snapshot, True)
+    Accept(snapshot) -> accept_connection(req, fixture, attempt, snapshot, True)
 
-    ManualTickers -> accept_connection(req, fixture, attempt, Echo, True, False)
+    ManualTickers -> accept_connection(req, fixture, attempt, True, False)
 
     DelayedAccept(delay_ms) -> {
       process.sleep(delay_ms)
-      accept_connection(req, fixture, attempt, Echo, True, True)
+      accept_connection(req, fixture, attempt, True, True)
     }
   }
 }
 
-fn accept_connection(
-  req,
-  fixture: Fixture,
-  attempt,
-  pong,
-  snapshot,
-  auto_tickers,
-) {
+fn accept_connection(req, fixture: Fixture, attempt, snapshot, auto_tickers) {
   mist.websocket(
     req,
     on_init: fn(_) {
@@ -1069,14 +1013,7 @@ fn accept_connection(
           let request = unwrap(json.parse(text, request_decoder()))
           process.send(fixture.requests, #(attempt, request))
 
-          respond_to_request(
-            socket,
-            request,
-            attempt,
-            pong,
-            snapshot,
-            auto_tickers,
-          )
+          respond_to_request(socket, request, attempt, snapshot, auto_tickers)
           mist.continue(state)
         }
 
@@ -1087,16 +1024,9 @@ fn accept_connection(
   )
 }
 
-fn respond_to_request(socket, request, attempt, pong, snapshot, auto_tickers) {
+fn respond_to_request(socket, request, attempt, snapshot, auto_tickers) {
   case request {
     InstrumentSubscribe if snapshot -> send_frame(socket, instrument_snapshot())
-
-    Ping(id) ->
-      case pong {
-        Echo -> send_frame(socket, pong_json(id))
-        WrongId -> send_frame(socket, pong_json(id + 1))
-        Silent -> Nil
-      }
 
     TickerSubscribe(symbols, id) if auto_tickers ->
       list.each(symbols, fn(symbol) {
@@ -1150,14 +1080,30 @@ fn await_ready(ready, pid, generation) {
   )
 }
 
+fn assert_periodic_text_keeps_socket_open(
+  fixture: Fixture,
+  opened: Opened,
+  text: String,
+) -> Nil {
+  send_periodic_text(opened, text)
+  // Wait beyond the inactivity window while frames arrive every 100 ms.
+  assert process.receive(fixture.opened, 800) == Error(Nil)
+  assert process.is_alive(opened.pid)
+  assert process.receive(fixture.requests, 0) == Error(Nil)
+}
+
+fn send_periodic_text(opened: Opened, text: String) -> Nil {
+  [0, 100, 200, 300, 400, 500, 600, 700]
+  |> list.each(fn(delay_ms) {
+    let _ = process.send_after(opened.control, delay_ms, Send(text))
+    Nil
+  })
+}
+
 fn request_decoder() {
   use method <- decode.field("method", decode.string)
   case method {
-    "ping" -> {
-      use id <- decode.field("req_id", decode.int)
-      decode.success(Ping(id))
-    }
-    _ -> {
+    "subscribe" | "unsubscribe" -> {
       use channel <- decode.subfield(["params", "channel"], decode.string)
       case channel, method {
         "instrument", "subscribe" -> decode.success(InstrumentSubscribe)
@@ -1177,13 +1123,8 @@ fn request_decoder() {
         }
       }
     }
-  }
-}
 
-fn is_ping(request) {
-  case request {
-    Ping(_) -> True
-    _ -> False
+    _ -> decode.success(UnexpectedMethod(method))
   }
 }
 
@@ -1341,10 +1282,6 @@ fn unwrap(value) {
 fn send_frame(socket, text) {
   let assert Ok(_) = mist.send_text_frame(socket, text)
   Nil
-}
-
-fn pong_json(id) {
-  "{\"method\":\"pong\",\"req_id\":" <> int.to_string(id) <> "}"
 }
 
 fn ticker_confirmation_json(symbol, id) {

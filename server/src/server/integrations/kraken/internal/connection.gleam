@@ -10,11 +10,33 @@ import gleam/string
 import server/integrations/kraken/internal/request.{type KrakenRequest}
 import server/integrations/kraken/internal/response.{type KrakenResponse}
 import server/utils/logger.{type Logger}
+import server/utils/time
 import stratus
 
 /// Handle for queuing Kraken requests on a WebSocket connection.
 pub opaque type Socket {
-  Socket(Subject(stratus.InternalMessage(KrakenRequest)))
+  Socket(Subject(stratus.InternalMessage(SocketMessage)))
+}
+
+/// Internal messages for sending requests and checking inbound inactivity.
+type SocketMessage {
+  /// Encodes a Kraken request and sends it as a WebSocket text message.
+  SendRequest(KrakenRequest)
+
+  /// Checks the inactivity deadline and either schedules the next check or
+  /// stops the socket.
+  CheckInactivity
+}
+
+/// Tracks inbound activity for a single WebSocket connection.
+type SocketState {
+  SocketState(
+    /// Socket-owned subject that receives scheduled inactivity checks.
+    self: Subject(SocketMessage),
+    /// Monotonic timestamp in milliseconds, set after the handshake and
+    /// updated on every inbound text message.
+    last_inbound_ms: Int,
+  )
 }
 
 /// Transport handle passed to `SendText` while processing a request.
@@ -62,13 +84,23 @@ pub fn start(
   logger: Logger,
   url: String,
   connect_timeout_ms: Int,
+  inactivity_timeout_ms: Int,
   send_text: SendText,
 ) -> Pid {
   process.spawn_unlinked(fn() {
     process.trap_exits(True)
     let owner_monitor = process.monitor(owner)
 
-    case connect(url, connect_timeout_ms, notify, logger, send_text) {
+    case
+      connect(
+        url,
+        connect_timeout_ms,
+        inactivity_timeout_ms,
+        notify,
+        logger,
+        send_text,
+      )
+    {
       Ok(socket) -> {
         let socket_monitor = process.monitor(socket.pid)
 
@@ -100,6 +132,7 @@ pub fn send(socket: Socket, message: KrakenRequest) -> Nil {
   let Socket(subject) = socket
 
   message
+  |> SendRequest
   |> stratus.to_user_message
   |> process.send(subject, _)
 }
@@ -121,11 +154,12 @@ pub fn send_text(sender: TextSender, text: String) -> Result(Nil, String) {
 fn connect(
   url: String,
   connect_timeout_ms: Int,
+  inactivity_timeout_ms: Int,
   notify: fn(Event) -> Nil,
   logger: Logger,
   send_text: SendText,
 ) -> Result(
-  actor.Started(Subject(stratus.InternalMessage(KrakenRequest))),
+  actor.Started(Subject(stratus.InternalMessage(SocketMessage))),
   String,
 ) {
   use req <- result.try(
@@ -135,10 +169,30 @@ fn connect(
   )
 
   req
-  |> stratus.new(Nil)
+  |> stratus.new_with_initialiser(fn() {
+    let self = process.new_subject()
+    let last_inbound_ms = time.monotonic_time_ms()
+    let _ = process.send_after(self, inactivity_timeout_ms, CheckInactivity)
+    let selector =
+      process.new_selector()
+      |> process.select(self)
+
+    SocketState(self:, last_inbound_ms:)
+    |> stratus.initialised
+    |> stratus.selecting(selector)
+    |> Ok
+  })
   |> stratus.with_connect_timeout(connect_timeout_ms)
   |> stratus.on_message(fn(state, message, conn) {
-    handle_message(state, message, conn, notify, logger, send_text)
+    handle_message(
+      state,
+      message,
+      conn,
+      notify,
+      logger,
+      send_text,
+      inactivity_timeout_ms,
+    )
   })
   |> stratus.on_close(fn(_, reason) {
     logger
@@ -149,22 +203,24 @@ fn connect(
   |> result.map_error(string.inspect)
 }
 
-/// Handles incoming WebSocket messages and queued Kraken requests.
-/// Decodes text responses and forwards them through `Received`. Logs decoding
-/// failures with a short response excerpt, while unrecognized response kinds and
-/// binary messages stay quiet. Encodes outgoing requests through `send_text`;
-/// a write error stops the socket abnormally so its monitor can report the
-/// failure. The supplied state is preserved.
+/// Records inbound text activity before decoding. Forwards recognized
+/// responses through `Received` and logs decode errors with a response excerpt.
+/// The socket stops on inactivity or a write error so the worker can report
+/// the failure.
 fn handle_message(
-  state: Nil,
-  message: stratus.Message(KrakenRequest),
+  state: SocketState,
+  message: stratus.Message(SocketMessage),
   conn: stratus.Connection,
   notify: fn(Event) -> Nil,
   logger: Logger,
   send_text: SendText,
-) -> stratus.Next(Nil, KrakenRequest) {
+  inactivity_timeout_ms: Int,
+) -> stratus.Next(SocketState, SocketMessage) {
   case message {
     stratus.Text(text) -> {
+      let state =
+        SocketState(..state, last_inbound_ms: time.monotonic_time_ms())
+
       case json.parse(text, response.decoder()) {
         Ok(Some(message)) -> notify(Received(message))
         Ok(None) -> Nil
@@ -177,7 +233,7 @@ fn handle_message(
       stratus.continue(state)
     }
 
-    stratus.User(message) -> {
+    stratus.User(SendRequest(message)) -> {
       let text =
         message
         |> request.encode
@@ -186,6 +242,19 @@ fn handle_message(
       case send_text(TextSender(conn), text) {
         Ok(_) -> stratus.continue(state)
         Error(reason) -> stratus.stop_abnormal(reason)
+      }
+    }
+
+    stratus.User(CheckInactivity) -> {
+      let idle_ms = time.monotonic_time_ms() - state.last_inbound_ms
+      let remaining_ms = inactivity_timeout_ms - idle_ms
+      case remaining_ms <= 0 {
+        True -> stratus.stop_abnormal("Kraken inbound inactivity timeout")
+        False -> {
+          // Keep one check scheduled. Text frames only update the timestamp.
+          let _ = process.send_after(state.self, remaining_ms, CheckInactivity)
+          stratus.continue(state)
+        }
       }
     }
 

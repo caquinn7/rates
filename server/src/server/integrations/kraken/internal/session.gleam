@@ -14,11 +14,11 @@ import gleam/set.{type Set}
 import gleam/string
 import server/integrations/kraken/internal/connection.{type SendText}
 import server/integrations/kraken/internal/request.{
-  Instruments, KrakenRequest, Ping, Tickers,
+  Instruments, KrakenRequest, Tickers,
 }
 import server/integrations/kraken/internal/response.{
   type InstrumentPair, type KrakenResponse, InstrumentSnapshot, InstrumentUpdate,
-  Pong, TickerResponse, TickerSubscribeConfirmation,
+  TickerResponse, TickerSubscribeConfirmation,
 }
 import server/integrations/kraken/internal/subscription_counter.{
   type SubscriptionCounter,
@@ -37,12 +37,9 @@ pub type Config {
     /// Timeout passed to each WebSocket handshake attempt. Initial failures are
     /// returned to the caller; failures after startup trigger reconnection.
     connect_timeout_ms: Int,
-    /// Interval between ping checks, starting after the handshake. A new ping is
-    /// sent only when no pong is outstanding.
-    ping_interval_ms: Int,
-    /// Maximum wait for a pong matching the outstanding ping's request ID.
-    /// A missed deadline triggers reconnection.
-    pong_timeout_ms: Int,
+    /// Maximum silence after the handshake or the most recent inbound text
+    /// message. A missed deadline closes the socket and triggers reconnection.
+    inactivity_timeout_ms: Int,
     /// Maximum wait for the instrument snapshot after the handshake.
     /// A missed deadline triggers reconnection.
     discovery_timeout_ms: Int,
@@ -66,15 +63,14 @@ pub type Config {
 
 /// Returns production defaults using the connection adapter's text sender.
 ///
-/// Uses a handshake timeout of 5 seconds, a ping interval of 20 seconds, and
-/// pong and instrument snapshot deadlines of 10 seconds. Reconnect delays double
+/// Uses a handshake timeout of 5 seconds and 10-second deadlines for inbound
+/// inactivity and the instrument snapshot. Reconnect delays double
 /// from 5 to 60 seconds, plus 0–1000 ms of random jitter. The retry delay resets
 /// after the connection remains ready for 60 seconds.
 pub fn default_config() -> Config {
   Config(
     connect_timeout_ms: 5000,
-    ping_interval_ms: 20_000,
-    pong_timeout_ms: 10_000,
+    inactivity_timeout_ms: 10_000,
     discovery_timeout_ms: 10_000,
     stable_connection_ms: 60_000,
     retry_base_ms: 5000,
@@ -114,14 +110,6 @@ pub type Event {
   /// failure from the connection worker.
   ConnectionEvent(connection.Event)
 
-  /// Signals that the ping interval has elapsed. Sends a keepalive ping only
-  /// while connected and no pong is outstanding.
-  PingIntervalElapsed
-
-  /// Signals that the deadline for the given ping request ID has been reached.
-  /// Triggers reconnection only if that ping still awaits a matching pong.
-  PongDeadlineReached(Int)
-
   /// Signals that the instrument snapshot deadline has been reached.
   /// Triggers reconnection only if instrument discovery is still in progress.
   DiscoveryDeadlineReached
@@ -143,8 +131,7 @@ type Phase {
   Connecting(Worker)
 
   /// The handshake has completed and the instrument snapshot is pending.
-  /// Keepalive pings are active. Ticker subscriptions are sent after discovery
-  /// establishes which symbols are supported.
+  /// Ticker subscriptions are sent after discovery establishes supported pairs.
   Discovering(Worker, connection.Socket)
 
   /// Instruments are known and ticker subscriptions can be managed on the socket.
@@ -172,25 +159,6 @@ type Worker {
   )
 }
 
-/// `process.Timer` handles tracked by the session for keepalive, discovery, and
-/// recovery. A field is `None` when no timer of that kind is tracked. Handles
-/// allow timers to be cancelled when a response arrives or the connection is lost.
-type Timers {
-  Timers(
-    /// Timer for the next keepalive ping check while discovering or ready.
-    ping: Option(Timer),
-    /// Outstanding ping request ID and its pong deadline timer. Cleared when
-    /// a matching pong arrives or the connection is lost.
-    pong: Option(#(Int, Timer)),
-    /// Deadline for the first instrument snapshot on the current connection.
-    /// Cleared when discovery completes or the connection is lost.
-    discovery: Option(Timer),
-    /// Timer that resets retry backoff after the connection remains ready for
-    /// the configured period. Cleared when it fires or the connection is lost.
-    stable: Option(Timer),
-  )
-}
-
 /// Startup dependencies reused across connection attempts.
 type Context {
   Context(logger: Logger, url: String, config: Config)
@@ -198,16 +166,31 @@ type Context {
 
 type State {
   State(
+    /// Receives client commands, connection notifications, and timer events.
     self: Subject(Message),
+    /// Handle to the session-owned ETS table, reused across reconnects.
     price_store: PriceStore,
+    /// Current connection phase, including any worker and socket handles.
     phase: Phase,
+    /// Zero-based connection attempt number used to discard stale events.
     generation: Int,
+    /// Eligible symbols from the latest instrument data, kept across reconnects.
+    /// `None` until the first instrument snapshot.
     supported_symbols: Option(Set(String)),
+    /// Client interest counts by symbol. Confirmed interest returns to pending
+    /// when the connection drops.
     subscriptions: SubscriptionCounter,
+    /// IDs of outstanding ticker subscribe requests, keyed by symbol.
+    /// Used to match acknowledgments to the current request.
     pending_ticker_requests: Dict(String, Int),
-    timers: Timers,
+    /// Snapshot deadline during discovery or backoff reset timer while ready.
+    phase_timer: Option(Timer),
+    /// Delay before the next reconnect attempt, in milliseconds before jitter.
     retry_delay_ms: Int,
+    /// ID for the next ticker subscribe request. The sequence spans reconnects.
     next_request_id: Int,
+    /// Monotonic timestamp in milliseconds when the current outage began.
+    /// Cleared when the connection becomes ready.
     disconnected_at: Option(Int),
   )
 }
@@ -251,7 +234,7 @@ pub fn start(
         supported_symbols: None,
         subscriptions: subscription_counter.new(),
         pending_ticker_requests: dict.new(),
-        timers: empty_timers(),
+        phase_timer: None,
         retry_delay_ms: config.retry_base_ms,
         next_request_id: 0,
         disconnected_at: None,
@@ -329,9 +312,8 @@ fn handle_message(context: Context, state: State, message: Message) -> State {
 
 /// Handles connection notifications and timers for the current connection attempt.
 /// Called after `handle_message` checks the attempt number. Applies events only
-/// in the relevant phase: begins discovery, processes Kraken responses, checks
-/// keepalive deadlines, resets retry backoff, or starts the next connection attempt.
-/// Events that do not apply to the current phase or pending ping are ignored.
+/// in the relevant phase, processing Kraken responses, enforcing the discovery
+/// deadline, resetting retry backoff, or starting the next connection attempt.
 fn handle_event(context: Context, state: State, event: Event) -> State {
   case event, state.phase {
     ConnectionEvent(event), phase -> {
@@ -352,45 +334,6 @@ fn handle_event(context: Context, state: State, event: Event) -> State {
       }
     }
 
-    PingIntervalElapsed, Discovering(_, socket)
-    | PingIntervalElapsed, Ready(_, socket)
-    -> {
-      let next_ping =
-        schedule_event(
-          state,
-          context.config.ping_interval_ms,
-          PingIntervalElapsed,
-        )
-      let timers = Timers(..state.timers, ping: Some(next_ping))
-
-      case state.timers.pong {
-        Some(_) -> State(..state, timers:)
-        None -> {
-          let req_id = state.next_request_id
-          connection.send(socket, Ping(req_id))
-          let deadline =
-            schedule_event(
-              state,
-              context.config.pong_timeout_ms,
-              PongDeadlineReached(req_id),
-            )
-          State(
-            ..state,
-            next_request_id: req_id + 1,
-            timers: Timers(..timers, pong: Some(#(req_id, deadline))),
-          )
-        }
-      }
-    }
-
-    PongDeadlineReached(req_id), _ -> {
-      case state.timers.pong {
-        Some(#(expected, _)) if req_id == expected ->
-          disconnect(state, context.logger, "Kraken pong deadline exceeded")
-        _ -> state
-      }
-    }
-
     DiscoveryDeadlineReached, Discovering(_, _) ->
       disconnect(
         state,
@@ -402,19 +345,14 @@ fn handle_event(context: Context, state: State, event: Event) -> State {
       State(
         ..state,
         retry_delay_ms: context.config.retry_base_ms,
-        timers: Timers(..state.timers, stable: None),
+        phase_timer: None,
       )
 
     ReconnectDelayElapsed, WaitingToReconnect -> {
       let generation = state.generation + 1
       let worker = start_worker(context, state.self, generation)
 
-      State(
-        ..state,
-        generation:,
-        phase: Connecting(worker),
-        timers: empty_timers(),
-      )
+      State(..state, generation:, phase: Connecting(worker))
     }
 
     _, _ -> state
@@ -427,16 +365,6 @@ fn receive_message(
   message: KrakenResponse,
 ) -> State {
   case message, state.phase {
-    Pong(req_id), _ -> {
-      case state.timers.pong {
-        Some(#(expected, timer)) if req_id == expected -> {
-          let _ = process.cancel_timer(timer)
-          State(..state, timers: Timers(..state.timers, pong: None))
-        }
-        _ -> state
-      }
-    }
-
     InstrumentSnapshot(instruments), Discovering(worker, socket) -> {
       let symbols = list.fold(instruments, set.new(), apply_instrument)
       finish_discovery(
@@ -515,14 +443,15 @@ fn start_worker(
       context.logger,
       context.url,
       context.config.connect_timeout_ms,
+      context.config.inactivity_timeout_ms,
       context.config.send_text,
     )
   Worker(pid, process.monitor(pid))
 }
 
 /// Begins instrument discovery after a successful WebSocket handshake.
-/// Requests the instrument snapshot, schedules the first keepalive ping check
-/// and discovery deadline, and enters `Discovering` with the worker and socket.
+/// Requests the instrument snapshot, schedules its deadline, and enters
+/// `Discovering` with the worker and socket.
 /// Keeps the instrument subscription open for updates after the first snapshot.
 fn begin_discovery(
   state: State,
@@ -532,15 +461,13 @@ fn begin_discovery(
 ) -> State {
   connection.send(socket, KrakenRequest(request.Subscribe, Instruments, None))
 
-  let ping = schedule_event(state, config.ping_interval_ms, PingIntervalElapsed)
-
   let discovery =
     schedule_event(state, config.discovery_timeout_ms, DiscoveryDeadlineReached)
 
   State(
     ..state,
     phase: Discovering(worker, socket),
-    timers: Timers(..state.timers, ping: Some(ping), discovery: Some(discovery)),
+    phase_timer: Some(discovery),
   )
 }
 
@@ -563,7 +490,7 @@ fn finish_discovery(
       subscribe_ticker(state, socket, symbol)
     })
 
-  cancel_timer(state.timers.discovery)
+  cancel_timer(state.phase_timer)
 
   let stable =
     schedule_event(
@@ -587,13 +514,13 @@ fn finish_discovery(
     ..state,
     phase: Ready(worker, socket),
     disconnected_at: None,
-    timers: Timers(..state.timers, discovery: None, stable: Some(stable)),
+    phase_timer: Some(stable),
   )
 }
 
 /// Begins recovery after a connection failure, ignoring repeated calls while
-/// stopping or waiting to reconnect. Cancels timers, logs the failure, requests
-/// worker termination, and enters `Stopping` until the worker's exit is observed.
+/// stopping or waiting to reconnect. Cancels the phase timer, logs the failure,
+/// requests worker termination, and enters `Stopping` until the worker exits.
 /// Preserves cached prices and the start of the current outage, and marks all
 /// remaining subscription interest as pending for replay on the next connection.
 /// The worker's exit notification schedules the retry.
@@ -602,7 +529,7 @@ fn disconnect(state: State, logger: Logger, reason: String) -> State {
     Stopping(_) | WaitingToReconnect -> state
 
     Connecting(worker) | Discovering(worker, _) | Ready(worker, _) -> {
-      cancel_all_timers(state.timers)
+      cancel_timer(state.phase_timer)
 
       logger
       |> logger.with("generation", int.to_string(state.generation))
@@ -619,7 +546,7 @@ fn disconnect(state: State, logger: Logger, reason: String) -> State {
       State(
         ..state,
         phase: Stopping(worker),
-        timers: empty_timers(),
+        phase_timer: None,
         disconnected_at:,
         pending_ticker_requests: dict.new(),
         subscriptions: subscription_counter.prepare_for_reconnect(
@@ -788,26 +715,12 @@ fn schedule_event(state: State, delay_ms: Int, event: Event) -> Timer {
   )
 }
 
-fn empty_timers() -> Timers {
-  Timers(None, None, None, None)
-}
-
 fn cancel_timer(timer: Option(Timer)) -> Nil {
   case timer {
     Some(timer) -> {
       let _ = process.cancel_timer(timer)
       Nil
     }
-    None -> Nil
-  }
-}
-
-fn cancel_all_timers(timers: Timers) -> Nil {
-  [timers.ping, timers.discovery, timers.stable]
-  |> list.each(cancel_timer)
-
-  case timers.pong {
-    Some(#(_, timer)) -> cancel_timer(Some(timer))
     None -> Nil
   }
 }
