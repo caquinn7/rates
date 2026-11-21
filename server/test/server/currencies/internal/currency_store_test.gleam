@@ -1,3 +1,7 @@
+import exception
+import gleam/dynamic/decode
+import gleam/erlang/atom
+import gleam/erlang/process
 import gleam/list
 import gleam/option.{Some}
 import server/currencies/internal/currency_store.{type CurrencyStore}
@@ -5,9 +9,42 @@ import shared/currency.{Crypto, Fiat}
 
 // new
 
-pub fn unable_to_create_twice_test() {
-  use _ <- with_currency_store
-  assert currency_store.new() == Error(Nil)
+pub fn stores_are_independent_across_owners_test() {
+  use local_store <- with_currency_store
+
+  // Create the second table in an unlinked process so the test can stop its owner.
+  let ready = process.new_subject()
+  let owner =
+    process.spawn_unlinked(fn() {
+      let assert Ok(store) = currency_store.new()
+      process.send(ready, store)
+      process.sleep_forever()
+    })
+  use <- exception.defer(fn() { process.kill(owner) })
+
+  // Write different values under the same ID. The second write exercises public
+  // access from outside the table's owning process, as the symbol cache does.
+  let assert Ok(other_store) = process.receive(ready, 1000)
+  let currency = Crypto(1, "Bitcoin", "BTC", Some(1))
+  let other_currency = Crypto(..currency, rank: Some(2))
+  currency_store.insert(local_store, [currency])
+  currency_store.insert(other_store, [other_currency])
+
+  assert currency_store.get_by_id(local_store, 1) == Ok(currency)
+  assert currency_store.get_by_id(other_store, 1) == Ok(other_currency)
+
+  // Wait for the owner to exit before checking that ETS cleaned up its table.
+  let monitor = process.monitor(owner)
+  process.kill(owner)
+  let assert Ok(Nil) =
+    process.new_selector()
+    |> process.select_specific_monitor(monitor, fn(_) { Nil })
+    |> process.selector_receive(1000)
+
+  let assert Error(exception.Errored(reason)) =
+    exception.rescue(fn() { currency_store.get_by_id(other_store, 1) })
+  assert decode.run(reason, atom.decoder()) == Ok(atom.create("badarg"))
+  assert currency_store.get_by_id(local_store, 1) == Ok(currency)
 }
 
 // insert
@@ -136,22 +173,10 @@ pub fn get_by_symbol_returns_crypto_and_fiat_with_same_symbol_test() {
   assert list.contains(result, fiat)
 }
 
-/// Creates a new `CurrencyStore`, passes it to the given function, and ensures
-/// the store is dropped afterward to avoid lingering state between tests.
-///
-/// This utility is intended for use in tests that require a fresh, isolated
-/// `CurrencyStore` instance. It ensures proper cleanup regardless of what the
-/// provided function does.
-///
-/// ## Example
-/// ```gleam
-/// with_currency_store(fn(store) {
-///   currency_store.insert(store, [Crypto(1, "Bitcoin", "BTC", Some(1)])
-///   // ... perform assertions ...
-/// })
-/// ```
-fn with_currency_store(fun: fn(CurrencyStore) -> a) {
+/// Runs a test callback with a fresh, unnamed `CurrencyStore` and drops the
+/// store when the callback returns or raises.
+fn with_currency_store(run: fn(CurrencyStore) -> a) -> a {
   let assert Ok(store) = currency_store.new()
-  fun(store)
-  currency_store.drop(store)
+  use <- exception.defer(fn() { currency_store.drop(store) })
+  run(store)
 }

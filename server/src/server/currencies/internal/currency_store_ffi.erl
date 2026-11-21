@@ -3,13 +3,9 @@
 
 create_table() ->
     try ets:new(currencies_store, [
-        named_table, set, public, {read_concurrency, true}, {write_concurrency, auto}
+        set, public, {read_concurrency, true}, {write_concurrency, auto}
     ]) of
-        Name ->
-            case ets:whereis(Name) of
-                undefined -> {error, nil};
-                Table -> {ok, Table}
-            end
+        Table -> {ok, Table}
     catch
         error:badarg -> {error, nil}
     end.

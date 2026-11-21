@@ -27,7 +27,7 @@ pub opaque type CurrencyStore {
   CurrencyStore(TableId)
 }
 
-/// Creates a new `CurrencyStore` by initializing an ETS table.
+/// Creates an independent `CurrencyStore` backed by an unnamed ETS table.
 ///
 /// The calling process owns the table, which is destroyed when that process exits.
 ///
@@ -36,8 +36,6 @@ pub opaque type CurrencyStore {
 /// - **Read-concurrent**: Multiple processes can read simultaneously, even during write operations.
 /// - **Auto write concurrency**: The runtime automatically decides whether to enable write concurrency
 ///   optimizations based on actual usage patterns.
-///
-/// Returns `Error(Nil)` if a table with this name already exists.
 pub fn new() -> Result(CurrencyStore, Nil) {
   result.map(create_table(), CurrencyStore)
 }
