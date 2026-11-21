@@ -1,8 +1,8 @@
 //// Stores and manages the set of Kraken-supported currency pairs in global persistent memory.
 ////
 //// This module provides a lightweight interface around `persistent_term` to cache the full set
-//// of Kraken symbols at application startup. Reads are fast and safe from any process, while writes
-//// should be limited to a single owner (e.g. the Kraken actor) to avoid inconsistency.
+//// of eligible Kraken symbols. The Kraken session publishes the set after discovery and whenever
+//// membership changes. Reads are safe from any process.
 
 import gleam/erlang/atom.{type Atom}
 import gleam/set.{type Set}

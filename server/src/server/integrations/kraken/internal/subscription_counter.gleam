@@ -45,8 +45,8 @@ import server/utils/logger.{type Logger}
 
 /// Counts client interest in each symbol, sharing one Kraken subscription across
 /// all interested clients. A symbol has a positive count in either `pending`
-/// (awaiting confirmation) or `active` (confirmed), never both. Removing the last
-/// interest deletes its entry; reconnecting moves active interest back to pending.
+/// (requires a subscription or confirmation) or `active` (confirmed), never
+/// both. Removing the last interest deletes its entry.
 pub opaque type SubscriptionCounter {
   SubscriptionCounter(pending: Dict(String, Int), active: Dict(String, Int))
 }
@@ -61,6 +61,21 @@ pub fn prepare_for_reconnect(
   counter: SubscriptionCounter,
 ) -> SubscriptionCounter {
   SubscriptionCounter(dict.merge(counter.pending, counter.active), dict.new())
+}
+
+/// Preserves interest in a removed pair while waiting for it to return.
+pub fn suspend(
+  counter: SubscriptionCounter,
+  symbol: String,
+) -> SubscriptionCounter {
+  case dict.get(counter.active, symbol) {
+    Ok(count) ->
+      SubscriptionCounter(
+        dict.insert(counter.pending, symbol, count),
+        dict.delete(counter.active, symbol),
+      )
+    Error(_) -> counter
+  }
 }
 
 /// Each symbol with remaining interest, once regardless of its reference count.

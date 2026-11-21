@@ -3,9 +3,10 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
 import server/integrations/kraken/internal/response.{
-  InstrumentPair, InstrumentsResponse, Pong, TickerResponse,
+  InstrumentPair, InstrumentSnapshot, InstrumentUpdate, Pong, TickerResponse,
   TickerSubscribeConfirmation,
 }
+import shared/numbers/positive_float
 
 pub fn decode_correlated_pong_test() {
   "{\"method\":\"pong\",\"req_id\":42}"
@@ -33,27 +34,89 @@ pub fn malformed_or_uncorrelated_pongs_are_not_liveness_confirmations_test() {
   )
 }
 
-pub fn instrument_update_is_not_a_startup_snapshot_test() {
-  "{\"channel\":\"instrument\",\"type\":\"update\",\"data\":{\"pairs\":[]}}"
-  |> json.parse(response.decoder())
-  |> should.equal(Ok(None))
+pub fn decode_asset_only_instrument_updates_test() {
+  [
+    "{
+      \"channel\": \"instrument\",
+      \"type\": \"update\",
+      \"data\": {
+        \"assets\": [
+          { \"id\": \"BTC\", \"status\": \"enabled\" }
+        ],
+        \"pairs\": []
+      }
+    }",
+    "{
+      \"channel\": \"instrument\",
+      \"type\": \"update\",
+      \"data\": {
+        \"assets\": [
+          { \"id\": \"BTC\", \"status\": \"enabled\" }
+        ]
+      }
+    }",
+  ]
+  |> list.each(fn(text) {
+    assert json.parse(text, response.decoder())
+      == Ok(Some(InstrumentUpdate([])))
+  })
 }
 
-import shared/numbers/positive_float
+pub fn decode_instrument_pair_update_test() {
+  let json_str =
+    "{
+      \"channel\": \"instrument\",
+      \"type\": \"update\",
+      \"data\": {
+        \"pairs\": [
+          { \"symbol\": \"BTC/USD\", \"status\": \"delisted\" }
+        ]
+      }
+    }"
+
+  json_str
+  |> json.parse(response.decoder())
+  |> should.equal(
+    Ok(Some(InstrumentUpdate([InstrumentPair("BTC/USD", "delisted")]))),
+  )
+}
 
 pub fn decode_ticker_subscribe_confirmation_test() {
   let json_str =
-    "{\"method\":\"subscribe\",\"req_id\":69,\"result\":{\"channel\":\"ticker\",\"event_trigger\":\"trades\",\"snapshot\":true,\"symbol\":\"BTC/USD\"},\"success\":true,\"time_in\":\"2025-04-27T15:38:26.540456Z\",\"time_out\":\"2025-04-27T15:38:26.540489Z\"}"
+    "{
+      \"method\": \"subscribe\",
+      \"req_id\": 69,
+      \"result\": {
+        \"channel\": \"ticker\",
+        \"event_trigger\": \"trades\",
+        \"snapshot\": true,
+        \"symbol\": \"BTC/USD\"
+      },
+      \"success\": true,
+      \"time_in\": \"2025-04-27T15:38:26.540456Z\",
+      \"time_out\": \"2025-04-27T15:38:26.540489Z\"
+    }"
 
   json_str
   |> json.parse(response.decoder())
   |> should.be_ok
-  |> should.equal(Some(TickerSubscribeConfirmation("BTC/USD")))
+  |> should.equal(Some(TickerSubscribeConfirmation("BTC/USD", 69)))
 }
 
 pub fn decode_ticker_unsubscribe_confirmation_should_not_be_mistaken_for_subscribe_confirmation_test() {
   let json_str =
-    "{\"method\":\"unsubscribe\",\"req_id\":79,\"result\":{\"channel\":\"ticker\",\"event_trigger\":\"trades\",\"symbol\":\"BTC/USD\"},\"success\":true,\"time_in\":\"2025-05-08T00:56:06.967184Z\",\"time_out\":\"2025-05-08T00:56:06.967223Z\"}"
+    "{
+      \"method\": \"unsubscribe\",
+      \"req_id\": 79,
+      \"result\": {
+        \"channel\": \"ticker\",
+        \"event_trigger\": \"trades\",
+        \"symbol\": \"BTC/USD\"
+      },
+      \"success\": true,
+      \"time_in\": \"2025-05-08T00:56:06.967184Z\",
+      \"time_out\": \"2025-05-08T00:56:06.967223Z\"
+    }"
 
   json_str
   |> json.parse(response.decoder())
@@ -62,7 +125,15 @@ pub fn decode_ticker_unsubscribe_confirmation_should_not_be_mistaken_for_subscri
 
 pub fn decode_ticker_subscribe_confirmation_when_success_is_false_test() {
   let json_str =
-    "{\"error\":\"Currency pair not supported xxx/USD\",\"method\":\"subscribe\",\"req_id\":69,\"success\":false,\"symbol\":\"xxx/USD\",\"time_in\":\"2025-04-27T15:37:48.652299Z\",\"time_out\":\"2025-04-27T15:37:48.652337Z\"}"
+    "{
+      \"error\": \"Currency pair not supported xxx/USD\",
+      \"method\": \"subscribe\",
+      \"req_id\": 69,
+      \"success\": false,
+      \"symbol\": \"xxx/USD\",
+      \"time_in\": \"2025-04-27T15:37:48.652299Z\",
+      \"time_out\": \"2025-04-27T15:37:48.652337Z\"
+    }"
 
   json_str
   |> json.parse(response.decoder())
@@ -71,7 +142,27 @@ pub fn decode_ticker_subscribe_confirmation_when_success_is_false_test() {
 
 pub fn decode_ticker_response_test() {
   let json_str =
-    "{\"channel\":\"ticker\",\"type\":\"snapshot\",\"data\":[{\"symbol\":\"BTC/USD\",\"bid\":84393.0,\"bid_qty\":0.00915660,\"ask\":84393.1,\"ask_qty\":15.75854797,\"last\":84393.1,\"volume\":662.72278119,\"vwap\":84815.9,\"low\":84343.5,\"high\":85444.0,\"change\":-92.8,\"change_pct\":-0.11,\"timestamp\":\"2026-11-08T13:56:00.550875Z\"}]}"
+    "{
+      \"channel\": \"ticker\",
+      \"type\": \"snapshot\",
+      \"data\": [
+        {
+          \"symbol\": \"BTC/USD\",
+          \"bid\": 84393.0,
+          \"bid_qty\": 0.00915660,
+          \"ask\": 84393.1,
+          \"ask_qty\": 15.75854797,
+          \"last\": 84393.1,
+          \"volume\": 662.72278119,
+          \"vwap\": 84815.9,
+          \"low\": 84343.5,
+          \"high\": 85444.0,
+          \"change\": -92.8,
+          \"change_pct\": -0.11,
+          \"timestamp\": \"2026-11-08T13:56:00.550875Z\"
+        }
+      ]
+    }"
 
   json_str
   |> json.parse(response.decoder())
@@ -87,19 +178,56 @@ pub fn decode_ticker_response_test() {
 
 pub fn decode_instrument_response_test() {
   let json_str =
-    "{\"channel\":\"instrument\",\"type\":\"snapshot\",\"data\":{\"assets\":[{\"id\":\"USD\",\"status\":\"enabled\",\"precision\":4,\"precision_display\":2,\"borrowable\":true,\"collateral_value\":1.00,\"margin_rate\":0.050000}],\"pairs\":[{\"symbol\":\"BTC/USD\",\"base\":\"BTC\",\"quote\":\"USD\",\"status\":\"online\",\"qty_precision\":8,\"qty_increment\":0.00000001,\"price_precision\":1,\"cost_precision\":5,\"marginable\":true,\"has_index\":true,\"cost_min\":0.50,\"margin_initial\":0.20,\"position_limit_long\":300,\"position_limit_short\":240,\"tick_size\":0.1,\"price_increment\":0.1,\"qty_min\":0.00005000}]}}"
+    "{
+      \"channel\": \"instrument\",
+      \"type\": \"snapshot\",
+      \"data\": {
+        \"assets\": [
+          {
+            \"id\": \"USD\",
+            \"status\": \"enabled\",
+            \"precision\": 4,
+            \"precision_display\": 2,
+            \"borrowable\": true,
+            \"collateral_value\": 1.00,
+            \"margin_rate\": 0.050000
+          }
+        ],
+        \"pairs\": [
+          {
+            \"symbol\": \"BTC/USD\",
+            \"base\": \"BTC\",
+            \"quote\": \"USD\",
+            \"status\": \"online\",
+            \"qty_precision\": 8,
+            \"qty_increment\": 0.00000001,
+            \"price_precision\": 1,
+            \"cost_precision\": 5,
+            \"marginable\": true,
+            \"has_index\": true,
+            \"cost_min\": 0.50,
+            \"margin_initial\": 0.20,
+            \"position_limit_long\": 300,
+            \"position_limit_short\": 240,
+            \"tick_size\": 0.1,
+            \"price_increment\": 0.1,
+            \"qty_min\": 0.00005000
+          }
+        ]
+      }
+    }"
 
   let response =
     json_str
     |> json.parse(response.decoder())
     |> should.be_ok
 
-  let assert Some(InstrumentsResponse(pairs)) = response
+  let assert Some(InstrumentSnapshot(pairs)) = response
 
   pairs
   |> list.first
   |> should.be_ok
-  |> should.equal(InstrumentPair("BTC/USD", "BTC", "USD"))
+  |> should.equal(InstrumentPair("BTC/USD", "online"))
 }
 
 pub fn malformed_responses_preserve_the_selected_decoders_field_errors_test() {
@@ -111,12 +239,20 @@ pub fn malformed_responses_preserve_the_selected_decoders_field_errors_test() {
         ["data", "0", "last"],
       ),
       #(
-        "{\"channel\":\"instrument\",\"type\":\"snapshot\",\"data\":{\"pairs\":[{\"symbol\":\"BTC/USD\",\"base\":42,\"quote\":\"USD\"}]}}",
-        ["data", "pairs", "0", "base"],
+        "{\"channel\":\"instrument\",\"type\":\"snapshot\",\"data\":{\"assets\":[]}}",
+        ["data", "pairs"],
+      ),
+      #(
+        "{\"channel\":\"instrument\",\"type\":\"update\",\"data\":{\"pairs\":[{\"symbol\":\"BTC/USD\",\"status\":42}]}}",
+        ["data", "pairs", "0", "status"],
       ),
       #(
         "{\"method\":\"subscribe\",\"success\":true,\"result\":{\"channel\":\"ticker\",\"symbol\":42}}",
         ["result", "symbol"],
+      ),
+      #(
+        "{\"method\":\"subscribe\",\"success\":true,\"result\":{\"channel\":\"ticker\",\"symbol\":\"BTC/USD\"}}",
+        ["req_id"],
       ),
       #("{\"channel\":\"ticker\",\"type\":42}", ["type"]),
     ],
@@ -149,7 +285,31 @@ pub fn unhandled_message_kinds_are_ignored_without_decoding_their_payloads_test(
 }
 
 pub fn decode_ticker_update_test() {
-  "{\"channel\":\"ticker\",\"type\":\"update\",\"data\":[{\"symbol\":\"BTC/USD\",\"bid\":75804.6,\"bid_qty\":0.81824116,\"ask\":75804.7,\"ask_qty\":0.00026802,\"last\":75804.6,\"volume\":716.13372226,\"vwap\":75743.9,\"low\":75467.1,\"high\":76096.2,\"change\":-34.1,\"change_pct\":-0.04,\"trades\":51786,\"timestamp\":\"2026-11-08T13:56:00.550875Z\"}]}"
+  let json_str =
+    "{
+      \"channel\": \"ticker\",
+      \"type\": \"update\",
+      \"data\": [
+        {
+          \"symbol\": \"BTC/USD\",
+          \"bid\": 75804.6,
+          \"bid_qty\": 0.81824116,
+          \"ask\": 75804.7,
+          \"ask_qty\": 0.00026802,
+          \"last\": 75804.6,
+          \"volume\": 716.13372226,
+          \"vwap\": 75743.9,
+          \"low\": 75467.1,
+          \"high\": 76096.2,
+          \"change\": -34.1,
+          \"change_pct\": -0.04,
+          \"trades\": 51786,
+          \"timestamp\": \"2026-11-08T13:56:00.550875Z\"
+        }
+      ]
+    }"
+
+  json_str
   |> json.parse(response.decoder())
   |> should.equal(
     Ok(
