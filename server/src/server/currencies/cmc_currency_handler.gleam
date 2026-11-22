@@ -2,7 +2,8 @@ import gleam/list
 import gleam/option.{Some}
 import gleam/result
 import server/integrations/coin_market_cap/client.{
-  type CmcRequestError, type CmcResponse, type CmcStatus, CmcStatus,
+  type CmcRequestError, type CmcResponse, type CmcStatus, CmcApiError,
+  CmcApiSuccess, CmcStatus,
 }
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   type CmcCryptoCurrency,
@@ -26,17 +27,13 @@ pub type FetchError {
   /// A decoded response reports a provider error. Carries its error code and
   /// optional message in the original CMC status.
   ErrorStatusReceived(CmcStatus)
-
-  /// A successful response contains no data list. Carries the original CMC status.
-  MissingData(CmcStatus)
 }
 
 /// Fetches cryptocurrencies using `request_crypto`, removes duplicate entries,
 /// and maps them to `Crypto` currencies.
 ///
-/// CMC's invalid-symbol error yields `Ok([])`. Request failures become
-/// `ClientError`; other provider error statuses become `ErrorStatusReceived`.
-/// A successful response with no data list returns `MissingData`.
+/// CMC's invalid-symbol error yields `Ok([])`. Request and decoding failures
+/// become `ClientError`. Other API errors become `ErrorStatusReceived`.
 pub fn get_cryptos(
   request_crypto: RequestCmcCryptos,
 ) -> Result(List(Currency), FetchError) {
@@ -45,20 +42,12 @@ pub fn get_cryptos(
     |> result.map_error(ClientError),
   )
 
-  use data <- result.try(case cmc_response.status.error_code == 0 {
-    True -> Ok(cmc_response.data)
-    False ->
-      case cmc_response.status {
-        // Return empty list to client for invalid symbols (RESTful design)
-        CmcStatus(_, Some("Invalid value for \"symbol\"" <> _)) -> Ok(Some([]))
-        _ -> Error(ErrorStatusReceived(cmc_response.status))
-      }
+  use cryptos <- result.try(case cmc_response {
+    CmcApiSuccess(_, data) -> Ok(data)
+    CmcApiError(CmcStatus(_, Some("Invalid value for \"symbol\"" <> _)), _) ->
+      Ok([])
+    CmcApiError(status, _) -> Error(ErrorStatusReceived(status))
   })
-
-  use cryptos <- result.try(option.to_result(
-    data,
-    MissingData(cmc_response.status),
-  ))
 
   cryptos
   |> list.unique
@@ -70,11 +59,10 @@ pub fn get_cryptos(
 
 /// Fetches fiat currencies using `request_fiat`, removes duplicate entries,
 /// and maps those matching `supported_symbols` to `Fiat` currencies.
-/// Symbol matching is case-sensitive; an empty list disables filtering.
+/// Symbol matching is case-sensitive. An empty list disables filtering.
 ///
-/// Request failures become `ClientError`; provider error statuses become
-/// `ErrorStatusReceived`. A successful response with no data list returns
-/// `MissingData`.
+/// Request and decoding failures become `ClientError`. API errors become
+/// `ErrorStatusReceived`.
 pub fn get_fiats(
   supported_symbols: List(String),
   request_fiat: RequestCmcFiats,
@@ -84,15 +72,10 @@ pub fn get_fiats(
     |> result.map_error(ClientError),
   )
 
-  use data <- result.try(case cmc_response.status.error_code == 0 {
-    True -> Ok(cmc_response.data)
-    False -> Error(ErrorStatusReceived(cmc_response.status))
+  use fiats <- result.try(case cmc_response {
+    CmcApiSuccess(_, data) -> Ok(data)
+    CmcApiError(status, _) -> Error(ErrorStatusReceived(status))
   })
-
-  use fiats <- result.try(option.to_result(
-    data,
-    MissingData(cmc_response.status),
-  ))
 
   fiats
   |> list.unique

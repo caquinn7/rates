@@ -1,10 +1,8 @@
 import gleam/httpc
 import gleam/option.{None, Some}
-import server/currencies/cmc_currency_handler.{
-  ClientError, ErrorStatusReceived, MissingData,
-}
+import server/currencies/cmc_currency_handler.{ClientError, ErrorStatusReceived}
 import server/integrations/coin_market_cap/client.{
-  CmcResponse, CmcStatus, HttpError,
+  CmcApiError, CmcApiSuccess, CmcStatus, HttpError,
 }
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   CmcCryptoCurrency,
@@ -18,10 +16,11 @@ const bad_cmc_status = CmcStatus(400, Some("error"))
 
 pub fn get_cryptos_test() {
   let request_cryptos = fn() {
-    [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+      ]),
+    )
   }
 
   let result = cmc_currency_handler.get_cryptos(request_cryptos)
@@ -31,13 +30,12 @@ pub fn get_cryptos_test() {
 
 pub fn get_cryptos_removes_duplicates_test() {
   let request_cryptos = fn() {
-    [
-      CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
-      CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
-    ]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+        CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+      ]),
+    )
   }
 
   let result = cmc_currency_handler.get_cryptos(request_cryptos)
@@ -54,25 +52,26 @@ pub fn get_cryptos_client_error_test() {
   assert Error(ClientError(expected_client_err)) == result
 }
 
-pub fn get_cryptos_missing_data_returns_error_test() {
-  let request_cryptos = fn() { Ok(CmcResponse(good_cmc_status, None)) }
+pub fn get_cryptos_api_error_with_data_returns_error_test() {
+  let request_cryptos = fn() {
+    Ok(CmcApiError(
+      bad_cmc_status,
+      Some([CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]),
+    ))
+  }
 
   assert cmc_currency_handler.get_cryptos(request_cryptos)
-    == Error(MissingData(good_cmc_status))
+    == Error(ErrorStatusReceived(bad_cmc_status))
 }
 
 pub fn get_cryptos_empty_data_returns_empty_list_test() {
-  let request_cryptos = fn() { Ok(CmcResponse(good_cmc_status, Some([]))) }
+  let request_cryptos = fn() { Ok(CmcApiSuccess(good_cmc_status, [])) }
 
   assert cmc_currency_handler.get_cryptos(request_cryptos) == Ok([])
 }
 
 pub fn get_cryptos_error_status_test() {
-  let request_cryptos = fn() {
-    None
-    |> CmcResponse(bad_cmc_status, _)
-    |> Ok
-  }
+  let request_cryptos = fn() { Ok(CmcApiError(bad_cmc_status, None)) }
 
   let result = cmc_currency_handler.get_cryptos(request_cryptos)
 
@@ -83,9 +82,7 @@ pub fn get_cryptos_returns_empty_list_when_symbol_not_found_test() {
   let request_cryptos = fn() {
     let msg = "Invalid value for \"symbol\": \"XYZ\""
 
-    None
-    |> CmcResponse(CmcStatus(400, Some(msg)), _)
-    |> Ok
+    Ok(CmcApiError(CmcStatus(400, Some(msg)), None))
   }
 
   let result = cmc_currency_handler.get_cryptos(request_cryptos)
@@ -95,13 +92,12 @@ pub fn get_cryptos_returns_empty_list_when_symbol_not_found_test() {
 
 pub fn get_fiats_filters_out_unsupported_symbols_test() {
   let request_fiats = fn() {
-    [
-      CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
-      CmcFiatCurrency(9999, "", "", "EUR"),
-    ]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+        CmcFiatCurrency(9999, "", "", "EUR"),
+      ]),
+    )
   }
 
   let result = cmc_currency_handler.get_fiats(["USD"], request_fiats)
@@ -111,13 +107,12 @@ pub fn get_fiats_filters_out_unsupported_symbols_test() {
 
 pub fn get_fiats_removes_duplicates_test() {
   let request_fiats = fn() {
-    [
-      CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
-      CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
-    ]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+        CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+      ]),
+    )
   }
 
   let result = cmc_currency_handler.get_fiats(["USD"], request_fiats)
@@ -127,13 +122,12 @@ pub fn get_fiats_removes_duplicates_test() {
 
 pub fn get_fiats_does_not_filter_when_supported_symbols_is_empty_test() {
   let request_fiats = fn() {
-    [
-      CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
-      CmcFiatCurrency(9999, "Buck", "B", "BCK"),
-    ]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+        CmcFiatCurrency(9999, "Buck", "B", "BCK"),
+      ]),
+    )
   }
 
   let result = cmc_currency_handler.get_fiats([], request_fiats)
@@ -154,25 +148,26 @@ pub fn get_fiats_client_error_test() {
   assert Error(ClientError(expected_client_err)) == result
 }
 
-pub fn get_fiats_missing_data_returns_error_test() {
-  let request_fiats = fn() { Ok(CmcResponse(good_cmc_status, None)) }
+pub fn get_fiats_api_error_with_data_returns_error_test() {
+  let request_fiats = fn() {
+    Ok(CmcApiError(
+      bad_cmc_status,
+      Some([CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]),
+    ))
+  }
 
   assert cmc_currency_handler.get_fiats([], request_fiats)
-    == Error(MissingData(good_cmc_status))
+    == Error(ErrorStatusReceived(bad_cmc_status))
 }
 
 pub fn get_fiats_empty_data_returns_empty_list_test() {
-  let request_fiats = fn() { Ok(CmcResponse(good_cmc_status, Some([]))) }
+  let request_fiats = fn() { Ok(CmcApiSuccess(good_cmc_status, [])) }
 
   assert cmc_currency_handler.get_fiats([], request_fiats) == Ok([])
 }
 
 pub fn get_fiats_error_status_test() {
-  let request_fiats = fn() {
-    None
-    |> CmcResponse(bad_cmc_status, _)
-    |> Ok
-  }
+  let request_fiats = fn() { Ok(CmcApiError(bad_cmc_status, None)) }
 
   let result = cmc_currency_handler.get_fiats([], request_fiats)
 

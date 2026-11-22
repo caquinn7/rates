@@ -27,12 +27,14 @@ pub type CmcRequestError {
 
 /// A decoded CoinMarketCap response envelope.
 pub type CmcResponse(a) {
-  CmcResponse(
-    /// The status reported by CoinMarketCap for this request.
+  /// A zero status code with the required decoded endpoint data.
+  CmcApiSuccess(status: CmcStatus, data: a)
+
+  /// A nonzero status code with any endpoint data included in the response.
+  CmcApiError(
     status: CmcStatus,
-    /// The decoded endpoint data. The client requires it on success. An error
-    /// response with omitted or null data decodes to `None` for this field.
-    data: Option(a),
+    /// Decoded endpoint data, or `None` if omitted or null.
+    error_data: Option(a),
   )
 }
 
@@ -158,23 +160,15 @@ pub fn cmc_response_decoder(
   data_decoder: Decoder(a),
 ) -> Decoder(CmcResponse(a)) {
   use status <- decode.field("status", status_decoder())
-  use data <- decode.then(response_data_decoder(status, data_decoder))
-  decode.success(CmcResponse(status, data))
-}
-
-fn response_data_decoder(
-  status: CmcStatus,
-  data_decoder: Decoder(a),
-) -> Decoder(Option(a)) {
   case status.error_code {
-    0 -> decode.at(["data"], decode.map(data_decoder, Some))
+    0 -> decode.at(["data"], decode.map(data_decoder, CmcApiSuccess(status, _)))
     _ -> {
-      use data <- decode.optional_field(
+      use error_data <- decode.optional_field(
         "data",
         None,
         decode.optional(data_decoder),
       )
-      decode.success(data)
+      decode.success(CmcApiError(status, error_data))
     }
   }
 }

@@ -2,7 +2,7 @@ import gleam/dict
 import gleam/erlang/process
 import gleam/option.{None, Some}
 import server/integrations/coin_market_cap/client.{
-  type CmcConversionParameters, CmcResponse, CmcStatus,
+  type CmcConversionParameters, CmcApiError, CmcApiSuccess, CmcStatus,
 }
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
@@ -138,7 +138,7 @@ pub fn asset_sharing_bitcoins_ticker_uses_cmc_with_original_ids_in_either_direct
         request_cmc_conversion: fn(parameters) {
           assert parameters.id == rate_request.from
           assert parameters.convert_id == rate_request.to
-          Ok(CmcResponse(CmcStatus(400, None), None))
+          Ok(CmcApiError(CmcStatus(400, None), None))
         },
         on_kraken_fallback: fn(_) { panic as "Expected direct CMC strategy" },
       )
@@ -248,15 +248,15 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
   let events = process.new_subject()
   let request_cmc_conversion = fn(conversion_params: CmcConversionParameters) {
     process.send(events, CmcRequested)
-    Ok(CmcResponse(
+    Ok(CmcApiSuccess(
       CmcStatus(0, None),
-      Some(CmcConversion(
+      CmcConversion(
         conversion_params.id,
         "BTC",
         "Bitcoin",
         positive_float.from_float_unsafe(1.0),
         dict.from_list([#("2781", QuoteItem(Some(expected_price), 1000))]),
-      )),
+      ),
     ))
   }
 
@@ -289,15 +289,15 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
   let cmc_get_rate = fn(conversion_params: CmcConversionParameters) {
-    Ok(CmcResponse(
+    Ok(CmcApiSuccess(
       CmcStatus(0, None),
-      Some(CmcConversion(
+      CmcConversion(
         conversion_params.id,
         "BTC",
         "Bitcoin",
         positive_float.from_float_unsafe(1.0),
         dict.from_list([#("2781", QuoteItem(Some(expected_price), 1000))]),
-      )),
+      ),
     ))
   }
 
@@ -343,7 +343,7 @@ pub fn execute_strategy_returns_error_when_cmc_fails_test() {
   assert strategy == CmcStrategy
 
   let request_cmc_conversion = fn(_) {
-    Ok(CmcResponse(CmcStatus(400, Some("")), None))
+    Ok(CmcApiError(CmcStatus(400, Some("")), None))
   }
 
   let config =

@@ -1,12 +1,14 @@
+import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/httpc
+import gleam/json
 import gleam/option.{None, Some}
-import server/currencies/cmc_currency_handler.{ClientError, MissingData}
+import server/currencies/cmc_currency_handler.{ClientError}
 import server/currencies/currency_repository.{CurrencyRepository}
 import server/currencies/currency_symbol_cache
 import server/currencies/currency_symbol_cache_factory
 import server/integrations/coin_market_cap/client.{
-  CmcResponse, CmcStatus, HttpError,
+  CmcApiSuccess, CmcStatus, HttpError, JsonDecodeError,
 }
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   CmcCryptoCurrency,
@@ -23,15 +25,21 @@ pub fn missing_data_reports_error_and_keeps_cache_available_test() {
       get_by_symbol: fn(_) { [] },
       get_all: fn() { panic },
     )
-  let status = CmcStatus(0, None)
+  let assert Error(decode_error) =
+    json.parse(
+      "{\"status\":{\"error_code\":0}}",
+      client.cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
+    )
+  let request_error = JsonDecodeError(decode_error)
   let request_cryptos = fn(symbol) {
     case symbol {
-      Some("BAD") -> Ok(CmcResponse(status, None))
+      Some("BAD") -> Error(request_error)
       Some("BTC") ->
-        Ok(CmcResponse(
-          status,
-          Some([CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]),
-        ))
+        Ok(
+          CmcApiSuccess(CmcStatus(0, None), [
+            CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+          ]),
+        )
       _ -> panic as "Unexpected symbol request"
     }
   }
@@ -43,7 +51,7 @@ pub fn missing_data_reports_error_and_keeps_cache_available_test() {
     )
 
   assert currency_symbol_cache.get_by_symbol(cache, "BAD") == Error(Nil)
-  assert process.receive(errors, 1000) == Ok(MissingData(status))
+  assert process.receive(errors, 1000) == Ok(ClientError(request_error))
   assert process.receive(inserts, 0) == Error(Nil)
 
   let expected = [Crypto(1, "Bitcoin", "BTC", Some(1))]

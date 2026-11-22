@@ -7,7 +7,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import glight
 import server/integrations/coin_market_cap/client.{
-  CmcResponse, CmcStatus, HttpError,
+  CmcApiError, CmcApiSuccess, CmcStatus, HttpError,
 }
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
@@ -213,16 +213,20 @@ pub fn subscribe_uses_cmc_directly_when_kraken_symbol_does_not_exist_test() {
       subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
-        CmcConversion(
-          1,
-          "BTC",
-          "Bitcoin",
-          positive_float.from_float_unsafe(1.0),
-          dict.insert(dict.new(), "2781", QuoteItem(Some(expected_price), 100)),
-        )
-        |> Some
-        |> CmcResponse(CmcStatus(0, None), _)
-        |> Ok
+        Ok(CmcApiSuccess(
+          CmcStatus(0, None),
+          CmcConversion(
+            1,
+            "BTC",
+            "Bitcoin",
+            positive_float.from_float_unsafe(1.0),
+            dict.insert(
+              dict.new(),
+              "2781",
+              QuoteItem(Some(expected_price), 100),
+            ),
+          ),
+        ))
       },
       logger: logger.new_with_sink(glight.Debug, process.send(logs, _)),
     )
@@ -276,16 +280,20 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
       subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
-        CmcConversion(
-          1,
-          "BTC",
-          "Bitcoin",
-          positive_float.from_float_unsafe(1.0),
-          dict.insert(dict.new(), "2781", QuoteItem(Some(expected_price), 100)),
-        )
-        |> Some
-        |> CmcResponse(CmcStatus(0, None), _)
-        |> Ok
+        Ok(CmcApiSuccess(
+          CmcStatus(0, None),
+          CmcConversion(
+            1,
+            "BTC",
+            "Bitcoin",
+            positive_float.from_float_unsafe(1.0),
+            dict.insert(
+              dict.new(),
+              "2781",
+              QuoteItem(Some(expected_price), 100),
+            ),
+          ),
+        ))
       },
       logger: logger.new_with_sink(glight.Warning, process.send(logs, _)),
     )
@@ -374,7 +382,7 @@ fn assert_failed_fallback_releases_interest(start_with_kraken_price: Bool) {
           },
         ),
         request_cmc_conversion: fn(_) {
-          Ok(CmcResponse(CmcStatus(1001, Some("error")), None))
+          Ok(CmcApiError(CmcStatus(1001, Some("error")), None))
         },
         subscription_manager: manager,
         logger: logger.new(),
@@ -457,15 +465,15 @@ pub fn overflowing_kraken_reciprocal_falls_back_and_keeps_refreshing_test() {
           case get_and_increment("reciprocal_overflow_cmc_requests") {
             0 -> Error(HttpError(httpc.ResponseTimeout))
             1 ->
-              Ok(CmcResponse(
+              Ok(CmcApiSuccess(
                 CmcStatus(0, None),
-                Some(CmcConversion(
+                CmcConversion(
                   parameters.id,
                   "USD",
                   "United States Dollar",
                   positive_float.from_float_unsafe(1.0),
                   dict.from_list([#("1", QuoteItem(Some(cmc_price), 200))]),
-                )),
+                ),
               ))
             _ -> panic as "Unexpected CMC request"
           }
@@ -566,16 +574,16 @@ pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
         },
         kraken_interface: interface,
         request_cmc_conversion: fn(_) {
-          CmcConversion(
-            1,
-            "BTC",
-            "Bitcoin",
-            positive_float.from_float_unsafe(1.0),
-            dict.insert(dict.new(), "2781", QuoteItem(Some(cmc_price), 100)),
-          )
-          |> Some
-          |> CmcResponse(CmcStatus(0, None), _)
-          |> Ok
+          Ok(CmcApiSuccess(
+            CmcStatus(0, None),
+            CmcConversion(
+              1,
+              "BTC",
+              "Bitcoin",
+              positive_float.from_float_unsafe(1.0),
+              dict.insert(dict.new(), "2781", QuoteItem(Some(cmc_price), 100)),
+            ),
+          ))
         },
         subscription_manager: manager,
         logger: logger.new(),
@@ -686,9 +694,7 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
       kraken_interface:,
       request_cmc_conversion: fn(_) {
         process.send(provider_calls, process.self())
-        None
-        |> CmcResponse(CmcStatus(1001, Some("error")), _)
-        |> Ok
+        Ok(CmcApiError(CmcStatus(1001, Some("error")), None))
       },
       logger: logger.new(),
     )
@@ -988,20 +994,20 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
       subscription_manager:,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
-        CmcConversion(
-          1,
-          "BTC",
-          "Bitcoin",
-          positive_float.from_float_unsafe(1.0),
-          dict.insert(
-            dict.new(),
-            "2781",
-            QuoteItem(Some(expected_cmc_price), 1000),
+        Ok(CmcApiSuccess(
+          CmcStatus(0, None),
+          CmcConversion(
+            1,
+            "BTC",
+            "Bitcoin",
+            positive_float.from_float_unsafe(1.0),
+            dict.insert(
+              dict.new(),
+              "2781",
+              QuoteItem(Some(expected_cmc_price), 1000),
+            ),
           ),
-        )
-        |> Some
-        |> CmcResponse(CmcStatus(0, None), _)
-        |> Ok
+        ))
       },
       logger: logger.new(),
     )
@@ -1123,16 +1129,16 @@ fn new_refresh_test(source: Source) -> RefreshTest {
         ),
         request_cmc_conversion: fn(parameters) {
           process.send(provider_calls, CoinMarketCap)
-          CmcConversion(
-            parameters.id,
-            "BTC",
-            "Bitcoin",
-            positive_float.from_float_unsafe(1.0),
-            dict.insert(dict.new(), "2781", QuoteItem(Some(price), 100)),
-          )
-          |> Some
-          |> CmcResponse(CmcStatus(0, None), _)
-          |> Ok
+          Ok(CmcApiSuccess(
+            CmcStatus(0, None),
+            CmcConversion(
+              parameters.id,
+              "BTC",
+              "Bitcoin",
+              positive_float.from_float_unsafe(1.0),
+              dict.insert(dict.new(), "2781", QuoteItem(Some(price), 100)),
+            ),
+          ))
         },
         subscription_manager: manager,
         logger: logger.new(),
