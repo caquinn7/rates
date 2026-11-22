@@ -9,7 +9,7 @@ import server/currencies/cmc_currency_handler.{
   type RequestCmcCryptos, type RequestCmcFiats,
 }
 import server/currencies/currency_catalog_loader
-import server/currencies/currency_repository.{type CurrencyRepository}
+import server/currencies/currency_repository
 import server/currencies/currency_symbol_cache_factory.{
   type RequestCmcCryptosBySymbol,
 }
@@ -20,7 +20,6 @@ import server/integrations/kraken/client.{type KrakenClient} as kraken_client
 import server/integrations/kraken/price_store
 import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/kraken_interface
-import server/rates/internal/subscription_manager
 import server/rates/subscriber
 import server/rates/subscriber_factory
 import server/services.{type Services, Services}
@@ -221,11 +220,12 @@ fn build_services(
   }
 
   let create_rate_subscriber =
-    build_subscriber_config(
-      kraken_client,
-      currency_repository,
-      request_cmc_conversion,
-      logger,
+    subscriber.Config(
+      get_currency: currency_repository.get_by_id,
+      kraken_interface: kraken_interface.new(kraken_client),
+      request_cmc_conversion:,
+      base_refresh_interval_ms: subscription_refresh_interval_ms,
+      logger: logger.with_source(logger, "subscriber"),
     )
     |> subscriber_factory.create
 
@@ -234,24 +234,6 @@ fn build_services(
     currency_symbol_cache:,
     create_rate_subscriber:,
     logger:,
-  )
-}
-
-fn build_subscriber_config(
-  kraken_client: KrakenClient,
-  currency_repository: CurrencyRepository,
-  request_cmc_conversion: RequestCmcConversion,
-  logger: Logger,
-) -> subscriber.Config {
-  let assert Ok(subscription_manager) =
-    subscription_manager.new(subscription_refresh_interval_ms)
-
-  subscriber.Config(
-    get_currency: currency_repository.get_by_id,
-    kraken_interface: kraken_interface.new(kraken_client),
-    request_cmc_conversion:,
-    subscription_manager:,
-    logger: logger.with_source(logger, "subscriber"),
   )
 }
 

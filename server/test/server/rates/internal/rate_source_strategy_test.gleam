@@ -142,11 +142,11 @@ pub fn asset_sharing_bitcoins_ticker_uses_cmc_with_original_ids_in_either_direct
         },
         on_kraken_fallback: fn(_) { panic as "Expected direct CMC strategy" },
       )
-    let #(result, fell_back) =
+    let #(result, next_source) =
       rate_source_strategy.execute_strategy(CmcStrategy, rate_request, config)
 
     let assert Error(CmcError(_, _)) = result
-    assert !fell_back
+    assert next_source == CmcStrategy
   }
   assert_direct_cmc(RateRequest(32_295, 2781))
   assert_direct_cmc(RateRequest(2781, 32_295))
@@ -184,7 +184,7 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
       on_kraken_fallback: fn(_) { panic as "Kraken failure not expected" },
     )
 
-  let #(result, should_downgrade) =
+  let #(result, next_source) =
     rate_source_strategy.execute_strategy(strategy, rate_request, config)
 
   let assert Ok(response) = result
@@ -193,7 +193,7 @@ pub fn execute_strategy_returns_kraken_response_when_kraken_price_is_found_test(
   assert response.rate == Some(expected_price)
   assert response.source == rate_response.Kraken
   assert response.timestamp == 1000
-  assert !should_downgrade
+  assert next_source == strategy
 }
 
 pub fn inverse_kraken_rates_preserve_the_provider_timestamp_test() {
@@ -211,7 +211,7 @@ pub fn inverse_kraken_rates_preserve_the_provider_timestamp_test() {
       on_kraken_fallback: fn(_) { panic as "Kraken failure not expected" },
     )
 
-  let #(result, should_downgrade) =
+  let #(result, next_source) =
     rate_source_strategy.execute_strategy(
       KrakenStrategy(symbol),
       RateRequest(2781, 1),
@@ -221,7 +221,7 @@ pub fn inverse_kraken_rates_preserve_the_provider_timestamp_test() {
   let assert Ok(response) = result
   assert response.rate == Some(positive_float.from_float_unsafe(0.00002))
   assert response.timestamp == 1_794_146_160_550
-  assert !should_downgrade
+  assert next_source == KrakenStrategy(symbol)
 }
 
 pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
@@ -269,7 +269,7 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
       },
     )
 
-  let #(result, should_downgrade) =
+  let #(result, next_source) =
     rate_source_strategy.execute_strategy(strategy, rate_request, config)
 
   let assert Ok(response) = result
@@ -278,7 +278,7 @@ pub fn execute_strategy_falls_back_to_cmc_when_kraken_price_not_found_test() {
   assert response.rate == Some(expected_price)
   assert response.source == rate_response.CoinMarketCap
   assert response.timestamp == 1000
-  assert should_downgrade
+  assert next_source == CmcStrategy
   assert process.receive(events, 0) == Ok(KrakenFallback(PriceUnavailable))
   assert process.receive(events, 0) == Ok(CmcRequested)
   assert process.receive(events, 0) == Error(Nil)
@@ -310,7 +310,7 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
       },
     )
 
-  let #(result, should_downgrade) =
+  let #(result, next_source) =
     rate_source_strategy.execute_strategy(CmcStrategy, rate_request, config)
 
   let assert Ok(response) = result
@@ -319,7 +319,7 @@ pub fn execute_strategy_returns_cmc_response_when_successful_test() {
   assert response.rate == Some(expected_price)
   assert response.source == rate_response.CoinMarketCap
   assert response.timestamp == 1000
-  assert !should_downgrade
+  assert next_source == CmcStrategy
 }
 
 pub fn execute_strategy_returns_error_when_cmc_fails_test() {
@@ -357,10 +357,10 @@ pub fn execute_strategy_returns_error_when_cmc_fails_test() {
       },
     )
 
-  let #(result, should_downgrade) =
+  let #(result, next_source) =
     rate_source_strategy.execute_strategy(strategy, rate_request, config)
 
   let assert Error(CmcError(req, _)) = result
   assert req == rate_request
-  assert !should_downgrade
+  assert next_source == CmcStrategy
 }

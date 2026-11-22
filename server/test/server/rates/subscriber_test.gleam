@@ -5,6 +5,7 @@ import gleam/erlang/process.{type Pid, type Subject}
 import gleam/httpc
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/otp/actor.{InitFailed}
 import glight
 import server/integrations/coin_market_cap/client.{
   CmcApiError, CmcApiSuccess, CmcStatus, HttpError,
@@ -15,7 +16,6 @@ import server/integrations/coin_market_cap/cmc_conversion.{
 import server/integrations/kraken/price_store.{PriceEntry}
 import server/rates/internal/kraken_interface.{KrakenInterface}
 import server/rates/internal/kraken_symbol
-import server/rates/internal/subscription_manager
 import server/rates/rate_error.{CmcError, CurrencyNotFound}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult}
 import server/rates/subscriber_factory.{type SubscriberFactory}
@@ -57,6 +57,43 @@ fn scheduled_subscriber_factory(
   }
 }
 
+pub fn subscriber_rejects_invalid_base_refresh_intervals_test() {
+  let id = subscription_id.from_string_unsafe("invalid-interval")
+  let replies = process.new_subject()
+  let kraken_interface =
+    KrakenInterface(
+      get_kraken_symbol: fn(_) { panic },
+      subscribe: fn(_) { panic },
+      unsubscribe: fn(_) { panic },
+      check_for_price: fn(_) { panic },
+    )
+
+  list.each(
+    [
+      #(0, "Interval must be positive"),
+      #(-1, "Interval must be positive"),
+      #(999, "Interval must be at least 1000ms"),
+    ],
+    fn(test_case) {
+      let #(base_refresh_interval_ms, message) = test_case
+      let config =
+        subscriber.Config(
+          get_currency: fn(_) { panic },
+          kraken_interface:,
+          request_cmc_conversion: fn(_) { panic },
+          base_refresh_interval_ms:,
+          logger: logger.new(),
+        )
+
+      assert subscriber.new(id, replies, config) == Error(InitFailed(message))
+      assert subscriber.new_with_scheduler(id, replies, config, fn(_, _) {
+          panic
+        })
+        == Error(InitFailed(message))
+    },
+  )
+}
+
 pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
   let currencies = [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
@@ -76,11 +113,10 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
       check_for_price: fn(_) { Ok(PriceEntry(expected_price, 100)) },
     )
 
-  let assert Ok(subscription_manager) = subscription_manager.new(1000)
   let config =
     subscriber.Config(
       get_currency:,
-      subscription_manager:,
+      base_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
@@ -116,7 +152,6 @@ pub fn shared_factory_creates_independent_subscribers_test() {
   let bitcoin_price = positive_float.from_float_unsafe(100_000.0)
   let ethereum_price = positive_float.from_float_unsafe(4000.0)
   let actors = process.new_subject()
-  let assert Ok(manager) = subscription_manager.new(60_000)
   let config =
     subscriber.Config(
       get_currency: fn(id) {
@@ -135,7 +170,7 @@ pub fn shared_factory_creates_independent_subscribers_test() {
         },
       ),
       request_cmc_conversion: fn(_) { panic },
-      subscription_manager: manager,
+      base_refresh_interval_ms: 60_000,
       logger: logger.new(),
     )
   let create_subscriber = subscriber_factory.create(config)
@@ -206,11 +241,10 @@ pub fn subscribe_uses_cmc_directly_when_kraken_symbol_does_not_exist_test() {
     )
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
-  let assert Ok(subscription_manager) = subscription_manager.new(1000)
   let config =
     subscriber.Config(
       get_currency:,
-      subscription_manager:,
+      base_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
         Ok(CmcApiSuccess(
@@ -273,11 +307,10 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
     )
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
-  let assert Ok(subscription_manager) = subscription_manager.new(1000)
   let config =
     subscriber.Config(
       get_currency:,
-      subscription_manager:,
+      base_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
         Ok(CmcApiSuccess(
@@ -353,7 +386,6 @@ fn assert_failed_fallback_releases_interest(start_with_kraken_price: Bool) {
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
-  let assert Ok(manager) = subscription_manager.new(1000)
   let assert Ok(id) = subscription_id.new("failed-fallback")
   let assert Ok(target) =
     subscriber.new_with_scheduler(
@@ -384,7 +416,7 @@ fn assert_failed_fallback_releases_interest(start_with_kraken_price: Bool) {
         request_cmc_conversion: fn(_) {
           Ok(CmcApiError(CmcStatus(1001, Some("error")), None))
         },
-        subscription_manager: manager,
+        base_refresh_interval_ms: 1000,
         logger: logger.new(),
       ),
       record_schedule(updates),
@@ -439,7 +471,6 @@ pub fn overflowing_kraken_reciprocal_falls_back_and_keeps_refreshing_test() {
     Crypto(1, "Bitcoin", "BTC", Some(1)),
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
-  let assert Ok(manager) = subscription_manager.new(1000)
   let assert Ok(id) = subscription_id.new("reciprocal-overflow")
   let assert Ok(target) =
     subscriber.new_with_scheduler(
@@ -478,7 +509,7 @@ pub fn overflowing_kraken_reciprocal_falls_back_and_keeps_refreshing_test() {
             _ -> panic as "Unexpected CMC request"
           }
         },
-        subscription_manager: manager,
+        base_refresh_interval_ms: 1000,
         logger: logger.new_with_sink(glight.Warning, process.send(logs, _)),
       ),
       record_schedule(updates),
@@ -537,6 +568,17 @@ pub fn overflowing_kraken_reciprocal_falls_back_and_keeps_refreshing_test() {
 }
 
 pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
+  assert_cmc_fallback_and_recovery(1000, 30_000)
+}
+
+pub fn cmc_fallback_uses_base_refresh_interval_above_30_seconds_test() {
+  assert_cmc_fallback_and_recovery(50_000, 50_000)
+}
+
+fn assert_cmc_fallback_and_recovery(
+  base_refresh_interval_ms: Int,
+  cmc_refresh_interval_ms: Int,
+) {
   let interest = process.new_subject()
   let subject = process.new_subject()
   let updates = process.new_subject()
@@ -562,7 +604,6 @@ pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
         }
       },
     )
-  let assert Ok(manager) = subscription_manager.new(1000)
   let assert Ok(id) = subscription_id.new("recovering")
   let assert Ok(target) =
     subscriber.new_with_scheduler(
@@ -585,7 +626,7 @@ pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
             ),
           ))
         },
-        subscription_manager: manager,
+        base_refresh_interval_ms:,
         logger: logger.new(),
       ),
       record_schedule(updates),
@@ -600,7 +641,7 @@ pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
   assert process.receive(interest, 1000) == Ok(#("unsubscribe", pid))
 
   // Verify the CMC interval, then deliver the scheduled update immediately.
-  let recover = await_scheduled_update(updates, 30_000)
+  let recover = await_scheduled_update(updates, cmc_refresh_interval_ms)
   recover()
   let assert Ok(#(_, Ok(recovered))) = process.receive(subject, 1000)
   assert recovered.source == Kraken
@@ -609,7 +650,7 @@ pub fn cmc_fallback_recovers_to_kraken_and_restores_refresh_interval_test() {
   assert process.receive(interest, 1000) == Ok(#("subscribe", pid))
 
   // Recovery retains interest and restores the requested Kraken interval.
-  let refresh = await_scheduled_update(updates, 1000)
+  let refresh = await_scheduled_update(updates, base_refresh_interval_ms)
   refresh()
   let assert Ok(#(_, Ok(next))) = process.receive(subject, 1000)
   assert next.source == Kraken
@@ -638,11 +679,10 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
       check_for_price: fn(_) { panic },
     )
 
-  let assert Ok(subscription_manager) = subscription_manager.new(1000)
   let config =
     subscriber.Config(
       get_currency:,
-      subscription_manager:,
+      base_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
@@ -686,11 +726,10 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
       check_for_price: fn(_) { panic },
     )
 
-  let assert Ok(subscription_manager) = subscription_manager.new(1000)
   let config =
     subscriber.Config(
       get_currency:,
-      subscription_manager:,
+      base_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
         process.send(provider_calls, process.self())
@@ -753,11 +792,10 @@ pub fn subscribe_schedules_get_latest_rate_test() {
       check_for_price: fn(_) { Ok(PriceEntry(expected_price, 100)) },
     )
 
-  let assert Ok(subscription_manager) = subscription_manager.new(1000)
   let config =
     subscriber.Config(
       get_currency:,
-      subscription_manager:,
+      base_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
@@ -803,11 +841,14 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   }
 
   let expected_price = positive_float.from_float_unsafe(4000.0)
+  let released_symbols = process.new_subject()
   let kraken_interface =
     KrakenInterface(
       get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
       subscribe: fn(_) { Nil },
-      unsubscribe: fn(_) { Nil },
+      unsubscribe: fn(symbol) {
+        process.send(released_symbols, kraken_symbol.to_string(symbol))
+      },
       check_for_price: fn(symbol) {
         case kraken_symbol.to_string(symbol) {
           "BTC/USD" ->
@@ -818,11 +859,10 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
       },
     )
 
-  let assert Ok(subscription_manager) = subscription_manager.new(1000)
   let config =
     subscriber.Config(
       get_currency:,
-      subscription_manager:,
+      base_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
@@ -855,6 +895,7 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   assert rate_response.from == 1027
   assert rate_response.to == 2781
   assert rate_response.rate == Some(expected_price)
+  assert process.receive(released_symbols, 0) == Ok("BTC/USD")
 
   let current_refresh = await_scheduled_update(updates, 1000)
   old_refresh()
@@ -865,8 +906,10 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
   assert process.receive(subject, 0) == Error(Nil)
   let _ = await_scheduled_update(updates, 1000)
   assert process.receive(updates, 0) == Error(Nil)
+  assert process.receive(released_symbols, 0) == Error(Nil)
 
   subscriber.stop(target)
+  assert process.receive(released_symbols, 1000) == Ok("ETH/USD")
 }
 
 pub fn repeated_kraken_subscription_ignores_stale_refresh_test() {
@@ -987,11 +1030,10 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
       },
     )
 
-  let assert Ok(subscription_manager) = subscription_manager.new(1000)
   let config =
     subscriber.Config(
       get_currency:,
-      subscription_manager:,
+      base_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_conversion: fn(_) {
         Ok(CmcApiSuccess(
@@ -1059,11 +1101,10 @@ pub fn stop_unsubscribes_from_kraken_test() {
       },
     )
 
-  let assert Ok(subscription_manager) = subscription_manager.new(1000)
   let config =
     subscriber.Config(
       get_currency:,
-      subscription_manager:,
+      base_refresh_interval_ms: 1000,
       kraken_interface:,
       request_cmc_conversion: fn(_) { panic },
       logger: logger.new(),
@@ -1107,7 +1148,6 @@ fn new_refresh_test(source: Source) -> RefreshTest {
     Crypto(1027, "Ethereum", "ETH", Some(2)),
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
-  let assert Ok(manager) = subscription_manager.new(1000)
   let assert Ok(id) = subscription_id.new("refresh-test")
   let assert Ok(target) =
     subscriber.new_with_scheduler(
@@ -1140,7 +1180,7 @@ fn new_refresh_test(source: Source) -> RefreshTest {
             ),
           ))
         },
-        subscription_manager: manager,
+        base_refresh_interval_ms: 1000,
         logger: logger.new(),
       ),
       record_schedule(updates),

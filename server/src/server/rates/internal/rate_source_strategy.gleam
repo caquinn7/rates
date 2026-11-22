@@ -70,18 +70,18 @@ pub fn determine_strategy(
 /// Fetches a quote using the selected strategy. If the Kraken price is missing
 /// or its reciprocal is out of range, calls `on_kraken_fallback` before requesting CMC.
 ///
-/// Returns `#(result, fell_back_from_kraken)`. The flag is `True` for a fallback
-/// to CMC, even if that request fails.
+/// Returns the rate result and the source to use for the next refresh. A CMC
+/// attempt returns `CmcStrategy` even if the request fails.
 pub fn execute_strategy(
   strategy: RateSourceStrategy,
   rate_request: RateRequest,
   config: StrategyConfig,
-) -> #(Result(RateResponse, RateError), Bool) {
+) -> #(Result(RateResponse, RateError), RateSourceStrategy) {
   case strategy {
     KrakenStrategy(symbol) ->
       execute_kraken_strategy(rate_request, symbol, config)
 
-    CmcStrategy -> #(execute_cmc_strategy(rate_request, config), False)
+    CmcStrategy -> execute_cmc_strategy(rate_request, config)
   }
 }
 
@@ -89,7 +89,7 @@ fn execute_kraken_strategy(
   rate_request: RateRequest,
   kraken_symbol: KrakenSymbol,
   config: StrategyConfig,
-) -> #(Result(RateResponse, RateError), Bool) {
+) -> #(Result(RateResponse, RateError), RateSourceStrategy) {
   let kraken_response = {
     use price_entry <- result.try(
       kraken_symbol
@@ -112,10 +112,10 @@ fn execute_kraken_strategy(
   }
 
   case kraken_response {
-    Ok(response) -> #(Ok(response), False)
+    Ok(response) -> #(Ok(response), KrakenStrategy(kraken_symbol))
     Error(reason) -> {
       config.on_kraken_fallback(reason)
-      #(execute_cmc_strategy(rate_request, config), True)
+      execute_cmc_strategy(rate_request, config)
     }
   }
 }
@@ -123,8 +123,11 @@ fn execute_kraken_strategy(
 fn execute_cmc_strategy(
   rate_request: RateRequest,
   config: StrategyConfig,
-) -> Result(RateResponse, RateError) {
-  rate_request
-  |> cmc_rate_handler.get_rate(config.request_cmc_conversion)
-  |> result.map_error(CmcError(rate_request, _))
+) -> #(Result(RateResponse, RateError), RateSourceStrategy) {
+  let response =
+    rate_request
+    |> cmc_rate_handler.get_rate(config.request_cmc_conversion)
+    |> result.map_error(CmcError(rate_request, _))
+
+  #(response, CmcStrategy)
 }
