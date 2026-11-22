@@ -96,13 +96,8 @@ fn start_kraken(logger: Logger) -> KrakenClient {
   let logger = logger.with_source(logger, "kraken")
   let client = case kraken_client.new(logger, price_store.new) {
     Ok(client) -> client
-    Error(error) -> {
-      logger
-      |> logger.with("error", string.inspect(error))
-      |> logger.error("Failed to start Kraken client")
-
-      panic as "Failed to start Kraken client"
-    }
+    Error(error) ->
+      panic as { "Failed to start Kraken client: " <> string.inspect(error) }
   }
 
   wait_for_kraken_symbols(

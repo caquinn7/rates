@@ -20,9 +20,6 @@ import server/integrations/kraken/internal/response.{
   type InstrumentPair, type KrakenResponse, InstrumentSnapshot, InstrumentUpdate,
   TickerResponse, TickerSubscribeConfirmation,
 }
-import server/integrations/kraken/internal/subscription_counter.{
-  type SubscriptionCounter,
-}
 import server/integrations/kraken/pair_store.{type PairStore}
 import server/integrations/kraken/price_store.{type PriceStore}
 import server/utils/logger.{type Logger}
@@ -172,6 +169,25 @@ pub type SessionHandle {
   )
 }
 
+/// Client interest and the current upstream status for one ticker.
+type TickerSubscription {
+  TickerSubscription(
+    /// Number of clients interested in this symbol. The entry exists while positive.
+    reference_count: Int,
+    status: TickerStatus,
+  )
+}
+
+/// The upstream subscription state for a ticker on the current connection.
+type TickerStatus {
+  /// Clients have interest and there is no upstream request for the symbol.
+  Idle
+  /// A subscribe request has been sent and awaits its matching acknowledgment.
+  Pending(request_id: Int)
+  /// Kraken has acknowledged the current request.
+  Confirmed
+}
+
 type State {
   State(
     /// Receives client commands, connection notifications, and timer events.
@@ -187,12 +203,8 @@ type State {
     /// Eligible symbols from the latest instrument data, kept across reconnects.
     /// `None` until the first instrument snapshot.
     supported_symbols: Option(Set(String)),
-    /// Client interest counts by symbol. Confirmed interest returns to pending
-    /// when the connection drops.
-    subscriptions: SubscriptionCounter,
-    /// IDs of outstanding ticker subscribe requests, keyed by symbol.
-    /// Used to match acknowledgments to the current request.
-    pending_ticker_requests: Dict(String, Int),
+    /// Client interest and upstream status, keyed by symbol.
+    subscriptions: Dict(String, TickerSubscription),
     /// Snapshot deadline during discovery or backoff reset timer while ready.
     phase_timer: Option(Timer),
     /// Delay before the next reconnect attempt, in milliseconds before jitter.
@@ -256,8 +268,7 @@ pub fn start(
         phase: Connecting(worker),
         generation: 0,
         supported_symbols: None,
-        subscriptions: subscription_counter.new(),
-        pending_ticker_requests: dict.new(),
+        subscriptions: dict.new(),
         phase_timer: None,
         retry_delay_ms: config.retry_base_ms,
         next_request_id: 0,
@@ -297,19 +308,9 @@ fn handle_message(context: Context, state: State, message: Message) -> State {
   case message {
     Subscribe(symbol) -> add_interest(state, symbol)
 
-    Unsubscribe(symbol) -> {
-      let #(send_unsubscribe, subscriptions) =
-        subscription_counter.remove_subscription(state.subscriptions, symbol)
+    Unsubscribe(symbol) -> remove_interest(state, symbol)
 
-      let state = case state.phase, send_unsubscribe {
-        Ready(_, socket), True -> unsubscribe_ticker(state, socket, symbol)
-        _, _ -> state
-      }
-
-      State(..state, subscriptions:)
-    }
-
-    WorkerDown(process.ProcessDown(monitor, pid, reason)) -> {
+    WorkerDown(process.ProcessDown(monitor, pid, reason)) ->
       case state.phase {
         Connecting(worker)
           | Discovering(worker, _)
@@ -323,7 +324,6 @@ fn handle_message(context: Context, state: State, message: Message) -> State {
 
         _ -> state
       }
-    }
 
     WorkerDown(_) -> state
 
@@ -391,13 +391,7 @@ fn receive_message(
   case message, state.phase {
     InstrumentSnapshot(instruments), Discovering(worker, socket) -> {
       let symbols = list.fold(instruments, set.new(), apply_instrument)
-      finish_discovery(
-        context,
-        replace_pairs(state, symbols),
-        worker,
-        socket,
-        symbols,
-      )
+      finish_discovery(context, replace_pairs(state, symbols), worker, socket)
     }
 
     InstrumentSnapshot(instruments), Ready(_, _) ->
@@ -408,39 +402,28 @@ fn receive_message(
       replace_pairs(state, list.fold(instruments, current, apply_instrument))
     }
 
-    TickerSubscribeConfirmation(symbol, req_id), Ready(_, _) -> {
-      // A delisted and relisted ticker can receive an old ack on this socket.
-      use <- bool.guard(
-        dict.get(state.pending_ticker_requests, symbol) != Ok(req_id),
-        state,
-      )
-
-      case
-        subscription_counter.confirm_subscription(state.subscriptions, symbol)
-      {
-        Ok(subscriptions) ->
+    TickerSubscribeConfirmation(symbol, req_id), Ready(_, _) ->
+      // A canceled subscription can receive an old acknowledgment on this socket.
+      case dict.get(state.subscriptions, symbol) {
+        Ok(TickerSubscription(count, Pending(pending_id)))
+          if pending_id == req_id
+        ->
           State(
             ..state,
-            subscriptions:,
-            pending_ticker_requests: dict.delete(
-              state.pending_ticker_requests,
+            subscriptions: dict.insert(
+              state.subscriptions,
               symbol,
+              TickerSubscription(count, Confirmed),
             ),
           )
-        Error(_) -> state
+        _ -> state
       }
-    }
 
     TickerResponse(symbol, price, timestamp), Ready(_, _) -> {
-      case
-        supports(state, symbol)
-        && subscription_counter.is_actively_subscribed(
-          state.subscriptions,
-          symbol,
-        )
-      {
-        True -> price_store.insert(state.price_store, symbol, price, timestamp)
-        False -> Nil
+      case supports(state, symbol), dict.get(state.subscriptions, symbol) {
+        True, Ok(TickerSubscription(_, Confirmed)) ->
+          price_store.insert(state.price_store, symbol, price, timestamp)
+        _, _ -> Nil
       }
       state
     }
@@ -503,50 +486,45 @@ fn finish_discovery(
   state: State,
   worker: Worker,
   socket: connection.Socket,
-  symbols: Set(String),
 ) -> State {
-  let restore =
-    state.subscriptions
-    |> subscription_counter.symbols
-    |> list.filter(set.contains(symbols, _))
+  let next_request_id_before_replay = state.next_request_id
+  let state = State(..state, phase: Ready(worker, socket))
   let state =
-    list.fold(restore, state, fn(state, symbol) {
-      subscribe_ticker(state, socket, symbol)
-    })
+    state.subscriptions
+    |> dict.keys
+    |> list.fold(state, subscribe_ticker_if_idle)
+
+  // Each queued ticker subscription consumes one request ID.
+  let restored_symbol_count =
+    state.next_request_id - next_request_id_before_replay
 
   cancel_timer(state.phase_timer)
 
-  let stable =
+  let stability_timer =
     schedule_event(
       state,
       context.config.stable_connection_ms,
       StabilityIntervalElapsed,
     )
 
-  let downtime = case state.disconnected_at {
+  let downtime_ms = case state.disconnected_at {
     Some(started) -> time.monotonic_time_ms() - started
     None -> 0
   }
-
   context.logger
   |> logger.with("generation", int.to_string(state.generation))
-  |> logger.with("downtime_ms", int.to_string(downtime))
-  |> logger.with("restored_symbols", int.to_string(list.length(restore)))
+  |> logger.with("downtime_ms", int.to_string(downtime_ms))
+  |> logger.with("restored_symbols", int.to_string(restored_symbol_count))
   |> logger.info("Kraken connection ready")
 
-  State(
-    ..state,
-    phase: Ready(worker, socket),
-    disconnected_at: None,
-    phase_timer: Some(stable),
-  )
+  State(..state, disconnected_at: None, phase_timer: Some(stability_timer))
 }
 
 /// Begins recovery after a connection failure, ignoring repeated calls while
 /// stopping or waiting to reconnect. Cancels the phase timer, logs the failure,
 /// requests worker termination, and enters `Stopping` until the worker exits.
 /// Preserves cached prices and the start of the current outage, and marks all
-/// remaining subscription interest as pending for replay on the next connection.
+/// remaining subscriptions as idle for replay on the next connection.
 /// The worker's exit notification schedules the retry.
 fn disconnect(state: State, logger: Logger, reason: String) -> State {
   case state.phase {
@@ -562,20 +540,22 @@ fn disconnect(state: State, logger: Logger, reason: String) -> State {
 
       process.kill(worker.pid)
 
-      let disconnected_at = case state.disconnected_at {
-        None -> Some(time.monotonic_time_ms())
-        some -> some
-      }
+      let disconnected_at =
+        state.disconnected_at
+        |> option.lazy_or(fn() { Some(time.monotonic_time_ms()) })
+
+      let subscriptions =
+        state.subscriptions
+        |> dict.map_values(fn(_, subscription) {
+          TickerSubscription(..subscription, status: Idle)
+        })
 
       State(
         ..state,
         phase: Stopping(worker),
         phase_timer: None,
         disconnected_at:,
-        pending_ticker_requests: dict.new(),
-        subscriptions: subscription_counter.prepare_for_reconnect(
-          state.subscriptions,
-        ),
+        subscriptions:,
       )
     }
   }
@@ -607,7 +587,7 @@ fn schedule_reconnect(context: Context, state: State) -> State {
 /// Publishes the first pair registry and subsequent membership changes.
 /// Evicts cached prices for removed pairs before changing published membership.
 /// While ready, stops tickers for removed pairs and requests tickers for newly
-/// supported pairs with pending client interest. Interest survives pair removal.
+/// supported pairs with client interest. Interest survives pair removal.
 fn replace_pairs(state: State, symbols: Set(String)) -> State {
   // Metadata-only updates leave membership alone.
   use <- bool.guard(state.supported_symbols == Some(symbols), state)
@@ -620,18 +600,20 @@ fn replace_pairs(state: State, symbols: Set(String)) -> State {
       // Readers can still see this symbol until membership is updated.
       price_store.delete_price(state.price_store, symbol)
 
-      case state.phase {
-        Ready(_, socket) -> {
-          let state = unsubscribe_ticker(state, socket, symbol)
+      case dict.get(state.subscriptions, symbol) {
+        Ok(TickerSubscription(count, status)) -> {
+          unsubscribe_ticker(state, symbol, status)
+
           State(
             ..state,
-            subscriptions: subscription_counter.suspend(
+            subscriptions: dict.insert(
               state.subscriptions,
               symbol,
+              TickerSubscription(count, Idle),
             ),
           )
         }
-        _ -> state
+        Error(_) -> state
       }
     })
 
@@ -639,15 +621,7 @@ fn replace_pairs(state: State, symbols: Set(String)) -> State {
   let state = State(..state, supported_symbols: Some(symbols))
 
   case state.phase {
-    Ready(_, socket) ->
-      set.fold(added, state, fn(state, symbol) {
-        case
-          subscription_counter.get_pending_count(state.subscriptions, symbol)
-        {
-          0 -> state
-          _ -> subscribe_ticker(state, socket, symbol)
-        }
-      })
+    Ready(_, _) -> set.fold(added, state, subscribe_ticker_if_idle)
     _ -> state
   }
 }
@@ -673,59 +647,77 @@ fn supports(state: State, symbol: String) -> Bool {
 /// Counts a subscriber's interest even if the pair was delisted between lookup
 /// and `Subscribe`, so its matching `Unsubscribe` removes that same interest.
 fn add_interest(state: State, symbol: String) -> State {
-  let #(first_interest, subscriptions) =
-    subscription_counter.add_subscription(state.subscriptions, symbol)
-  let state = State(..state, subscriptions:)
-
-  case state.phase {
-    Ready(_, socket) if first_interest ->
-      case supports(state, symbol) {
-        True -> subscribe_ticker(state, socket, symbol)
-        False -> state
+  let subscriptions =
+    dict.upsert(state.subscriptions, symbol, fn(subscription) {
+      case subscription {
+        Some(TickerSubscription(count, status)) ->
+          TickerSubscription(count + 1, status)
+        None -> TickerSubscription(1, Idle)
       }
-    _ -> state
+    })
+
+  State(..state, subscriptions:)
+  |> subscribe_ticker_if_idle(symbol)
+}
+
+fn remove_interest(state: State, symbol: String) -> State {
+  case dict.get(state.subscriptions, symbol) {
+    Ok(TickerSubscription(1, status)) -> {
+      unsubscribe_ticker(state, symbol, status)
+      State(..state, subscriptions: dict.delete(state.subscriptions, symbol))
+    }
+    Ok(TickerSubscription(count, status)) ->
+      State(
+        ..state,
+        subscriptions: dict.insert(
+          state.subscriptions,
+          symbol,
+          TickerSubscription(count - 1, status),
+        ),
+      )
+    Error(_) -> state
   }
 }
 
-fn subscribe_ticker(
-  state: State,
-  socket: connection.Socket,
-  symbol: String,
-) -> State {
-  let req_id = state.next_request_id
-  connection.send(
-    socket,
-    KrakenRequest(request.Subscribe, Tickers([symbol]), Some(req_id)),
-  )
-  State(
-    ..state,
-    next_request_id: req_id + 1,
-    pending_ticker_requests: dict.insert(
-      state.pending_ticker_requests,
-      symbol,
-      req_id,
-    ),
-  )
+fn subscribe_ticker_if_idle(state: State, symbol: String) -> State {
+  case state.phase, dict.get(state.subscriptions, symbol) {
+    Ready(_, socket), Ok(TickerSubscription(count, Idle)) -> {
+      use <- bool.guard(!supports(state, symbol), state)
+
+      let req_id = state.next_request_id
+      connection.send(
+        socket,
+        KrakenRequest(request.Subscribe, Tickers([symbol]), Some(req_id)),
+      )
+
+      State(
+        ..state,
+        next_request_id: req_id + 1,
+        subscriptions: dict.insert(
+          state.subscriptions,
+          symbol,
+          TickerSubscription(count, Pending(req_id)),
+        ),
+      )
+    }
+
+    _, _ -> state
+  }
 }
 
 fn unsubscribe_ticker(
   state: State,
-  socket: connection.Socket,
   symbol: String,
-) -> State {
-  let requested =
-    dict.has_key(state.pending_ticker_requests, symbol)
-    || subscription_counter.is_actively_subscribed(state.subscriptions, symbol)
-  use <- bool.guard(!requested, state)
-
-  connection.send(
-    socket,
-    KrakenRequest(request.Unsubscribe, Tickers([symbol]), None),
-  )
-  State(
-    ..state,
-    pending_ticker_requests: dict.delete(state.pending_ticker_requests, symbol),
-  )
+  status: TickerStatus,
+) -> Nil {
+  case state.phase, status {
+    Ready(_, socket), Pending(_) | Ready(_, socket), Confirmed ->
+      connection.send(
+        socket,
+        KrakenRequest(request.Unsubscribe, Tickers([symbol]), None),
+      )
+    _, _ -> Nil
+  }
 }
 
 /// Enqueues an event after `delay_ms` milliseconds, tagged with the current
