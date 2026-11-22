@@ -1,5 +1,5 @@
 import server/integrations/kraken/client.{type KrakenClient}
-import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
+import server/integrations/kraken/price_store.{type PriceEntry}
 import server/rates/internal/kraken_symbol.{type KrakenSymbol}
 import server/utils/retry
 
@@ -21,15 +21,10 @@ pub type KrakenInterface {
   )
 }
 
-/// Creates an interface backed by `client` and `price_store`.
-/// Uses `symbol_exists` to resolve supported pairs. Missing prices are retried
+/// Creates an interface backed by one Kraken session. Missing prices are retried
 /// up to five times with a 50 ms delay between attempts.
-pub fn new(
-  client: KrakenClient,
-  price_store: PriceStore,
-  symbol_exists: fn(String) -> Bool,
-) -> KrakenInterface {
-  let get_kraken_symbol = kraken_symbol.new(_, symbol_exists)
+pub fn new(client: KrakenClient) -> KrakenInterface {
+  let get_kraken_symbol = kraken_symbol.new(_, client.supports_symbol(client, _))
 
   let subscribe = fn(kraken_symbol) {
     kraken_symbol
@@ -47,7 +42,7 @@ pub fn new(
     let get_price = fn() {
       kraken_symbol
       |> kraken_symbol.to_string
-      |> price_store.get_price(price_store, _)
+      |> client.get_price(client, _)
     }
     retry.attempt(get_price, 5, 50)
   }

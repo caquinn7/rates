@@ -18,11 +18,14 @@ import gleam/list
 import gleam/result
 import shared/currency.{type Currency}
 
+/// Runtime identifier returned by `ets:new/2` for an unnamed ETS table.
 type TableId
 
+/// An ETS row containing the currency ID key, symbol, and full currency record.
 type CurrencyRow =
   #(Int, String, Currency)
 
+/// Handle to a public ETS table of currencies keyed by currency ID.
 pub opaque type CurrencyStore {
   CurrencyStore(TableId)
 }

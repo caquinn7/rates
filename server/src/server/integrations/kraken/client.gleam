@@ -5,13 +5,12 @@
 //// - Connecting to Kraken's WebSocket v2 API
 //// - Subscribing to and unsubscribing from ticker channels
 //// - Tracking which symbols are actively subscribed and by how many clients
-//// - Writing the latest prices to a shared `PriceStore`
-//// - Keeping the global `pairs` registry current
+//// - Writing the latest prices to the session's `PriceStore`
+//// - Keeping the session's supported pairs current
 ////
-//// Price updates are stored in a shared `PriceStore`, which other parts of the
-//// application can query independently. Supported trading pairs are also exposed
-//// globally via the `pairs` module. The client requests an instrument snapshot
-//// on each connection and stays subscribed to apply pair changes as they arrive.
+//// Callers can read cached prices and supported pairs directly through the
+//// client. The session requests an instrument snapshot on each connection and
+//// stays subscribed to apply pair changes as they arrive.
 ////
 //// Use `new` to create the actor and start the WebSocket session. Use
 //// `subscribe` and `unsubscribe` to manage interest in specific symbols.
@@ -21,16 +20,17 @@
 //// Cached prices retain their original timestamps until fresh data arrives
 //// or discovery and instrument updates remove the pair.
 
-import gleam/erlang/process.{type Subject}
 import gleam/otp/actor.{type StartError}
 import gleam/result
-import server/integrations/kraken/internal/session
-import server/integrations/kraken/price_store.{type PriceStore}
+import server/integrations/kraken/internal/session.{type SessionHandle}
+import server/integrations/kraken/pairs
+import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
 import server/utils/logger.{type Logger}
 
-/// Handle to a Kraken session for registering and removing subscription interest.
+/// Handle to a live Kraken session and its price and pair tables. A socket
+/// reconnect preserves the handle. The session's exit invalidates both tables.
 pub opaque type KrakenClient {
-  KrakenClient(Subject(session.Message))
+  KrakenClient(SessionHandle)
 }
 
 /// Creates a client connected to Kraken's public WebSocket v2 endpoint.
@@ -64,19 +64,40 @@ pub fn new_with_url(
   |> result.map(fn(started) { KrakenClient(started.data) })
 }
 
+/// Reads the latest cached price and its provider timestamp for a symbol.
+pub fn get_price(
+  client: KrakenClient,
+  symbol: String,
+) -> Result(PriceEntry, Nil) {
+  let KrakenClient(handle) = client
+  price_store.get_price(handle.price_store, symbol)
+}
+
+/// Checks membership in this session's latest published instrument data.
+pub fn supports_symbol(client: KrakenClient, symbol: String) -> Bool {
+  let KrakenClient(handle) = client
+  pairs.exists(handle.pair_store, symbol)
+}
+
+/// Checks whether this session currently has at least one eligible symbol.
+pub fn has_supported_pairs(client: KrakenClient) -> Bool {
+  let KrakenClient(handle) = client
+  pairs.count(handle.pair_store) > 0
+}
+
 /// Adds one client's interest in a symbol, including while disconnected or
 /// discovering instruments. Interested clients share one upstream subscription
 /// while the session is ready and the symbol is eligible.
 /// The request is handled asynchronously.
 pub fn subscribe(client: KrakenClient, symbol: String) -> Nil {
-  let KrakenClient(subject) = client
-  actor.send(subject, session.Subscribe(symbol))
+  let KrakenClient(handle) = client
+  actor.send(handle.subject, session.Subscribe(symbol))
 }
 
 /// Removes one client's interest in a symbol, including while disconnected.
 /// Sends an upstream unsubscribe when the last reference to a requested ticker
 /// is removed. The request is handled asynchronously.
 pub fn unsubscribe(client: KrakenClient, symbol: String) -> Nil {
-  let KrakenClient(subject) = client
-  actor.send(subject, session.Unsubscribe(symbol))
+  let KrakenClient(handle) = client
+  actor.send(handle.subject, session.Unsubscribe(symbol))
 }

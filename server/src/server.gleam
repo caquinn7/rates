@@ -17,7 +17,6 @@ import server/currencies/internal/currency_store.{type CurrencyStore}
 import server/env_config
 import server/integrations/coin_market_cap/client as cmc_client
 import server/integrations/kraken/client.{type KrakenClient} as kraken_client
-import server/integrations/kraken/pairs
 import server/integrations/kraken/price_store
 import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/kraken_interface
@@ -157,19 +156,23 @@ fn start_kraken(logger: Logger) -> KrakenClient {
   let assert Ok(client) = kraken_client.new(logger, create_price_store)
 
   wait_for_kraken_symbols(
+    client,
     time.monotonic_time_ms() + kraken_readiness_timeout_ms,
   )
 
   client
 }
 
-fn wait_for_kraken_symbols(deadline_ms: Int) -> Nil {
-  case pairs.count() > 0, time.monotonic_time_ms() >= deadline_ms {
+fn wait_for_kraken_symbols(client: KrakenClient, deadline_ms: Int) -> Nil {
+  case
+    kraken_client.has_supported_pairs(client),
+    time.monotonic_time_ms() >= deadline_ms
+  {
     True, _ -> Nil
-    False, True -> panic as "Timeout waiting for Kraken symbols"
-    False, False -> {
+    _, True -> panic as "Timeout waiting for Kraken symbols"
+    _, False -> {
       process.sleep(100)
-      wait_for_kraken_symbols(deadline_ms)
+      wait_for_kraken_symbols(client, deadline_ms)
     }
   }
 }
@@ -224,16 +227,9 @@ fn build_subscriber_config(
   let assert Ok(subscription_manager) =
     subscription_manager.new(subscription_refresh_interval_ms)
 
-  let kraken_interface = {
-    let assert Ok(price_store) = price_store.get_store()
-      as "tried to get reference to price store before it was created"
-
-    kraken_interface.new(kraken_client, price_store, pairs.exists)
-  }
-
   subscriber.Config(
     get_currency: currency_repository.get_by_id,
-    kraken_interface:,
+    kraken_interface: kraken_interface.new(kraken_client),
     request_cmc_conversion:,
     subscription_manager:,
     logger: logger.with_source(logger, "subscriber"),

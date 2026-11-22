@@ -9,6 +9,7 @@
 import gleam/result
 import shared/numbers/positive_float.{type PositiveFloat}
 
+/// Runtime identifier returned by `ets:new/2` for an unnamed ETS table.
 type TableId
 
 type PriceRow =
@@ -26,7 +27,7 @@ pub type PriceEntry {
   PriceEntry(price: PositiveFloat, timestamp: Int)
 }
 
-/// Creates a new `PriceStore` by initializing a protected ETS table.
+/// Creates an independent `PriceStore` backed by an unnamed, protected ETS table.
 ///
 /// The calling process owns the table, which is destroyed when that process exits.
 ///
@@ -36,10 +37,7 @@ pub type PriceEntry {
 /// - **Auto write concurrency**: The runtime automatically decides whether to enable write concurrency
 ///   optimizations based on actual usage patterns.
 ///
-/// This function is intended to be called once by the owner process during application startup.
-/// Other processes should use `get_store` to access the table.
-///
-/// Returns `Error(Nil)` if a table with this name already exists.
+/// Pass the returned handle to processes that need to read from the table.
 pub fn new() -> Result(PriceStore, Nil) {
   result.map(create_table(), PriceStore)
 }
@@ -113,17 +111,6 @@ pub fn delete_price(store: PriceStore, symbol: String) -> Nil {
   Nil
 }
 
-/// Returns a reference to an already-initialized `PriceStore`.
-///
-/// This is intended for use by processes that did not create the store themselves,
-/// but need to read from it.
-///
-/// Returns `Error(Nil)` if the table does not currently exist.
-/// The returned handle identifies that specific table instance.
-pub fn get_store() -> Result(PriceStore, Nil) {
-  result.map(find_table(), PriceStore)
-}
-
 /// Deletes the underlying ETS table associated with the given `PriceStore`.
 ///
 /// Only the process that owns the store may call this. Existing references must
@@ -136,9 +123,6 @@ pub fn drop(store: PriceStore) -> Nil {
 
 @external(erlang, "price_store_ffi", "create_table")
 fn create_table() -> Result(TableId, Nil)
-
-@external(erlang, "price_store_ffi", "find_table")
-fn find_table() -> Result(TableId, Nil)
 
 @external(erlang, "ets", "insert")
 fn insert_row(table: TableId, row: PriceRow) -> Bool
