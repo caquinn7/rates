@@ -19,7 +19,7 @@ import server/integrations/coin_market_cap/cmc_conversion.{
 }
 import server/integrations/kraken/client_recovery_test as fixture
 import server/integrations/kraken/internal/session as kraken_session
-import server/integrations/kraken/pairs
+import server/integrations/kraken/pair_store
 import server/integrations/kraken/price_store
 import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/kraken_interface.{
@@ -424,7 +424,10 @@ fn create_kraken_interface(
   subscribers: Subject(Pid),
 ) -> KrakenInterface {
   KrakenInterface(
-    get_kraken_symbol: kraken_symbol.new(_, pairs.exists(kraken.pair_store, _)),
+    get_kraken_symbol: kraken_symbol.new(_, pair_store.exists(
+      kraken.pair_store,
+      _,
+    )),
     subscribe: fn(symbol) {
       process.send(subscribers, process.self())
       process.send(

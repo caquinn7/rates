@@ -23,7 +23,7 @@
 import gleam/otp/actor.{type StartError}
 import gleam/result
 import server/integrations/kraken/internal/session.{type SessionHandle}
-import server/integrations/kraken/pairs
+import server/integrations/kraken/pair_store
 import server/integrations/kraken/price_store.{type PriceEntry, type PriceStore}
 import server/utils/logger.{type Logger}
 
@@ -76,13 +76,13 @@ pub fn get_price(
 /// Checks membership in this session's latest published instrument data.
 pub fn supports_symbol(client: KrakenClient, symbol: String) -> Bool {
   let KrakenClient(handle) = client
-  pairs.exists(handle.pair_store, symbol)
+  pair_store.exists(handle.pair_store, symbol)
 }
 
 /// Checks whether this session currently has at least one eligible symbol.
 pub fn has_supported_pairs(client: KrakenClient) -> Bool {
   let KrakenClient(handle) = client
-  pairs.count(handle.pair_store) > 0
+  pair_store.count(handle.pair_store) > 0
 }
 
 /// Adds one client's interest in a symbol, including while disconnected or

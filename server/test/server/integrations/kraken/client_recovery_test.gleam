@@ -22,7 +22,7 @@ import server/integrations/kraken/internal/session.{
   ConnectionEvent, DiscoveryDeadlineReached, GenerationEvent,
   ReconnectDelayElapsed, StabilityIntervalElapsed, Subscribe, Unsubscribe,
 }
-import server/integrations/kraken/pairs
+import server/integrations/kraken/pair_store
 import server/integrations/kraken/price_store
 import server/utils/logger.{type LogEntry, LogEntry}
 import server/utils/retry
@@ -134,7 +134,7 @@ pub fn concurrent_sessions_keep_their_prices_and_pairs_independent_test() {
   let first_prices = first.data.price_store
   let first_pairs = first.data.pair_store
   let first_quote = await_price(first_prices, 100.0, 100)
-  assert pairs.exists(first_pairs, symbol)
+  assert pair_store.exists(first_pairs, symbol)
 
   // Hold the second snapshot so readiness can be checked while the first
   // session already has pairs and prices.
@@ -173,7 +173,7 @@ pub fn concurrent_sessions_keep_their_prices_and_pairs_independent_test() {
   let _ = await_request(second_fixture, 0, is_ticker_subscribe(symbol, _))
   assert kraken_client.has_supported_pairs(second)
   assert kraken_client.supports_symbol(second, symbol)
-  assert !pairs.exists(first_pairs, "XRP/USD")
+  assert !pair_store.exists(first_pairs, "XRP/USD")
 
   process.send(second_socket.control, Send(ticker_json(symbol, 200)))
   let second_price = positive_float.from_float_unsafe(200.0)
@@ -205,7 +205,7 @@ pub fn concurrent_sessions_keep_their_prices_and_pairs_independent_test() {
   let reopened = await_open(first_fixture, 1)
   let _ = await_ready(first_ready, first.pid, 1)
   let _ = await_request(first_fixture, 1, is_ticker_subscribe(symbol, _))
-  assert pairs.exists(first_pairs, symbol)
+  assert pair_store.exists(first_pairs, symbol)
   process.send(reopened.control, Send(ticker_json(symbol, 101)))
   let _ = await_price(first_prices, 101.0, 100)
   assert kraken_client.get_price(second, symbol) == Ok(second_quote)
@@ -408,7 +408,7 @@ pub fn instrument_updates_keep_existing_pairs_and_add_new_listings_test() {
     })
   let store = client.data.price_store
   let cached = await_price(store, 100.0, 100)
-  assert !pairs.exists(client.data.pair_store, "XRP/USD")
+  assert !pair_store.exists(client.data.pair_store, "XRP/USD")
 
   process.send(opened.control, Send(instrument_json("update", [])))
   process.send(
@@ -422,8 +422,8 @@ pub fn instrument_updates_keep_existing_pairs_and_add_new_listings_test() {
   )
   await_pair(client.data.pair_store, "XRP/USD", True, 100)
 
-  assert pairs.exists(client.data.pair_store, "BTC/USD")
-  assert pairs.exists(client.data.pair_store, "ETH/USD")
+  assert pair_store.exists(client.data.pair_store, "BTC/USD")
+  assert pair_store.exists(client.data.pair_store, "ETH/USD")
   assert price_store.get_price(store, "BTC/USD") == Ok(cached)
 
   process.send(client.data.subject, Subscribe("XRP/USD"))
@@ -441,7 +441,7 @@ pub fn first_interest_in_an_unsupported_pair_waits_for_listing_test() {
   use fixture, url <- with_server([])
   use client, opened, _ <- with_client(fixture, url, config())
   assert next_request(fixture, 0) == InstrumentSubscribe
-  assert !pairs.exists(client.data.pair_store, "XRP/USD")
+  assert !pair_store.exists(client.data.pair_store, "XRP/USD")
 
   process.send(client.data.subject, Subscribe("XRP/USD"))
   process.send(client.data.subject, Subscribe("ETH/USD"))
@@ -455,7 +455,7 @@ pub fn first_interest_in_an_unsupported_pair_waits_for_listing_test() {
 
   let store = client.data.price_store
   let _ = await_symbol_price(store, "XRP/USD", 100.0, 100)
-  assert pairs.exists(client.data.pair_store, "XRP/USD")
+  assert pair_store.exists(client.data.pair_store, "XRP/USD")
 
   process.send(client.data.subject, Unsubscribe("XRP/USD"))
   assert next_request(fixture, 0) == TickerUnsubscribe(["XRP/USD"])
@@ -509,7 +509,7 @@ pub fn relisting_restores_shared_interest_and_requires_fresh_confirmation_test()
   let assert TickerSubscribe(_, new_id) =
     await_request(fixture, 0, is_ticker_subscribe("BTC/USD", _))
   assert new_id != old_id
-  assert pairs.exists(client.data.pair_store, "BTC/USD")
+  assert pair_store.exists(client.data.pair_store, "BTC/USD")
   assert price_store.get_price(store, "BTC/USD") == Error(Nil)
 
   // Use the ETH quote as a barrier after messages with the wrong ID or symbol.
@@ -564,7 +564,7 @@ pub fn second_snapshot_evicts_removed_pairs_on_the_same_connection_test() {
   assert next_request(fixture, 0) == TickerUnsubscribe(["BTC/USD"])
   await_pair(client.data.pair_store, "BTC/USD", False, 100)
   assert price_store.get_price(store, "BTC/USD") == Error(Nil)
-  assert pairs.exists(client.data.pair_store, "ETH/USD")
+  assert pair_store.exists(client.data.pair_store, "ETH/USD")
   assert price_store.get_price(store, "ETH/USD") == Ok(eth)
 
   process.send(opened.control, Send(ticker_json("ETH/USD", 101)))
@@ -602,8 +602,8 @@ pub fn reconnect_snapshot_evicts_removed_pairs_and_restores_listed_tickers_test(
       is_ticker_subscribe("ETH/USD", request)
     })
 
-  assert !pairs.exists(client.data.pair_store, "BTC/USD")
-  assert pairs.exists(client.data.pair_store, "ETH/USD")
+  assert !pair_store.exists(client.data.pair_store, "BTC/USD")
+  assert pair_store.exists(client.data.pair_store, "ETH/USD")
   assert price_store.get_price(store, "BTC/USD") == Error(Nil)
   assert price_store.get_price(store, "ETH/USD") == Ok(eth)
   process.send(second.control, Send(ticker_json("ETH/USD", 101)))
@@ -742,7 +742,7 @@ pub fn abrupt_close_reconnects_and_client_shutdown_cleans_up_workers_test() {
       price_store.get_price(client.data.price_store, "BTC/USD")
     })
   let assert Error(exception.Errored(_)) =
-    exception.rescue(fn() { pairs.count(client.data.pair_store) })
+    exception.rescue(fn() { pair_store.count(client.data.pair_store) })
 }
 
 pub fn worker_reports_socket_failure_before_its_own_normal_exit_test() {
@@ -1332,7 +1332,7 @@ fn await_price(store, expected, retries) {
 }
 
 fn await_pair(store, symbol, expected, retries) {
-  case pairs.exists(store, symbol) == expected {
+  case pair_store.exists(store, symbol) == expected {
     True -> Nil
     False -> {
       assert retries > 0

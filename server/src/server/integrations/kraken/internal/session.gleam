@@ -23,7 +23,7 @@ import server/integrations/kraken/internal/response.{
 import server/integrations/kraken/internal/subscription_counter.{
   type SubscriptionCounter,
 }
-import server/integrations/kraken/pairs.{type PairStore}
+import server/integrations/kraken/pair_store.{type PairStore}
 import server/integrations/kraken/price_store.{type PriceStore}
 import server/utils/logger.{type Logger}
 import server/utils/time
@@ -236,7 +236,7 @@ pub fn start(
     use socket <- result.try(await_initial_connection(selector, config))
     let price_store = create_store()
     use pair_store <- result.try(
-      pairs.new()
+      pair_store.new()
       |> result.replace_error("Could not create Kraken pair store"),
     )
 
@@ -627,7 +627,7 @@ fn replace_pairs(state: State, symbols: Set(String)) -> State {
       }
     })
 
-  pairs.apply_changes(state.pair_store, added:, removed:)
+  pair_store.apply_changes(state.pair_store, added:, removed:)
   let state = State(..state, supported_symbols: Some(symbols))
 
   case state.phase {
