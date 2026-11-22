@@ -26,7 +26,6 @@ import server/rates/internal/kraken_interface.{
   type KrakenInterface, KrakenInterface,
 }
 import server/rates/internal/kraken_symbol
-import server/rates/internal/subscription_manager
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult}
 import server/rates/subscriber_factory.{type SubscriberFactory}
 import server/utils/logger.{type LogEntry, type Logger, LogEntry}
@@ -330,7 +329,7 @@ fn with_cmc_provider(
           check_for_price: fn(_) { panic },
         ),
         request_cmc_conversion:,
-        subscription_manager: unwrap(subscription_manager.new(1000)),
+        base_refresh_interval_ms: 1000,
         logger: logger.new(),
       )
 
@@ -463,7 +462,6 @@ fn create_rate_subscriber(
     Crypto(ethereum_id, "Ethereum", "ETH", Some(2)),
     Fiat(usd_id, "United States Dollar", "USD", "$"),
   ]
-  let manager = unwrap(subscription_manager.new(1000))
   let config =
     subscriber.Config(
       get_currency: fn(id) {
@@ -473,7 +471,7 @@ fn create_rate_subscriber(
       request_cmc_conversion: fn(_) {
         panic as "Kraken fixture must supply the price"
       },
-      subscription_manager: manager,
+      base_refresh_interval_ms: 1000,
       logger: logger.new(),
     )
 
