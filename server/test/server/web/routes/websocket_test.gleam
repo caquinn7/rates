@@ -7,7 +7,8 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
-import gleam/otp/actor.{type Started}
+import gleam/otp/actor.{type StartError, type Started, InitTimeout}
+import gleam/result
 import gleam/string
 import glight
 import mist
@@ -27,6 +28,7 @@ import server/rates/internal/kraken_interface.{
 }
 import server/rates/internal/kraken_symbol
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult}
+import server/rates/subscriber_config
 import server/rates/subscriber_factory.{type SubscriberFactory}
 import server/utils/logger.{type LogEntry, type Logger, LogEntry}
 import server/utils/retry
@@ -123,6 +125,40 @@ pub fn abrupt_browser_tcp_disconnect_cancels_all_its_subscriptions_test() {
   assert list.contains(cancelled, fixture.TickerUnsubscribe(["BTC/USD"]))
   assert list.contains(cancelled, fixture.TickerUnsubscribe(["ETH/USD"]))
   assert process.is_alive(kraken.pid)
+}
+
+pub fn subscriber_start_failure_closes_socket_and_stops_partial_batch_test() {
+  let interest_changes = process.new_subject()
+  let price = positive_float.from_float_unsafe(100_000.0)
+  let kraken_interface =
+    KrakenInterface(
+      get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
+      subscribe: fn(symbol) {
+        process.send(interest_changes, #(True, kraken_symbol.to_string(symbol)))
+      },
+      unsubscribe: fn(symbol) {
+        process.send(interest_changes, #(False, kraken_symbol.to_string(symbol)))
+      },
+      check_for_price: fn(_) { Ok(price_store.PriceEntry(price, 100)) },
+    )
+  let failing_id = subscription_id.from_string_unsafe("unavailable")
+  let factory = fn(id, reply_to) {
+    case id == failing_id {
+      True -> Error(InitTimeout)
+      False -> create_rate_subscriber(id, reply_to, kraken_interface)
+    }
+  }
+  use url <- with_application_factory(factory, logger.new())
+  use browser, _ <- with_browser(url)
+
+  browser_subscribe(browser, [
+    #("bitcoin", bitcoin_id),
+    #("unavailable", ethereum_id),
+  ])
+
+  await_dead(browser.pid)
+  assert process.receive(interest_changes, 1000) == Ok(#(True, "BTC/USD"))
+  assert process.receive(interest_changes, 1000) == Ok(#(False, "BTC/USD"))
 }
 
 pub fn malformed_request_returns_json_and_keeps_socket_usable_test() {
@@ -317,27 +353,25 @@ fn with_cmc_provider(
       Crypto(bitcoin_id, "Bitcoin", "BTC", Some(1)),
       Fiat(usd_id, "US Dollar", "USD", "$"),
     ]
-    let config =
-      subscriber.Config(
-        get_currency: fn(id) {
-          list.find(currencies, fn(currency) { currency.id == id })
-        },
-        kraken_interface: KrakenInterface(
+    let assert Ok(config) =
+      subscriber_config.new(
+        fn(id) { list.find(currencies, fn(currency) { currency.id == id }) },
+        KrakenInterface(
           get_kraken_symbol: fn(_) { Error(Nil) },
           subscribe: fn(_) { panic },
           unsubscribe: fn(_) { panic },
           check_for_price: fn(_) { panic },
         ),
-        request_cmc_conversion:,
-        base_refresh_interval_ms: 1000,
-        logger: logger.new(),
+        request_cmc_conversion,
+        1000,
+        logger.new(),
       )
 
-    let target =
-      subscriber.new_with_scheduler(id, reply_to, config, fn(_, _) { Nil })
-      |> unwrap
+    use target <- result.try(
+      subscriber.new_with_scheduler(id, reply_to, config, fn(_, _) { Nil }),
+    )
     process.send(reply_targets, #(target, reply_to))
-    target
+    Ok(target)
   }
 
   use url <- with_application_factory(factory, socket_logger)
@@ -456,27 +490,22 @@ fn create_rate_subscriber(
   id: SubscriptionId,
   reply_to: Subject(SubscriptionResult),
   kraken_interface: KrakenInterface,
-) -> RateSubscriber {
+) -> Result(RateSubscriber, StartError) {
   let currencies = [
     Crypto(bitcoin_id, "Bitcoin", "BTC", Some(1)),
     Crypto(ethereum_id, "Ethereum", "ETH", Some(2)),
     Fiat(usd_id, "United States Dollar", "USD", "$"),
   ]
-  let config =
-    subscriber.Config(
-      get_currency: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      kraken_interface:,
-      request_cmc_conversion: fn(_) {
-        panic as "Kraken fixture must supply the price"
-      },
-      base_refresh_interval_ms: 1000,
-      logger: logger.new(),
+  let assert Ok(config) =
+    subscriber_config.new(
+      fn(id) { list.find(currencies, fn(currency) { currency.id == id }) },
+      kraken_interface,
+      fn(_) { panic as "Kraken fixture must supply the price" },
+      1000,
+      logger.new(),
     )
 
   subscriber.new(id, reply_to, config)
-  |> unwrap
 }
 
 fn with_browser(

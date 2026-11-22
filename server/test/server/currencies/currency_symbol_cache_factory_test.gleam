@@ -43,7 +43,7 @@ pub fn missing_data_reports_error_and_keeps_cache_available_test() {
       _ -> panic as "Unexpected symbol request"
     }
   }
-  let cache =
+  let assert Ok(cache) =
     currency_symbol_cache_factory.create(
       repository,
       request_cryptos,
@@ -75,7 +75,7 @@ pub fn symbol_request_timeout_reports_error_and_returns_lookup_failure_test() {
     assert symbol == Some("BTC")
     Error(timeout)
   }
-  let cache =
+  let assert Ok(cache) =
     currency_symbol_cache_factory.create(
       repository,
       request_cryptos,

@@ -5,7 +5,6 @@ import gleam/erlang/process.{type Pid, type Subject}
 import gleam/httpc
 import gleam/list
 import gleam/option.{None, Some}
-import gleam/otp/actor.{InitFailed}
 import glight
 import server/integrations/coin_market_cap/client.{
   CmcApiError, CmcApiSuccess, CmcStatus, HttpError,
@@ -18,6 +17,7 @@ import server/rates/internal/kraken_interface.{KrakenInterface}
 import server/rates/internal/kraken_symbol
 import server/rates/rate_error.{CmcError, CurrencyNotFound}
 import server/rates/subscriber.{type RateSubscriber, type SubscriptionResult}
+import server/rates/subscriber_config.{type SubscriberConfig}
 import server/rates/subscriber_factory.{type SubscriberFactory}
 import server/utils/logger.{LogEntry}
 import shared/currency.{Crypto, Fiat}
@@ -42,56 +42,17 @@ fn await_scheduled_update(updates, expected_delay) {
 }
 
 fn scheduled_subscriber_factory(
-  config: subscriber.Config,
+  config: SubscriberConfig,
   updates: Subject(ScheduledUpdate),
 ) -> SubscriberFactory {
   fn(id, reply_to) {
-    let assert Ok(target) =
-      subscriber.new_with_scheduler(
-        id,
-        reply_to,
-        config,
-        record_schedule(updates),
-      )
-    target
-  }
-}
-
-pub fn subscriber_rejects_invalid_base_refresh_intervals_test() {
-  let id = subscription_id.from_string_unsafe("invalid-interval")
-  let replies = process.new_subject()
-  let kraken_interface =
-    KrakenInterface(
-      get_kraken_symbol: fn(_) { panic },
-      subscribe: fn(_) { panic },
-      unsubscribe: fn(_) { panic },
-      check_for_price: fn(_) { panic },
+    subscriber.new_with_scheduler(
+      id,
+      reply_to,
+      config,
+      record_schedule(updates),
     )
-
-  list.each(
-    [
-      #(0, "Interval must be positive"),
-      #(-1, "Interval must be positive"),
-      #(999, "Interval must be at least 1000ms"),
-    ],
-    fn(test_case) {
-      let #(base_refresh_interval_ms, message) = test_case
-      let config =
-        subscriber.Config(
-          get_currency: fn(_) { panic },
-          kraken_interface:,
-          request_cmc_conversion: fn(_) { panic },
-          base_refresh_interval_ms:,
-          logger: logger.new(),
-        )
-
-      assert subscriber.new(id, replies, config) == Error(InitFailed(message))
-      assert subscriber.new_with_scheduler(id, replies, config, fn(_, _) {
-          panic
-        })
-        == Error(InitFailed(message))
-    },
-  )
+  }
 }
 
 pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
@@ -113,19 +74,19 @@ pub fn subscribe_subscribes_to_kraken_and_returns_rate_response_test() {
       check_for_price: fn(_) { Ok(PriceEntry(expected_price, 100)) },
     )
 
-  let config =
-    subscriber.Config(
-      get_currency:,
-      base_refresh_interval_ms: 1000,
-      kraken_interface:,
-      request_cmc_conversion: fn(_) { panic },
-      logger: logger.new(),
+  let assert Ok(config) =
+    subscriber_config.new(
+      get_currency,
+      kraken_interface,
+      fn(_) { panic },
+      1000,
+      logger.new(),
     )
-  let subscriber_factory = subscriber_factory.create(config)
+  let subscriber_factory = subscriber_factory.from_config(config)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
-  let target = subscriber_factory(sub_id, subject)
+  let assert Ok(target) = subscriber_factory(sub_id, subject)
 
   // act
   subscriber.subscribe(target, RateRequest(1, 2781))
@@ -152,12 +113,10 @@ pub fn shared_factory_creates_independent_subscribers_test() {
   let bitcoin_price = positive_float.from_float_unsafe(100_000.0)
   let ethereum_price = positive_float.from_float_unsafe(4000.0)
   let actors = process.new_subject()
-  let config =
-    subscriber.Config(
-      get_currency: fn(id) {
-        list.find(currencies, fn(currency) { currency.id == id })
-      },
-      kraken_interface: KrakenInterface(
+  let assert Ok(config) =
+    subscriber_config.new(
+      fn(id) { list.find(currencies, fn(currency) { currency.id == id }) },
+      KrakenInterface(
         get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
         subscribe: fn(_) { process.send(actors, process.self()) },
         unsubscribe: fn(_) { Nil },
@@ -169,18 +128,18 @@ pub fn shared_factory_creates_independent_subscribers_test() {
           }
         },
       ),
-      request_cmc_conversion: fn(_) { panic },
-      base_refresh_interval_ms: 60_000,
-      logger: logger.new(),
+      fn(_) { panic },
+      60_000,
+      logger.new(),
     )
-  let create_subscriber = subscriber_factory.create(config)
+  let create_subscriber = subscriber_factory.from_config(config)
   let first_id = subscription_id.from_string_unsafe("first")
   let second_id = subscription_id.from_string_unsafe("second")
   let first_replies = process.new_subject()
   let second_replies = process.new_subject()
-  let first = create_subscriber(first_id, first_replies)
+  let assert Ok(first) = create_subscriber(first_id, first_replies)
   use <- exception.defer(fn() { subscriber.stop(first) })
-  let second = create_subscriber(second_id, second_replies)
+  let assert Ok(second) = create_subscriber(second_id, second_replies)
   use <- exception.defer(fn() { subscriber.stop(second) })
 
   let assert_rate = fn(
@@ -241,12 +200,11 @@ pub fn subscribe_uses_cmc_directly_when_kraken_symbol_does_not_exist_test() {
     )
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
-  let config =
-    subscriber.Config(
-      get_currency:,
-      base_refresh_interval_ms: 1000,
-      kraken_interface:,
-      request_cmc_conversion: fn(_) {
+  let assert Ok(config) =
+    subscriber_config.new(
+      get_currency,
+      kraken_interface,
+      fn(_) {
         Ok(CmcApiSuccess(
           CmcStatus(0, None),
           CmcConversion(
@@ -262,13 +220,14 @@ pub fn subscribe_uses_cmc_directly_when_kraken_symbol_does_not_exist_test() {
           ),
         ))
       },
-      logger: logger.new_with_sink(glight.Debug, process.send(logs, _)),
+      1000,
+      logger.new_with_sink(glight.Debug, process.send(logs, _)),
     )
-  let subscriber_factory = subscriber_factory.create(config)
+  let subscriber_factory = subscriber_factory.from_config(config)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
-  let target = subscriber_factory(sub_id, subject)
+  let assert Ok(target) = subscriber_factory(sub_id, subject)
 
   // act
   subscriber.subscribe(target, RateRequest(1, 2781))
@@ -307,12 +266,11 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
     )
 
   let expected_price = positive_float.from_float_unsafe(100_000.0)
-  let config =
-    subscriber.Config(
-      get_currency:,
-      base_refresh_interval_ms: 1000,
-      kraken_interface:,
-      request_cmc_conversion: fn(_) {
+  let assert Ok(config) =
+    subscriber_config.new(
+      get_currency,
+      kraken_interface,
+      fn(_) {
         Ok(CmcApiSuccess(
           CmcStatus(0, None),
           CmcConversion(
@@ -328,13 +286,14 @@ pub fn subscribe_falls_back_to_cmc_when_price_not_found_test() {
           ),
         ))
       },
-      logger: logger.new_with_sink(glight.Warning, process.send(logs, _)),
+      1000,
+      logger.new_with_sink(glight.Warning, process.send(logs, _)),
     )
-  let subscriber_factory = subscriber_factory.create(config)
+  let subscriber_factory = subscriber_factory.from_config(config)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
-  let target = subscriber_factory(sub_id, subject)
+  let assert Ok(target) = subscriber_factory(sub_id, subject)
 
   // act
   subscriber.subscribe(target, RateRequest(1, 2781))
@@ -387,40 +346,33 @@ fn assert_failed_fallback_releases_interest(start_with_kraken_price: Bool) {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
   let assert Ok(id) = subscription_id.new("failed-fallback")
-  let assert Ok(target) =
-    subscriber.new_with_scheduler(
-      id,
-      replies,
-      subscriber.Config(
-        get_currency: fn(id) {
-          list.find(currencies, fn(currency) { currency.id == id })
+  let assert Ok(config) =
+    subscriber_config.new(
+      fn(id) { list.find(currencies, fn(currency) { currency.id == id }) },
+      KrakenInterface(
+        get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
+        subscribe: fn(symbol) {
+          process.send(interest, #(True, symbol, process.self()))
         },
-        kraken_interface: KrakenInterface(
-          get_kraken_symbol: kraken_symbol.new(_, fn(_) { True }),
-          subscribe: fn(symbol) {
-            process.send(interest, #(True, symbol, process.self()))
-          },
-          unsubscribe: fn(symbol) {
-            process.send(interest, #(False, symbol, process.self()))
-          },
-          check_for_price: fn(_) {
-            case
-              get_and_increment("failed_fallback_price_lookups"),
-              start_with_kraken_price
-            {
-              0, True -> Ok(PriceEntry(price, 100))
-              _, _ -> Error(Nil)
-            }
-          },
-        ),
-        request_cmc_conversion: fn(_) {
-          Ok(CmcApiError(CmcStatus(1001, Some("error")), None))
+        unsubscribe: fn(symbol) {
+          process.send(interest, #(False, symbol, process.self()))
         },
-        base_refresh_interval_ms: 1000,
-        logger: logger.new(),
+        check_for_price: fn(_) {
+          case
+            get_and_increment("failed_fallback_price_lookups"),
+            start_with_kraken_price
+          {
+            0, True -> Ok(PriceEntry(price, 100))
+            _, _ -> Error(Nil)
+          }
+        },
       ),
-      record_schedule(updates),
+      fn(_) { Ok(CmcApiError(CmcStatus(1001, Some("error")), None)) },
+      1000,
+      logger.new(),
     )
+  let assert Ok(target) =
+    subscriber.new_with_scheduler(id, replies, config, record_schedule(updates))
   use <- exception.defer(fn() { subscriber.stop(target) })
   let request = RateRequest(1, 2781)
   subscriber.subscribe(target, request)
@@ -472,48 +424,43 @@ pub fn overflowing_kraken_reciprocal_falls_back_and_keeps_refreshing_test() {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
   let assert Ok(id) = subscription_id.new("reciprocal-overflow")
-  let assert Ok(target) =
-    subscriber.new_with_scheduler(
-      id,
-      replies,
-      subscriber.Config(
-        get_currency: fn(id) {
-          list.find(currencies, fn(currency) { currency.id == id })
+  let assert Ok(config) =
+    subscriber_config.new(
+      fn(id) { list.find(currencies, fn(currency) { currency.id == id }) },
+      KrakenInterface(
+        get_kraken_symbol: kraken_symbol.new(_, fn(pair) { pair == "BTC/USD" }),
+        subscribe: fn(symbol) {
+          process.send(interest, #(True, symbol, process.self()))
         },
-        kraken_interface: KrakenInterface(
-          get_kraken_symbol: kraken_symbol.new(_, fn(pair) { pair == "BTC/USD" }),
-          subscribe: fn(symbol) {
-            process.send(interest, #(True, symbol, process.self()))
-          },
-          unsubscribe: fn(symbol) {
-            process.send(interest, #(False, symbol, process.self()))
-          },
-          check_for_price: fn(_) { Ok(PriceEntry(kraken_price, 100)) },
-        ),
-        request_cmc_conversion: fn(parameters) {
-          assert parameters.id == request.from
-          assert parameters.convert_id == request.to
-          case get_and_increment("reciprocal_overflow_cmc_requests") {
-            0 -> Error(HttpError(httpc.ResponseTimeout))
-            1 ->
-              Ok(CmcApiSuccess(
-                CmcStatus(0, None),
-                CmcConversion(
-                  parameters.id,
-                  "USD",
-                  "United States Dollar",
-                  positive_float.from_float_unsafe(1.0),
-                  dict.from_list([#("1", QuoteItem(Some(cmc_price), 200))]),
-                ),
-              ))
-            _ -> panic as "Unexpected CMC request"
-          }
+        unsubscribe: fn(symbol) {
+          process.send(interest, #(False, symbol, process.self()))
         },
-        base_refresh_interval_ms: 1000,
-        logger: logger.new_with_sink(glight.Warning, process.send(logs, _)),
+        check_for_price: fn(_) { Ok(PriceEntry(kraken_price, 100)) },
       ),
-      record_schedule(updates),
+      fn(parameters) {
+        assert parameters.id == request.from
+        assert parameters.convert_id == request.to
+        case get_and_increment("reciprocal_overflow_cmc_requests") {
+          0 -> Error(HttpError(httpc.ResponseTimeout))
+          1 ->
+            Ok(CmcApiSuccess(
+              CmcStatus(0, None),
+              CmcConversion(
+                parameters.id,
+                "USD",
+                "United States Dollar",
+                positive_float.from_float_unsafe(1.0),
+                dict.from_list([#("1", QuoteItem(Some(cmc_price), 200))]),
+              ),
+            ))
+          _ -> panic as "Unexpected CMC request"
+        }
+      },
+      1000,
+      logger.new_with_sink(glight.Warning, process.send(logs, _)),
     )
+  let assert Ok(target) =
+    subscriber.new_with_scheduler(id, replies, config, record_schedule(updates))
   use <- exception.defer(fn() { subscriber.stop(target) })
 
   let assert_overflow_warning = fn() {
@@ -605,32 +552,27 @@ fn assert_cmc_fallback_and_recovery(
       },
     )
   let assert Ok(id) = subscription_id.new("recovering")
-  let assert Ok(target) =
-    subscriber.new_with_scheduler(
-      id,
-      subject,
-      subscriber.Config(
-        get_currency: fn(id) {
-          list.find(currencies, fn(currency) { currency.id == id })
-        },
-        kraken_interface: interface,
-        request_cmc_conversion: fn(_) {
-          Ok(CmcApiSuccess(
-            CmcStatus(0, None),
-            CmcConversion(
-              1,
-              "BTC",
-              "Bitcoin",
-              positive_float.from_float_unsafe(1.0),
-              dict.insert(dict.new(), "2781", QuoteItem(Some(cmc_price), 100)),
-            ),
-          ))
-        },
-        base_refresh_interval_ms:,
-        logger: logger.new(),
-      ),
-      record_schedule(updates),
+  let assert Ok(config) =
+    subscriber_config.new(
+      fn(id) { list.find(currencies, fn(currency) { currency.id == id }) },
+      interface,
+      fn(_) {
+        Ok(CmcApiSuccess(
+          CmcStatus(0, None),
+          CmcConversion(
+            1,
+            "BTC",
+            "Bitcoin",
+            positive_float.from_float_unsafe(1.0),
+            dict.insert(dict.new(), "2781", QuoteItem(Some(cmc_price), 100)),
+          ),
+        ))
+      },
+      base_refresh_interval_ms,
+      logger.new(),
     )
+  let assert Ok(target) =
+    subscriber.new_with_scheduler(id, subject, config, record_schedule(updates))
   use <- exception.defer(fn() { subscriber.stop(target) })
   subscriber.subscribe(target, RateRequest(1, 2781))
   let assert Ok(#("subscribe", pid)) = process.receive(interest, 1000)
@@ -679,19 +621,19 @@ pub fn subscribe_returns_error_when_currency_id_not_found_test() {
       check_for_price: fn(_) { panic },
     )
 
-  let config =
-    subscriber.Config(
-      get_currency:,
-      base_refresh_interval_ms: 1000,
-      kraken_interface:,
-      request_cmc_conversion: fn(_) { panic },
-      logger: logger.new(),
+  let assert Ok(config) =
+    subscriber_config.new(
+      get_currency,
+      kraken_interface,
+      fn(_) { panic },
+      1000,
+      logger.new(),
     )
-  let subscriber_factory = subscriber_factory.create(config)
+  let subscriber_factory = subscriber_factory.from_config(config)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
-  let target = subscriber_factory(sub_id, subject)
+  let assert Ok(target) = subscriber_factory(sub_id, subject)
 
   let rate_req = RateRequest(1, 2)
 
@@ -726,22 +668,22 @@ pub fn subscribe_returns_error_when_both_sources_fail_test() {
       check_for_price: fn(_) { panic },
     )
 
-  let config =
-    subscriber.Config(
-      get_currency:,
-      base_refresh_interval_ms: 1000,
-      kraken_interface:,
-      request_cmc_conversion: fn(_) {
+  let assert Ok(config) =
+    subscriber_config.new(
+      get_currency,
+      kraken_interface,
+      fn(_) {
         process.send(provider_calls, process.self())
         Ok(CmcApiError(CmcStatus(1001, Some("error")), None))
       },
-      logger: logger.new(),
+      1000,
+      logger.new(),
     )
   let subscriber_factory = scheduled_subscriber_factory(config, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
-  let target = subscriber_factory(sub_id, subject)
+  let assert Ok(target) = subscriber_factory(sub_id, subject)
   use <- exception.defer(fn() { subscriber.stop(target) })
 
   // act
@@ -792,20 +734,20 @@ pub fn subscribe_schedules_get_latest_rate_test() {
       check_for_price: fn(_) { Ok(PriceEntry(expected_price, 100)) },
     )
 
-  let config =
-    subscriber.Config(
-      get_currency:,
-      base_refresh_interval_ms: 1000,
-      kraken_interface:,
-      request_cmc_conversion: fn(_) { panic },
-      logger: logger.new(),
+  let assert Ok(config) =
+    subscriber_config.new(
+      get_currency,
+      kraken_interface,
+      fn(_) { panic },
+      1000,
+      logger.new(),
     )
   let updates = process.new_subject()
   let subscriber_factory = scheduled_subscriber_factory(config, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
-  let target = subscriber_factory(sub_id, subject)
+  let assert Ok(target) = subscriber_factory(sub_id, subject)
   use <- exception.defer(fn() { subscriber.stop(target) })
 
   // act
@@ -859,20 +801,20 @@ pub fn scheduled_update_returns_result_for_most_recent_request_test() {
       },
     )
 
-  let config =
-    subscriber.Config(
-      get_currency:,
-      base_refresh_interval_ms: 1000,
-      kraken_interface:,
-      request_cmc_conversion: fn(_) { panic },
-      logger: logger.new(),
+  let assert Ok(config) =
+    subscriber_config.new(
+      get_currency,
+      kraken_interface,
+      fn(_) { panic },
+      1000,
+      logger.new(),
     )
   let updates = process.new_subject()
   let subscriber_factory = scheduled_subscriber_factory(config, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
-  let target = subscriber_factory(sub_id, subject)
+  let assert Ok(target) = subscriber_factory(sub_id, subject)
   use <- exception.defer(fn() { subscriber.stop(target) })
 
   // act
@@ -1030,12 +972,11 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
       },
     )
 
-  let config =
-    subscriber.Config(
-      get_currency:,
-      base_refresh_interval_ms: 1000,
-      kraken_interface:,
-      request_cmc_conversion: fn(_) {
+  let assert Ok(config) =
+    subscriber_config.new(
+      get_currency,
+      kraken_interface,
+      fn(_) {
         Ok(CmcApiSuccess(
           CmcStatus(0, None),
           CmcConversion(
@@ -1051,14 +992,15 @@ pub fn scheduled_update_downgrades_from_kraken_to_cmc_test() {
           ),
         ))
       },
-      logger: logger.new(),
+      1000,
+      logger.new(),
     )
   let updates = process.new_subject()
   let subscriber_factory = scheduled_subscriber_factory(config, updates)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
-  let target = subscriber_factory(sub_id, subject)
+  let assert Ok(target) = subscriber_factory(sub_id, subject)
   use <- exception.defer(fn() { subscriber.stop(target) })
 
   // act
@@ -1101,19 +1043,19 @@ pub fn stop_unsubscribes_from_kraken_test() {
       },
     )
 
-  let config =
-    subscriber.Config(
-      get_currency:,
-      base_refresh_interval_ms: 1000,
-      kraken_interface:,
-      request_cmc_conversion: fn(_) { panic },
-      logger: logger.new(),
+  let assert Ok(config) =
+    subscriber_config.new(
+      get_currency,
+      kraken_interface,
+      fn(_) { panic },
+      1000,
+      logger.new(),
     )
-  let subscriber_factory = subscriber_factory.create(config)
+  let subscriber_factory = subscriber_factory.from_config(config)
 
   let assert Ok(sub_id) = subscription_id.new("1")
   let subject = process.new_subject()
-  let target = subscriber_factory(sub_id, subject)
+  let assert Ok(target) = subscriber_factory(sub_id, subject)
 
   subscriber.subscribe(target, RateRequest(1, 2781))
 
@@ -1149,42 +1091,39 @@ fn new_refresh_test(source: Source) -> RefreshTest {
     Fiat(2781, "United States Dollar", "USD", "$"),
   ]
   let assert Ok(id) = subscription_id.new("refresh-test")
-  let assert Ok(target) =
-    subscriber.new_with_scheduler(
-      id,
-      replies,
-      subscriber.Config(
-        get_currency: fn(id) {
-          process.send(actor_pids, process.self())
-          list.find(currencies, fn(currency) { currency.id == id })
+  let assert Ok(config) =
+    subscriber_config.new(
+      fn(id) {
+        process.send(actor_pids, process.self())
+        list.find(currencies, fn(currency) { currency.id == id })
+      },
+      KrakenInterface(
+        get_kraken_symbol: kraken_symbol.new(_, fn(_) { source == Kraken }),
+        subscribe: fn(_) { Nil },
+        unsubscribe: fn(_) { Nil },
+        check_for_price: fn(_) {
+          process.send(provider_calls, Kraken)
+          Ok(PriceEntry(price, 100))
         },
-        kraken_interface: KrakenInterface(
-          get_kraken_symbol: kraken_symbol.new(_, fn(_) { source == Kraken }),
-          subscribe: fn(_) { Nil },
-          unsubscribe: fn(_) { Nil },
-          check_for_price: fn(_) {
-            process.send(provider_calls, Kraken)
-            Ok(PriceEntry(price, 100))
-          },
-        ),
-        request_cmc_conversion: fn(parameters) {
-          process.send(provider_calls, CoinMarketCap)
-          Ok(CmcApiSuccess(
-            CmcStatus(0, None),
-            CmcConversion(
-              parameters.id,
-              "BTC",
-              "Bitcoin",
-              positive_float.from_float_unsafe(1.0),
-              dict.insert(dict.new(), "2781", QuoteItem(Some(price), 100)),
-            ),
-          ))
-        },
-        base_refresh_interval_ms: 1000,
-        logger: logger.new(),
       ),
-      record_schedule(updates),
+      fn(parameters) {
+        process.send(provider_calls, CoinMarketCap)
+        Ok(CmcApiSuccess(
+          CmcStatus(0, None),
+          CmcConversion(
+            parameters.id,
+            "BTC",
+            "Bitcoin",
+            positive_float.from_float_unsafe(1.0),
+            dict.insert(dict.new(), "2781", QuoteItem(Some(price), 100)),
+          ),
+        ))
+      },
+      1000,
+      logger.new(),
     )
+  let assert Ok(target) =
+    subscriber.new_with_scheduler(id, replies, config, record_schedule(updates))
   RefreshTest(target, replies, updates, provider_calls, actor_pids, source)
 }
 

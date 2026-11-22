@@ -1,5 +1,5 @@
 -module(process_test_ffi).
--export([monitored_processes/1, linked_processes/1, mailbox_size/1]).
+-export([monitored_processes/1, linked_processes/1, mailbox_size/1, owned_ets_tables/0]).
 
 monitored_processes(Pid) ->
     {monitors, Monitors} = process_info(Pid, monitors),
@@ -12,3 +12,6 @@ linked_processes(Pid) ->
 mailbox_size(Pid) ->
     {message_queue_len, Size} = process_info(Pid, message_queue_len),
     Size.
+
+owned_ets_tables() ->
+    lists:sort([Table || Table <- ets:all(), ets:info(Table, owner) =:= self()]).

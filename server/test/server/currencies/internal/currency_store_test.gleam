@@ -47,6 +47,23 @@ pub fn stores_are_independent_across_owners_test() {
   assert currency_store.get_by_id(local_store, 1) == Ok(currency)
 }
 
+// delete
+
+pub fn delete_removes_only_the_selected_store_test() {
+  let assert Ok(store) = currency_store.new()
+  let assert Ok(other_store) = currency_store.new()
+  let currency = Crypto(1, "Bitcoin", "BTC", Some(1))
+  currency_store.insert(store, [currency])
+  currency_store.insert(other_store, [currency])
+
+  currency_store.delete(store)
+
+  let assert Error(exception.Errored(reason)) =
+    exception.rescue(fn() { currency_store.get_by_id(store, 1) })
+  assert decode.run(reason, atom.decoder()) == Ok(atom.create("badarg"))
+  assert currency_store.get_by_id(other_store, 1) == Ok(currency)
+}
+
 // insert
 
 pub fn insert_inserts_currencies_test() {
