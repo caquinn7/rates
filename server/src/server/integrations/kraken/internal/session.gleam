@@ -209,7 +209,8 @@ type State {
 ///
 /// Waits for the initial WebSocket handshake, returning a startup error on failure
 /// or timeout. After a successful handshake, the session calls `create_store`
-/// once and creates its pair store, so it owns both tables.
+/// once and creates its pair store, so it owns both tables. Creation failures
+/// are returned as startup errors.
 ///
 /// The successful start result contains the PID, subject, and both store handles.
 /// Instrument discovery continues asynchronously; subscription interest received
@@ -218,7 +219,7 @@ type State {
 /// cached prices for pairs still listed, with their original timestamps.
 pub fn start(
   logger: Logger,
-  create_store: fn() -> PriceStore,
+  create_store: fn() -> Result(PriceStore, String),
   url: String,
   config: Config,
 ) -> actor.StartResult(SessionHandle) {
@@ -234,10 +235,17 @@ pub fn start(
 
     // Preserve the constructor's handshake/error contract and ETS ownership.
     use socket <- result.try(await_initial_connection(selector, config))
-    let price_store = create_store()
+    use price_store <- result.try(
+      create_store()
+      |> result.map_error(fn(reason) {
+        "Could not create Kraken price store\n" <> reason
+      }),
+    )
     use pair_store <- result.try(
       pair_store.new()
-      |> result.replace_error("Could not create Kraken pair store"),
+      |> result.map_error(fn(reason) {
+        "Could not create Kraken pair store\n" <> reason
+      }),
     )
 
     let state =

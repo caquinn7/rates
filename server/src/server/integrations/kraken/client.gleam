@@ -35,12 +35,13 @@ pub opaque type KrakenClient {
 
 /// Creates a client connected to Kraken's public WebSocket v2 endpoint.
 /// Waits for the initial handshake and returns an error if startup fails.
-/// Calls `create_price_store` in the session process after the handshake;
-/// instrument discovery continues asynchronously. Later connection failures
-/// reconnect automatically while preserving interest and prices for listed pairs.
+/// Calls `create_price_store` in the session process after the handshake and
+/// returns a startup error if store creation fails. Instrument discovery
+/// continues asynchronously. Later socket failures reconnect automatically,
+/// preserving interest and cached prices for listed pairs.
 pub fn new(
   logger: Logger,
-  create_price_store: fn() -> PriceStore,
+  create_price_store: fn() -> Result(PriceStore, String),
 ) -> Result(KrakenClient, StartError) {
   new_with_url(logger, create_price_store, "https://ws.kraken.com/v2")
 }
@@ -49,10 +50,11 @@ pub fn new(
 /// integration tests that use a local server in place of Kraken. Application
 /// code should normally use `new`.
 ///
-/// Initial handshake failures return an error; subsequent failures reconnect.
+/// Initial handshake and store creation failures return an error. Later socket
+/// failures reconnect automatically.
 pub fn new_with_url(
   logger: Logger,
-  create_price_store: fn() -> PriceStore,
+  create_price_store: fn() -> Result(PriceStore, String),
   websocket_url: String,
 ) -> Result(KrakenClient, StartError) {
   session.start(

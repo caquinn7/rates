@@ -38,7 +38,9 @@ pub type PriceEntry {
 ///   optimizations based on actual usage patterns.
 ///
 /// Pass the returned handle to processes that need to read from the table.
-pub fn new() -> Result(PriceStore, Nil) {
+///
+/// Returns an ETS diagnostic if table creation fails.
+pub fn new() -> Result(PriceStore, String) {
   result.map(create_table(), PriceStore)
 }
 
@@ -122,7 +124,7 @@ pub fn drop(store: PriceStore) -> Nil {
 }
 
 @external(erlang, "price_store_ffi", "create_table")
-fn create_table() -> Result(TableId, Nil)
+fn create_table() -> Result(TableId, String)
 
 @external(erlang, "ets", "insert")
 fn insert_row(table: TableId, row: PriceRow) -> Bool

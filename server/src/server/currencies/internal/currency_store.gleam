@@ -39,7 +39,9 @@ pub opaque type CurrencyStore {
 /// - **Read-concurrent**: Multiple processes can read simultaneously, even during write operations.
 /// - **Auto write concurrency**: The runtime automatically decides whether to enable write concurrency
 ///   optimizations based on actual usage patterns.
-pub fn new() -> Result(CurrencyStore, Nil) {
+///
+/// Returns an ETS diagnostic if table creation fails.
+pub fn new() -> Result(CurrencyStore, String) {
   result.map(create_table(), CurrencyStore)
 }
 
@@ -101,7 +103,7 @@ pub fn drop(store: CurrencyStore) -> Nil {
 }
 
 @external(erlang, "currency_store_ffi", "create_table")
-fn create_table() -> Result(TableId, Nil)
+fn create_table() -> Result(TableId, String)
 
 @external(erlang, "ets", "insert")
 fn insert_rows(table: TableId, rows: List(CurrencyRow)) -> Bool

@@ -77,7 +77,17 @@ pub fn main() {
     cmc_lookup_timeout_ms,
   )
 
-  let assert Ok(currency_store) = currency_store.new()
+  let currency_store = case currency_store.new() {
+    Ok(store) -> store
+    Error(reason) -> {
+      logger
+      |> logger.with_source("server")
+      |> logger.with("error", reason)
+      |> logger.error("Failed to create currency store")
+
+      panic as "Failed to create currency store"
+    }
+  }
 
   fetch_and_store_currencies(
     env_config.supported_fiat_symbols,
@@ -149,11 +159,16 @@ fn fetch_and_store_currencies(
 
 fn start_kraken(logger: Logger) -> KrakenClient {
   let logger = logger.with_source(logger, "kraken")
-  let create_price_store = fn() {
-    let assert Ok(store) = price_store.new()
-    store
+  let client = case kraken_client.new(logger, price_store.new) {
+    Ok(client) -> client
+    Error(error) -> {
+      logger
+      |> logger.with("error", string.inspect(error))
+      |> logger.error("Failed to start Kraken client")
+
+      panic as "Failed to start Kraken client"
+    }
   }
-  let assert Ok(client) = kraken_client.new(logger, create_price_store)
 
   wait_for_kraken_symbols(
     client,

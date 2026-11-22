@@ -22,7 +22,9 @@ pub opaque type PairStore {
 /// - **Read-concurrent** access optimizes simultaneous reads.
 ///
 /// Pass the returned handle to processes that need to read from the table.
-pub fn new() -> Result(PairStore, Nil) {
+///
+/// Returns an ETS diagnostic if table creation fails.
+pub fn new() -> Result(PairStore, String) {
   result.map(create_table(), PairStore)
 }
 
@@ -54,7 +56,7 @@ pub fn count(store: PairStore) -> Int {
 }
 
 @external(erlang, "kraken_pairs_ffi", "create_table")
-fn create_table() -> Result(TableId, Nil)
+fn create_table() -> Result(TableId, String)
 
 @external(erlang, "ets", "insert")
 fn insert_rows(table: TableId, rows: List(#(String))) -> Bool

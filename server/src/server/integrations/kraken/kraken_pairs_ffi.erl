@@ -2,11 +2,7 @@
 -export([create_table/0, size/1]).
 
 create_table() ->
-    try ets:new(kraken_pairs, [set, protected, {read_concurrency, true}]) of
-        Table -> {ok, Table}
-    catch
-        error:badarg -> {error, nil}
-    end.
+    ets_table_ffi:create(kraken_pairs, [set, protected, {read_concurrency, true}]).
 
 size(Table) ->
     case ets:info(Table, size) of

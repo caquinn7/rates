@@ -144,9 +144,8 @@ pub fn concurrent_sessions_keep_their_prices_and_pairs_independent_test() {
   let second_logger =
     logger.new_with_sink(glight.Info, process.send(second_logs, _))
   let create_store = fn() {
-    let store = unwrap(price_store.new())
     process.send(second_owner, process.self())
-    store
+    price_store.new()
   }
   let second =
     unwrap(kraken_client.new_with_url(second_logger, create_store, second_url))
@@ -1005,7 +1004,7 @@ pub fn send_failure_reconnects_without_recreating_price_store_test() {
       logger.new(),
       fn() {
         process.send(created, Nil)
-        unwrap(price_store.new())
+        price_store.new()
       },
       url,
       cfg,
@@ -1151,7 +1150,7 @@ fn start_client(url, cfg, run) {
 
 fn start_client_with_logger(url, cfg, client_logger, run) {
   let assert Ok(client) =
-    session.start(client_logger, fn() { unwrap(price_store.new()) }, url, cfg)
+    session.start(client_logger, price_store.new, url, cfg)
   use <- exception.defer(fn() { stop_process(client.pid) })
   run(client)
 }
