@@ -77,17 +77,7 @@ pub fn main() {
     cmc_lookup_timeout_ms,
   )
 
-  let currency_store = case currency_store.new() {
-    Ok(store) -> store
-    Error(reason) -> {
-      logger
-      |> logger.with_source("server")
-      |> logger.with("error", reason)
-      |> logger.error("Failed to create currency store")
-
-      panic as "Failed to create currency store"
-    }
-  }
+  let currency_store = create_currency_store(logger)
 
   fetch_and_store_currencies(
     env_config.supported_fiat_symbols,
@@ -126,6 +116,20 @@ fn configure_logging(log_level: String) -> Logger {
   glight.set_is_color(True)
 
   logger.new()
+}
+
+fn create_currency_store(logger: Logger) -> CurrencyStore {
+  case currency_store.new() {
+    Ok(store) -> store
+    Error(reason) -> {
+      logger
+      |> logger.with_source("server")
+      |> logger.with("error", reason)
+      |> logger.error("Failed to create currency store")
+
+      panic as "Failed to create currency store"
+    }
+  }
 }
 
 fn fetch_and_store_currencies(

@@ -15,21 +15,47 @@ import server/integrations/coin_market_cap/cmc_fiat_currency.{
   type CmcFiatCurrency,
 }
 
+/// Failures while making a CoinMarketCap request or decoding its response.
 pub type CmcRequestError {
+  /// The HTTP request failed. Carries the underlying HTTP client error.
   HttpError(httpc.HttpError)
+
+  /// The response body could not be parsed as JSON or decoded into the expected
+  /// shape. Carries the underlying JSON decoding error.
   JsonDecodeError(json.DecodeError)
 }
 
+/// A decoded CoinMarketCap response envelope.
 pub type CmcResponse(a) {
-  CmcResponse(status: CmcStatus, data: Option(a))
+  CmcResponse(
+    /// The status reported by CoinMarketCap for this request.
+    status: CmcStatus,
+    /// The decoded endpoint data. The client requires it on success. An error
+    /// response with omitted or null data decodes to `None` for this field.
+    data: Option(a),
+  )
 }
 
+/// The outcome of a request as reported by CoinMarketCap.
 pub type CmcStatus {
-  CmcStatus(error_code: Int, error_message: Option(String))
+  CmcStatus(
+    /// CoinMarketCap status code. `0` indicates success.
+    error_code: Int,
+    /// Error message from CoinMarketCap, or `None` if omitted or null.
+    error_message: Option(String),
+  )
 }
 
+/// Query parameters for a CoinMarketCap price conversion.
 pub type CmcConversionParameters {
-  CmcConversionParameters(amount: Float, id: Int, convert_id: Int)
+  CmcConversionParameters(
+    /// Amount to convert, in units of the source currency.
+    amount: Float,
+    /// CoinMarketCap ID of the source currency.
+    id: Int,
+    /// CoinMarketCap ID of the target currency.
+    convert_id: Int,
+  )
 }
 
 const base_url = "https://pro-api.coinmarketcap.com"

@@ -54,7 +54,7 @@ pub fn get_rate(
   use to_id <- result.try(validate_currency_id(rate_request.to))
 
   use cmc_response <- result.try(
-    CmcConversionParameters(1.0, from_id, to_id)
+    CmcConversionParameters(amount: 1.0, id: from_id, convert_id: to_id)
     |> request_conversion
     |> result.map_error(RequestFailed),
   )

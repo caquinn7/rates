@@ -1,8 +1,18 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/option.{type Option, None}
 
+/// An entry in CoinMarketCap's cryptocurrency map.
 pub type CmcCryptoCurrency {
-  CmcCryptoCurrency(id: Int, rank: Option(Int), name: String, symbol: String)
+  CmcCryptoCurrency(
+    /// CoinMarketCap ID of the cryptocurrency.
+    id: Int,
+    /// CoinMarketCap market cap rank, or `None` if omitted or null.
+    rank: Option(Int),
+    /// Full name of the cryptocurrency, such as `Bitcoin`.
+    name: String,
+    /// Symbol of the cryptocurrency, such as `BTC`.
+    symbol: String,
+  )
 }
 
 pub fn decoder() -> Decoder(CmcCryptoCurrency) {
