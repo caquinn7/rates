@@ -4,7 +4,7 @@ import gleam/option.{Some}
 import gleam/result
 import server/integrations/coin_market_cap/client.{
   type CmcConversionParameters, type CmcRequestError, type CmcResponse,
-  CmcConversionParameters, CmcResponse, CmcStatus,
+  CmcApiError, CmcApiSuccess, CmcConversionParameters, CmcStatus,
 }
 import server/integrations/coin_market_cap/cmc_conversion.{type CmcConversion}
 import shared/rates/rate_request.{type RateRequest}
@@ -31,19 +31,19 @@ pub type RateRequestError {
   /// error, including decoding failures for invalid provider timestamps.
   RequestFailed(CmcRequestError)
 
-  /// A decoded response has an unhandled status, missing conversion data, or no
-  /// quote for the requested target currency. Carries the decoded response.
+  /// An unhandled API error or a missing quote for the target currency.
+  /// Carries the decoded response.
   UnexpectedResponse(CmcResponse(CmcConversion))
 }
 
 /// Requests a CoinMarketCap conversion for one unit of the source currency into
 /// the target currency using `request_conversion`.
 ///
-/// Both currency IDs must be positive; validation happens before requesting.
+/// Both currency IDs must be positive. Validation happens before requesting.
 /// A successful response uses the requested quote's `last_updated` timestamp in
 /// Unix milliseconds. A null quote price is preserved as `rate: None`.
 ///
-/// Missing conversion data or a missing target quote returns `UnexpectedResponse`.
+/// An unhandled API error or missing target quote returns `UnexpectedResponse`.
 /// Validation, request, decoding, and other response failures are represented by
 /// `RateRequestError`.
 pub fn get_rate(
@@ -54,7 +54,7 @@ pub fn get_rate(
   use to_id <- result.try(validate_currency_id(rate_request.to))
 
   use cmc_response <- result.try(
-    CmcConversionParameters(1.0, from_id, to_id)
+    CmcConversionParameters(amount: 1.0, id: from_id, convert_id: to_id)
     |> request_conversion
     |> result.map_error(RequestFailed),
   )
@@ -74,16 +74,16 @@ fn map_cmc_response(
   cmc_response: CmcResponse(CmcConversion),
   rate_request: RateRequest,
 ) -> Result(RateResponse, RateRequestError) {
-  let CmcResponse(CmcStatus(err_code, err_msg), data) = cmc_response
-
-  case err_code, err_msg, data {
-    400, Some("Invalid value for \"id\":" <> _), _ ->
+  case cmc_response {
+    CmcApiError(CmcStatus(400, Some("Invalid value for \"id\":" <> _)), _) ->
       Error(CurrencyNotFound(rate_request.from))
 
-    400, Some("Invalid value for \"convert_id\":" <> _), _ ->
-      Error(CurrencyNotFound(rate_request.to))
+    CmcApiError(
+      CmcStatus(400, Some("Invalid value for \"convert_id\":" <> _)),
+      _,
+    ) -> Error(CurrencyNotFound(rate_request.to))
 
-    0, _, Some(conversion) -> {
+    CmcApiSuccess(_, conversion) -> {
       use quote_item <- result.try(
         conversion.quote
         |> dict.get(int.to_string(rate_request.to))
@@ -99,6 +99,6 @@ fn map_cmc_response(
       ))
     }
 
-    _, _, _ -> Error(UnexpectedResponse(cmc_response))
+    CmcApiError(_, _) -> Error(UnexpectedResponse(cmc_response))
   }
 }

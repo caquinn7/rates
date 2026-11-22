@@ -15,25 +15,61 @@ import server/integrations/coin_market_cap/cmc_fiat_currency.{
   type CmcFiatCurrency,
 }
 
+/// Failures while making a CoinMarketCap request or decoding its response.
 pub type CmcRequestError {
+  /// The HTTP request failed. Carries the underlying HTTP client error.
   HttpError(httpc.HttpError)
+
+  /// The response body could not be parsed as JSON or decoded into the expected
+  /// shape. Carries the underlying JSON decoding error.
   JsonDecodeError(json.DecodeError)
 }
 
+/// A decoded CoinMarketCap response envelope.
 pub type CmcResponse(a) {
-  CmcResponse(status: CmcStatus, data: Option(a))
+  /// A zero status code with the required decoded endpoint data.
+  CmcApiSuccess(status: CmcStatus, data: a)
+
+  /// A nonzero status code with any endpoint data included in the response.
+  CmcApiError(
+    status: CmcStatus,
+    /// Decoded endpoint data, or `None` if omitted or null.
+    error_data: Option(a),
+  )
 }
 
+/// The outcome of a request as reported by CoinMarketCap.
 pub type CmcStatus {
-  CmcStatus(error_code: Int, error_message: Option(String))
+  CmcStatus(
+    /// CoinMarketCap status code. `0` indicates success.
+    error_code: Int,
+    /// Error message from CoinMarketCap, or `None` if omitted or null.
+    error_message: Option(String),
+  )
 }
 
+/// Query parameters for a CoinMarketCap price conversion.
 pub type CmcConversionParameters {
-  CmcConversionParameters(amount: Float, id: Int, convert_id: Int)
+  CmcConversionParameters(
+    /// Amount to convert, in units of the source currency.
+    amount: Float,
+    /// CoinMarketCap ID of the source currency.
+    id: Int,
+    /// CoinMarketCap ID of the target currency.
+    convert_id: Int,
+  )
 }
 
 const base_url = "https://pro-api.coinmarketcap.com"
 
+/// Fetches the CoinMarketCap cryptocurrency map.
+///
+/// Sends `listing_status=active` and `sort=cmc_rank`. Uses 100 when `limit` is
+/// `None`. Trims `symbol` and omits the filter for `None` or a blank string.
+///
+/// `timeout_ms` sets the HTTP timeout in milliseconds. Returns decoded API
+/// errors as `Ok(CmcApiError(...))`. Returns `Error` if the HTTP request or JSON
+/// decoding fails.
 pub fn get_crypto_currencies(
   api_key: String,
   limit: Option(Int),
@@ -62,6 +98,13 @@ pub fn get_crypto_currencies(
   )
 }
 
+/// Fetches the CoinMarketCap fiat currency map in CoinMarketCap ID order.
+///
+/// Uses 100 when `limit` is `None`. `timeout_ms` sets the HTTP timeout in
+/// milliseconds.
+///
+/// Returns decoded API errors as `Ok(CmcApiError(...))`. Returns `Error` if the
+/// HTTP request or JSON decoding fails.
 pub fn get_fiat_currencies(
   api_key: String,
   limit: Option(Int),
@@ -79,20 +122,24 @@ pub fn get_fiat_currencies(
   )
 }
 
+/// Requests a CoinMarketCap price conversion for the amount and currency IDs
+/// in `params`. The quote expresses the converted amount in target currency units.
+///
+/// `timeout_ms` sets the HTTP timeout in milliseconds. Returns decoded API
+/// errors as `Ok(CmcApiError(...))`. Returns `Error` if the HTTP request or JSON
+/// decoding fails.
 pub fn get_conversion(
   api_key: String,
   params: CmcConversionParameters,
   timeout_ms: Int,
 ) -> Result(CmcResponse(CmcConversion), CmcRequestError) {
-  let CmcConversionParameters(amount:, id:, convert_id:) = params
-
   get(
     api_key,
     "/v2/tools/price-conversion",
     [
-      #("amount", float.to_string(amount)),
-      #("id", int.to_string(id)),
-      #("convert_id", int.to_string(convert_id)),
+      #("amount", float.to_string(params.amount)),
+      #("id", int.to_string(params.id)),
+      #("convert_id", int.to_string(params.convert_id)),
     ],
     timeout_ms,
     cmc_conversion.decoder(),
@@ -132,23 +179,15 @@ pub fn cmc_response_decoder(
   data_decoder: Decoder(a),
 ) -> Decoder(CmcResponse(a)) {
   use status <- decode.field("status", status_decoder())
-  use data <- decode.then(response_data_decoder(status, data_decoder))
-  decode.success(CmcResponse(status, data))
-}
-
-fn response_data_decoder(
-  status: CmcStatus,
-  data_decoder: Decoder(a),
-) -> Decoder(Option(a)) {
   case status.error_code {
-    0 -> decode.at(["data"], decode.map(data_decoder, Some))
+    0 -> decode.at(["data"], decode.map(data_decoder, CmcApiSuccess(status, _)))
     _ -> {
-      use data <- decode.optional_field(
+      use error_data <- decode.optional_field(
         "data",
         None,
         decode.optional(data_decoder),
       )
-      decode.success(data)
+      decode.success(CmcApiError(status, error_data))
     }
   }
 }

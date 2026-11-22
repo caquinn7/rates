@@ -1,7 +1,17 @@
 import gleam/dynamic/decode.{type Decoder}
 
+/// An entry in CoinMarketCap's fiat currency map.
 pub type CmcFiatCurrency {
-  CmcFiatCurrency(id: Int, name: String, sign: String, symbol: String)
+  CmcFiatCurrency(
+    /// CoinMarketCap ID of the fiat currency.
+    id: Int,
+    /// Full name of the fiat currency, such as `United States Dollar`.
+    name: String,
+    /// Currency sign used to display amounts, such as `$`.
+    sign: String,
+    /// Currency code, such as `USD`.
+    symbol: String,
+  )
 }
 
 pub fn decoder() -> Decoder(CmcFiatCurrency) {

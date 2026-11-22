@@ -1,15 +1,17 @@
 import exception
+import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/httpc
+import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
-import server/currencies/cmc_currency_handler.{ClientError, MissingData}
+import server/currencies/cmc_currency_handler.{ClientError}
 import server/currencies/currency_catalog_loader.{
   type RequestType, CryptoRequest, EmptyCatalog, FetchFailed, FiatRequest,
   Timeout,
 }
 import server/integrations/coin_market_cap/client.{
-  CmcResponse, CmcStatus, HttpError,
+  type CmcRequestError, CmcApiSuccess, CmcStatus, HttpError, JsonDecodeError,
 }
 import server/integrations/coin_market_cap/cmc_crypto_currency.{
   CmcCryptoCurrency,
@@ -20,12 +22,15 @@ import shared/currency.{Crypto, Fiat}
 const good_cmc_status = CmcStatus(0, None)
 
 pub fn get_currencies_crypto_missing_data_returns_fetch_failure_test() {
-  let request_cryptos = fn() { Ok(CmcResponse(good_cmc_status, None)) }
+  let expected_error =
+    missing_data_error(decode.list(cmc_crypto_currency.decoder()))
+  let request_cryptos = fn() { Error(expected_error) }
   let request_fiats = fn() {
-    Ok(CmcResponse(
-      good_cmc_status,
-      Some([CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]),
-    ))
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+      ]),
+    )
   }
 
   assert currency_catalog_loader.get_currencies(
@@ -34,17 +39,20 @@ pub fn get_currencies_crypto_missing_data_returns_fetch_failure_test() {
       request_fiats,
       1000,
     )
-    == Error(FetchFailed(CryptoRequest, MissingData(good_cmc_status)))
+    == Error(FetchFailed(CryptoRequest, ClientError(expected_error)))
 }
 
 pub fn get_currencies_fiat_missing_data_returns_fetch_failure_test() {
   let request_cryptos = fn() {
-    Ok(CmcResponse(
-      good_cmc_status,
-      Some([CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]),
-    ))
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+      ]),
+    )
   }
-  let request_fiats = fn() { Ok(CmcResponse(good_cmc_status, None)) }
+  let expected_error =
+    missing_data_error(decode.list(cmc_fiat_currency.decoder()))
+  let request_fiats = fn() { Error(expected_error) }
 
   assert currency_catalog_loader.get_currencies(
       [],
@@ -52,7 +60,7 @@ pub fn get_currencies_fiat_missing_data_returns_fetch_failure_test() {
       request_fiats,
       1000,
     )
-    == Error(FetchFailed(FiatRequest, MissingData(good_cmc_status)))
+    == Error(FetchFailed(FiatRequest, ClientError(expected_error)))
 }
 
 pub fn get_currencies_crypto_request_returns_fetch_failure_test() {
@@ -60,10 +68,11 @@ pub fn get_currencies_crypto_request_returns_fetch_failure_test() {
   let request_cryptos = fn() { Error(expected_error) }
 
   let request_fiats = fn() {
-    [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+      ]),
+    )
   }
 
   let result =
@@ -79,18 +88,14 @@ pub fn get_currencies_crypto_request_returns_fetch_failure_test() {
 }
 
 pub fn get_currencies_crypto_request_returns_empty_catalog_error_test() {
-  let request_cryptos = fn() {
-    []
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
-  }
+  let request_cryptos = fn() { Ok(CmcApiSuccess(good_cmc_status, [])) }
 
   let request_fiats = fn() {
-    [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+      ]),
+    )
   }
 
   let result =
@@ -106,10 +111,11 @@ pub fn get_currencies_crypto_request_returns_empty_catalog_error_test() {
 
 pub fn get_currencies_fiat_request_returns_fetch_failure_test() {
   let request_cryptos = fn() {
-    [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+      ]),
+    )
   }
 
   let expected_error = HttpError(httpc.InvalidUtf8Response)
@@ -128,18 +134,14 @@ pub fn get_currencies_fiat_request_returns_fetch_failure_test() {
 
 pub fn get_currencies_fiat_request_returns_empty_catalog_error_test() {
   let request_cryptos = fn() {
-    [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+      ]),
+    )
   }
 
-  let request_fiats = fn() {
-    []
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
-  }
+  let request_fiats = fn() { Ok(CmcApiSuccess(good_cmc_status, [])) }
 
   let result =
     currency_catalog_loader.get_currencies(
@@ -164,10 +166,11 @@ pub fn get_currencies_returns_error_when_request_times_out_test() {
   let started = process.new_subject()
   let results = process.new_subject()
   let request_cryptos = fn() {
-    [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+      ]),
+    )
   }
 
   let request_fiats = fn() {
@@ -175,10 +178,11 @@ pub fn get_currencies_returns_error_when_request_times_out_test() {
     process.send(started, #(process.self(), release))
     let assert Ok(Nil) = process.receive(release, 1000)
 
-    [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+      ]),
+    )
   }
 
   let _ =
@@ -218,17 +222,19 @@ pub fn get_currencies_returns_timeout_for_negative_budget_test() {
 
 pub fn get_currencies_returns_both_crypto_and_fiat_test() {
   let request_cryptos = fn() {
-    [CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+      ]),
+    )
   }
 
   let request_fiats = fn() {
-    [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]
-    |> Some
-    |> CmcResponse(good_cmc_status, _)
-    |> Ok
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+      ]),
+    )
   }
 
   let result =
@@ -246,6 +252,15 @@ pub fn get_currencies_returns_both_crypto_and_fiat_test() {
     currencies,
     Fiat(2781, "United States Dollar", "USD", "$"),
   )
+}
+
+fn missing_data_error(data_decoder: decode.Decoder(a)) -> CmcRequestError {
+  let assert Error(error) =
+    json.parse(
+      "{\"status\":{\"error_code\":0}}",
+      client.cmc_response_decoder(data_decoder),
+    )
+  JsonDecodeError(error)
 }
 
 fn assert_error_without_waiting_for_other_request(
@@ -266,10 +281,11 @@ fn assert_error_without_waiting_for_other_request(
       CryptoRequest -> Error(expected_error)
       FiatRequest -> {
         wait_for_release()
-        Ok(CmcResponse(
-          good_cmc_status,
-          Some([CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]),
-        ))
+        Ok(
+          CmcApiSuccess(good_cmc_status, [
+            CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+          ]),
+        )
       }
     }
   }
@@ -279,10 +295,11 @@ fn assert_error_without_waiting_for_other_request(
       FiatRequest -> Error(expected_error)
       CryptoRequest -> {
         wait_for_release()
-        Ok(CmcResponse(
-          good_cmc_status,
-          Some([CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]),
-        ))
+        Ok(
+          CmcApiSuccess(good_cmc_status, [
+            CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+          ]),
+        )
       }
     }
   }
@@ -317,16 +334,18 @@ fn assert_error_without_waiting_for_other_request(
 
 fn assert_nonpositive_budget_times_out(timeout: Int) {
   let request_cryptos = fn() {
-    Ok(CmcResponse(
-      good_cmc_status,
-      Some([CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC")]),
-    ))
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcCryptoCurrency(1, Some(1), "Bitcoin", "BTC"),
+      ]),
+    )
   }
   let request_fiats = fn() {
-    Ok(CmcResponse(
-      good_cmc_status,
-      Some([CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]),
-    ))
+    Ok(
+      CmcApiSuccess(good_cmc_status, [
+        CmcFiatCurrency(2781, "United States Dollar", "$", "USD"),
+      ]),
+    )
   }
 
   assert currency_catalog_loader.get_currencies(

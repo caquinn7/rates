@@ -1,5 +1,4 @@
 import gleam/dict
-import gleam/dynamic/decode
 import gleam/httpc
 import gleam/json
 import gleam/list
@@ -7,7 +6,7 @@ import gleam/option.{None, Some}
 import gleam/result
 import server/integrations/coin_market_cap/client.{
   type CmcConversionParameters, type CmcRequestError, type CmcResponse,
-  CmcResponse, CmcStatus, HttpError, JsonDecodeError,
+  CmcApiError, CmcApiSuccess, CmcStatus, HttpError, JsonDecodeError,
 }
 import server/integrations/coin_market_cap/cmc_conversion.{
   type CmcConversion, CmcConversion, QuoteItem,
@@ -57,7 +56,7 @@ pub fn get_rate_response_timeout_is_a_request_error_test() {
 
 pub fn get_rate_base_id_not_found_test() {
   let request_conversion = fn(_) {
-    Ok(CmcResponse(CmcStatus(400, Some("Invalid value for \"id\": ")), None))
+    Ok(CmcApiError(CmcStatus(400, Some("Invalid value for \"id\": ")), None))
   }
 
   let result =
@@ -69,7 +68,7 @@ pub fn get_rate_base_id_not_found_test() {
 
 pub fn get_rate_quote_id_not_found_test() {
   let request_conversion = fn(_) {
-    Ok(CmcResponse(
+    Ok(CmcApiError(
       CmcStatus(400, Some("Invalid value for \"convert_id\": ")),
       None,
     ))
@@ -86,9 +85,9 @@ pub fn get_rate_returns_rate_test() {
   let expected_rate = positive_float.from_float_unsafe(100_000.0)
 
   let request_conversion = fn(conversion_params: CmcConversionParameters) {
-    Ok(CmcResponse(
+    Ok(CmcApiSuccess(
       CmcStatus(0, None),
-      Some(CmcConversion(
+      CmcConversion(
         conversion_params.id,
         "BTC",
         "Bitcoin",
@@ -96,7 +95,7 @@ pub fn get_rate_returns_rate_test() {
         dict.from_list([
           #("2781", QuoteItem(Some(expected_rate), 1_794_145_983_000)),
         ]),
-      )),
+      ),
     ))
   }
 
@@ -116,15 +115,15 @@ pub fn get_rate_returns_rate_test() {
 
 pub fn get_rate_returns_rate_when_rate_is_none_test() {
   let request_conversion = fn(conversion_params: CmcConversionParameters) {
-    Ok(CmcResponse(
+    Ok(CmcApiSuccess(
       CmcStatus(0, None),
-      Some(CmcConversion(
+      CmcConversion(
         conversion_params.id,
         "BTC",
         "Bitcoin",
         positive_float.from_float_unsafe(1.0),
         dict.from_list([#("2781", QuoteItem(None, 1_794_145_983_000))]),
-      )),
+      ),
     ))
   }
 
@@ -140,15 +139,15 @@ pub fn get_rate_rejects_a_missing_requested_quote_test() {
   [dict.new(), dict.from_list([#("2", QuoteItem(None, 123))])]
   |> list.each(fn(quotes) {
     let expected_response =
-      CmcResponse(
+      CmcApiSuccess(
         CmcStatus(0, None),
-        Some(CmcConversion(
+        CmcConversion(
           1,
           "BTC",
           "Bitcoin",
           positive_float.from_float_unsafe(1.0),
           quotes,
-        )),
+        ),
       )
     let request_conversion = fn(_) { Ok(expected_response) }
 
@@ -183,7 +182,7 @@ pub fn get_rate_uses_the_requested_quotes_provider_time_test() {
 
 pub fn get_rate_propagates_invalid_quote_timestamp_decoding_errors_test() {
   let payload =
-    "{\"data\":{\"id\":1,\"symbol\":\"BTC\",\"name\":\"Bitcoin\",\"amount\":1,\"quote\":{\"2781\":{\"price\":100,\"last_updated\":\"invalid\"}}}}"
+    "{\"status\":{\"error_code\":0},\"data\":{\"id\":1,\"symbol\":\"BTC\",\"name\":\"Bitcoin\",\"amount\":1,\"quote\":{\"2781\":{\"price\":100,\"last_updated\":\"invalid\"}}}}"
   let request_conversion = fn(_) { decode_conversion_response(payload) }
   let assert Error(RequestFailed(JsonDecodeError(json.UnableToDecode([error, ..])))) =
     cmc_rate_handler.get_rate(RateRequest(1, 2781), request_conversion)
@@ -194,15 +193,13 @@ fn decode_conversion_response(
   payload: String,
 ) -> Result(CmcResponse(CmcConversion), CmcRequestError) {
   payload
-  |> json.parse(decode.at(["data"], cmc_conversion.decoder()))
-  |> result.map(fn(conversion) {
-    CmcResponse(CmcStatus(0, None), Some(conversion))
-  })
+  |> json.parse(client.cmc_response_decoder(cmc_conversion.decoder()))
   |> result.map_error(JsonDecodeError)
 }
 
-pub fn get_rate_unexpected_response_test() {
-  let expected_response = CmcResponse(CmcStatus(0, None), None)
+pub fn get_rate_unhandled_api_error_returns_unexpected_response_test() {
+  let expected_response =
+    CmcApiError(CmcStatus(1001, Some("Unexpected error")), None)
   let request_conversion = fn(_) { Ok(expected_response) }
 
   let result =

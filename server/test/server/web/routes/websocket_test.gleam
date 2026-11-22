@@ -12,7 +12,7 @@ import gleam/string
 import glight
 import mist
 import server/integrations/coin_market_cap/client.{
-  type CmcRequestError, type CmcResponse, CmcResponse, CmcStatus, HttpError,
+  type CmcRequestError, type CmcResponse, CmcApiSuccess, CmcStatus, HttpError,
 }
 import server/integrations/coin_market_cap/cmc_conversion.{
   type CmcConversion, CmcConversion, QuoteItem,
@@ -268,10 +268,7 @@ pub fn resubscribing_with_same_id_drops_in_flight_result_from_old_subscriber_tes
       positive_float.from_float_unsafe(1.0),
       dict.from_list([#(int.to_string(usd_id), QuoteItem(price, 123))]),
     )
-  process.send(
-    release_new,
-    Ok(CmcResponse(CmcStatus(0, None), Some(conversion))),
-  )
+  process.send(release_new, Ok(CmcApiSuccess(CmcStatus(0, None), conversion)))
   assert receive_response(replies)
     == SubscriptionUpdate(
       subscription_id.from_string_unsafe("bitcoin"),

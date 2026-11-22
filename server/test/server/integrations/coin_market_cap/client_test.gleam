@@ -3,7 +3,9 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
-import server/integrations/coin_market_cap/client.{CmcResponse, CmcStatus}
+import server/integrations/coin_market_cap/client.{
+  type CmcResponse, CmcApiError, CmcApiSuccess, CmcStatus,
+}
 import server/integrations/coin_market_cap/cmc_conversion.{
   CmcConversion, QuoteItem,
 }
@@ -17,10 +19,9 @@ const success_status = "{\"error_code\":0,\"error_message\":null}"
 
 const error_status = "{\"error_code\":400,\"error_message\":\"Invalid request\"}"
 
-const status_cases = [
-  #(success_status, CmcStatus(0, None)),
-  #(error_status, CmcStatus(400, Some("Invalid request"))),
-]
+const successful_status = CmcStatus(0, None)
+
+const failed_status = CmcStatus(400, Some("Invalid request"))
 
 pub fn crypto_success_requires_data_test() {
   assert_success_requires_data(
@@ -44,60 +45,39 @@ pub fn crypto_envelopes_preserve_valid_data_test() {
   let data =
     "[{\"id\":1,\"rank\":null,\"name\":\"Bitcoin\",\"symbol\":\"BTC\"}]"
 
-  status_cases
-  |> list.each(fn(status_case) {
-    let #(status_json, status) = status_case
-    assert json.parse(
-        envelope(status_json, data),
-        client.cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
-      )
-      == Ok(CmcResponse(
-        status,
-        Some([CmcCryptoCurrency(1, None, "Bitcoin", "BTC")]),
-      ))
-  })
+  assert_envelopes_preserve_data(
+    client.cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
+    data,
+    [CmcCryptoCurrency(1, None, "Bitcoin", "BTC")],
+  )
 }
 
 pub fn fiat_envelopes_preserve_valid_data_test() {
   let data =
     "[{\"id\":2781,\"name\":\"United States Dollar\",\"sign\":\"$\",\"symbol\":\"USD\"}]"
 
-  status_cases
-  |> list.each(fn(status_case) {
-    let #(status_json, status) = status_case
-    assert json.parse(
-        envelope(status_json, data),
-        client.cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())),
-      )
-      == Ok(CmcResponse(
-        status,
-        Some([CmcFiatCurrency(2781, "United States Dollar", "$", "USD")]),
-      ))
-  })
+  assert_envelopes_preserve_data(
+    client.cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())),
+    data,
+    [CmcFiatCurrency(2781, "United States Dollar", "$", "USD")],
+  )
 }
 
 pub fn conversion_envelopes_preserve_valid_data_and_null_prices_test() {
   let data =
     "{\"id\":1,\"symbol\":\"BTC\",\"name\":\"Bitcoin\",\"amount\":1,\"quote\":{\"2781\":{\"price\":null,\"last_updated\":\"2024-09-27T20:57:00.000Z\"}}}"
 
-  status_cases
-  |> list.each(fn(status_case) {
-    let #(status_json, status) = status_case
-    assert json.parse(
-        envelope(status_json, data),
-        client.cmc_response_decoder(cmc_conversion.decoder()),
-      )
-      == Ok(CmcResponse(
-        status,
-        Some(CmcConversion(
-          1,
-          "BTC",
-          "Bitcoin",
-          positive_float.from_float_unsafe(1.0),
-          dict.from_list([#("2781", QuoteItem(None, 1_727_470_620_000))]),
-        )),
-      ))
-  })
+  assert_envelopes_preserve_data(
+    client.cmc_response_decoder(cmc_conversion.decoder()),
+    data,
+    CmcConversion(
+      1,
+      "BTC",
+      "Bitcoin",
+      positive_float.from_float_unsafe(1.0),
+      dict.from_list([#("2781", QuoteItem(None, 1_727_470_620_000))]),
+    ),
+  )
 }
 
 pub fn successful_listings_allow_empty_lists_test() {
@@ -107,28 +87,24 @@ pub fn successful_listings_allow_empty_lists_test() {
       payload,
       client.cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
     )
-    == Ok(CmcResponse(CmcStatus(0, None), Some([])))
+    == Ok(CmcApiSuccess(successful_status, []))
 
   assert json.parse(
       payload,
       client.cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())),
     )
-    == Ok(CmcResponse(CmcStatus(0, None), Some([])))
+    == Ok(CmcApiSuccess(successful_status, []))
 }
 
 pub fn provider_errors_allow_missing_or_null_data_test() {
-  let status = CmcStatus(400, Some("Invalid request"))
   assert_provider_error_without_data(
     client.cmc_response_decoder(decode.list(cmc_crypto_currency.decoder())),
-    CmcResponse(status, None),
   )
   assert_provider_error_without_data(
     client.cmc_response_decoder(decode.list(cmc_fiat_currency.decoder())),
-    CmcResponse(status, None),
   )
   assert_provider_error_without_data(
     client.cmc_response_decoder(cmc_conversion.decoder()),
-    CmcResponse(status, None),
   )
 }
 
@@ -166,11 +142,22 @@ fn assert_success_requires_data(decoder: Decoder(a)) {
   })
 }
 
-fn assert_provider_error_without_data(decoder: Decoder(a), expected: a) {
+fn assert_envelopes_preserve_data(
+  decoder: Decoder(CmcResponse(a)),
+  data: String,
+  expected: a,
+) {
+  assert json.parse(envelope(success_status, data), decoder)
+    == Ok(CmcApiSuccess(successful_status, expected))
+  assert json.parse(envelope(error_status, data), decoder)
+    == Ok(CmcApiError(failed_status, Some(expected)))
+}
+
+fn assert_provider_error_without_data(decoder: Decoder(CmcResponse(a))) {
   ["", ",\"data\":null"]
   |> list.each(fn(data_field) {
     let payload = "{\"status\":" <> error_status <> data_field <> "}"
-    assert json.parse(payload, decoder) == Ok(expected)
+    assert json.parse(payload, decoder) == Ok(CmcApiError(failed_status, None))
   })
 }
 
