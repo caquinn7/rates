@@ -62,6 +62,14 @@ pub type CmcConversionParameters {
 
 const base_url = "https://pro-api.coinmarketcap.com"
 
+/// Fetches the CoinMarketCap cryptocurrency map.
+///
+/// Sends `listing_status=active` and `sort=cmc_rank`. Uses 100 when `limit` is
+/// `None`. Trims `symbol` and omits the filter for `None` or a blank string.
+///
+/// `timeout_ms` sets the HTTP timeout in milliseconds. Returns decoded API
+/// errors as `Ok(CmcApiError(...))`. Returns `Error` if the HTTP request or JSON
+/// decoding fails.
 pub fn get_crypto_currencies(
   api_key: String,
   limit: Option(Int),
@@ -90,6 +98,13 @@ pub fn get_crypto_currencies(
   )
 }
 
+/// Fetches the CoinMarketCap fiat currency map in CoinMarketCap ID order.
+///
+/// Uses 100 when `limit` is `None`. `timeout_ms` sets the HTTP timeout in
+/// milliseconds.
+///
+/// Returns decoded API errors as `Ok(CmcApiError(...))`. Returns `Error` if the
+/// HTTP request or JSON decoding fails.
 pub fn get_fiat_currencies(
   api_key: String,
   limit: Option(Int),
@@ -107,20 +122,24 @@ pub fn get_fiat_currencies(
   )
 }
 
+/// Requests a CoinMarketCap price conversion for the amount and currency IDs
+/// in `params`. The quote expresses the converted amount in target currency units.
+///
+/// `timeout_ms` sets the HTTP timeout in milliseconds. Returns decoded API
+/// errors as `Ok(CmcApiError(...))`. Returns `Error` if the HTTP request or JSON
+/// decoding fails.
 pub fn get_conversion(
   api_key: String,
   params: CmcConversionParameters,
   timeout_ms: Int,
 ) -> Result(CmcResponse(CmcConversion), CmcRequestError) {
-  let CmcConversionParameters(amount:, id:, convert_id:) = params
-
   get(
     api_key,
     "/v2/tools/price-conversion",
     [
-      #("amount", float.to_string(amount)),
-      #("id", int.to_string(id)),
-      #("convert_id", int.to_string(convert_id)),
+      #("amount", float.to_string(params.amount)),
+      #("id", int.to_string(params.id)),
+      #("convert_id", int.to_string(params.convert_id)),
     ],
     timeout_ms,
     cmc_conversion.decoder(),
