@@ -460,6 +460,49 @@ pub fn first_interest_in_an_unsupported_pair_waits_for_listing_test() {
   assert next_request(fixture, 0) == TickerUnsubscribe(["XRP/USD"])
 }
 
+pub fn releasing_pending_ticker_requires_fresh_confirmation_on_resubscribe_test() {
+  use fixture, url <- with_server([ManualTickers])
+  use client, opened, _ <- with_client(fixture, url, config())
+  assert next_request(fixture, 0) == InstrumentSubscribe
+
+  let subject = client.data.subject
+  process.send(subject, Subscribe("BTC/USD"))
+  let assert TickerSubscribe(["BTC/USD"], old_id) = next_request(fixture, 0)
+
+  process.send(subject, Unsubscribe("BTC/USD"))
+  assert next_request(fixture, 0) == TickerUnsubscribe(["BTC/USD"])
+
+  process.send(subject, Unsubscribe("BTC/USD"))
+  process.send(subject, Subscribe("BTC/USD"))
+  let assert TickerSubscribe(["BTC/USD"], new_id) = next_request(fixture, 0)
+  assert new_id > old_id
+
+  // The ETH quote proves the session has processed the preceding BTC frames.
+  process.send(subject, Subscribe("ETH/USD"))
+  let assert TickerSubscribe(["ETH/USD"], eth_id) = next_request(fixture, 0)
+  process.send(
+    opened.control,
+    Send(ticker_confirmation_json("BTC/USD", old_id)),
+  )
+  process.send(opened.control, Send(ticker_json("BTC/USD", 999)))
+  process.send(
+    opened.control,
+    Send(ticker_confirmation_json("ETH/USD", eth_id)),
+  )
+  process.send(opened.control, Send(ticker_json("ETH/USD", 100)))
+
+  let store = client.data.price_store
+  let _ = await_symbol_price(store, "ETH/USD", 100.0, 100)
+  assert price_store.get_price(store, "BTC/USD") == Error(Nil)
+
+  process.send(
+    opened.control,
+    Send(ticker_confirmation_json("BTC/USD", new_id)),
+  )
+  process.send(opened.control, Send(ticker_json("BTC/USD", 101)))
+  let _ = await_price(store, 101.0, 100)
+}
+
 pub fn relisting_restores_shared_interest_and_requires_fresh_confirmation_test() {
   use fixture, url <- with_server([ManualTickers])
   use client, opened, _ <- with_client(fixture, url, config())
