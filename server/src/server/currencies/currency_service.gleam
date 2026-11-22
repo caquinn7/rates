@@ -36,26 +36,6 @@ pub fn start(
   logger: Logger,
 ) -> Result(#(CurrencyRepository, CurrencySymbolCache), StartError) {
   let logger = logger.with_source(logger, "currency_service")
-  use store <- result.try(
-    currency_store.new()
-    |> result.map_error(StoreCreationFailed),
-  )
-
-  store
-  |> initialize(cmc_api_key, crypto_limit, supported_fiat_symbols, logger)
-  |> result.map_error(fn(error) {
-    currency_store.delete(store)
-    error
-  })
-}
-
-fn initialize(
-  store: CurrencyStore,
-  cmc_api_key: String,
-  crypto_limit: Int,
-  supported_fiat_symbols: List(String),
-  logger: Logger,
-) -> Result(#(CurrencyRepository, CurrencySymbolCache), StartError) {
   let crypto_limit = Some(crypto_limit)
 
   let request_crypto_catalog = fn() {
@@ -74,20 +54,14 @@ fn initialize(
     )
   }
 
-  use currencies <- result.try(
+  let load_catalog = fn() {
     currency_catalog_loader.get_currencies(
       supported_fiat_symbols,
       request_crypto_catalog,
       request_fiat_catalog,
       currency_fetch_timeout_ms,
     )
-    |> result.map_error(CatalogLoadFailed),
-  )
-
-  let currency_repository = currency_repository.new(store)
-  currency_repository.insert(currencies)
-
-  log_currency_count(logger, list.length(currencies))
+  }
 
   let request_cryptos_by_symbol = cmc_client.get_crypto_currencies(
     cmc_api_key,
@@ -96,20 +70,61 @@ fn initialize(
     cmc_symbol_lookup_timeout_ms,
   )
 
-  use currency_symbol_cache <- result.try(
-    currency_symbol_cache_factory.create(
-      currency_repository,
-      request_cryptos_by_symbol,
-      fn(err) {
-        logger
-        |> logger.with("error", string.inspect(err))
-        |> logger.error("Error getting cryptos from CMC")
-      },
-    )
-    |> result.map_error(CacheStartFailed),
+  let start_cache = currency_symbol_cache_factory.create(
+    _,
+    request_cryptos_by_symbol,
+    fn(err) {
+      logger
+      |> logger.with("error", string.inspect(err))
+      |> logger.error("Error getting cryptos from CMC")
+    },
   )
 
-  Ok(#(currency_repository, currency_symbol_cache))
+  start_with_dependencies(load_catalog, start_cache, logger)
+}
+
+/// Assembles the service with the supplied catalog loader and cache starter.
+/// The caller owns the store, and a startup error deletes the newly created table.
+@internal
+pub fn start_with_dependencies(
+  load_catalog: fn() -> currency_catalog_loader.CurrenciesResult,
+  start_cache: fn(CurrencyRepository) ->
+    Result(CurrencySymbolCache, actor.StartError),
+  logger: Logger,
+) -> Result(#(CurrencyRepository, CurrencySymbolCache), StartError) {
+  use store <- result.try(
+    currency_store.new()
+    |> result.map_error(StoreCreationFailed),
+  )
+
+  store
+  |> initialize(load_catalog, start_cache, logger)
+  |> result.map_error(fn(error) {
+    currency_store.delete(store)
+    error
+  })
+}
+
+fn initialize(
+  store: CurrencyStore,
+  load_catalog: fn() -> currency_catalog_loader.CurrenciesResult,
+  start_cache: fn(CurrencyRepository) ->
+    Result(CurrencySymbolCache, actor.StartError),
+  logger: Logger,
+) -> Result(#(CurrencyRepository, CurrencySymbolCache), StartError) {
+  use currencies <- result.try(
+    load_catalog()
+    |> result.map_error(CatalogLoadFailed),
+  )
+
+  let currency_repository = currency_repository.new(store)
+  currency_repository.insert(currencies)
+
+  log_currency_count(logger, list.length(currencies))
+
+  start_cache(currency_repository)
+  |> result.map_error(CacheStartFailed)
+  |> result.map(fn(cache) { #(currency_repository, cache) })
 }
 
 fn log_currency_count(logger: Logger, count: Int) -> Nil {
