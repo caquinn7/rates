@@ -44,7 +44,7 @@ pub fn get_by_symbol_returns_error_when_fetch_fails_test() {
 }
 
 pub fn cached_lookup_returns_while_another_symbol_is_fetching_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
   let btc = Crypto(1, "Bitcoin", "BTC", None)
   let eth = Crypto(1027, "Ethereum", "ETH", None)
   currency_store.insert(store, [btc])
@@ -70,7 +70,7 @@ pub fn cached_lookup_returns_while_another_symbol_is_fetching_test() {
 }
 
 pub fn concurrent_misses_for_one_symbol_fetch_only_once_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
   let btc = Crypto(1, "Bitcoin", "BTC", None)
   let misses = process.new_subject()
   let fetches = process.new_subject()
@@ -97,7 +97,7 @@ pub fn concurrent_misses_for_one_symbol_fetch_only_once_test() {
 }
 
 pub fn miss_rechecks_cache_after_waiting_for_another_fetch_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
   let btc = Crypto(1, "Bitcoin", "BTC", None)
   let eth = Crypto(1027, "Ethereum", "ETH", None)
   let misses = process.new_subject()
@@ -145,7 +145,7 @@ pub fn nonpositive_timeouts_allow_hits_but_do_not_fetch_misses_test() {
 }
 
 pub fn timed_out_fetch_populates_cache_and_caller_can_lookup_again_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
   let btc = Crypto(1, "Bitcoin", "BTC", None)
   let eth = Crypto(1027, "Ethereum", "ETH", None)
   let fetches = process.new_subject()
@@ -179,7 +179,7 @@ pub fn timed_out_fetch_populates_cache_and_caller_can_lookup_again_test() {
 }
 
 pub fn expired_queued_miss_skips_storage_and_fetching_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
   let btc = Crypto(1, "Bitcoin", "BTC", None)
   let sol = Crypto(5426, "Solana", "SOL", None)
   let fetches = process.new_subject()
@@ -275,12 +275,6 @@ pub fn unavailable_actor_returns_error_but_cached_hits_still_succeed_test() {
 
   assert currency_symbol_cache.get_by_symbol(cache, "BTC") == Error(Nil)
   assert currency_symbol_cache.get_by_symbol(cache, "ETH") == Ok([eth])
-}
-
-fn with_currency_store(run: fn(CurrencyStore) -> a) -> a {
-  let assert Ok(store) = currency_store.new()
-  use <- exception.defer(fn() { currency_store.drop(store) })
-  run(store)
 }
 
 fn start_lookup(

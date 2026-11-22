@@ -17,7 +17,7 @@ type PriceRow =
 
 /// A handle to a protected ETS table of prices and provider timestamps, keyed by
 /// Kraken symbol. Any process may read from the store; only its owner may mutate it.
-/// The handle remains valid until the table is dropped or its owning process exits.
+/// The handle becomes invalid when its owning process exits.
 pub opaque type PriceStore {
   PriceStore(TableId)
 }
@@ -113,16 +113,6 @@ pub fn delete_price(store: PriceStore, symbol: String) -> Nil {
   Nil
 }
 
-/// Deletes the underlying ETS table associated with the given `PriceStore`.
-///
-/// Only the process that owns the store may call this. Existing references must
-/// not be used after deletion. The table is also destroyed when its owner exits.
-pub fn drop(store: PriceStore) -> Nil {
-  let PriceStore(table) = store
-  let _ = delete_table(table)
-  Nil
-}
-
 @external(erlang, "price_store_ffi", "create_table")
 fn create_table() -> Result(TableId, String)
 
@@ -134,6 +124,3 @@ fn lookup(table: TableId, symbol: String) -> List(PriceRow)
 
 @external(erlang, "ets", "delete")
 fn delete_row(table: TableId, symbol: String) -> Bool
-
-@external(erlang, "ets", "delete")
-fn delete_table(table: TableId) -> Bool

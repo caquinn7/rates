@@ -4,13 +4,13 @@ import gleam/erlang/atom
 import gleam/erlang/process
 import gleam/list
 import gleam/option.{Some}
-import server/currencies/internal/currency_store.{type CurrencyStore}
+import server/currencies/internal/currency_store
 import shared/currency.{Crypto, Fiat}
 
 // new
 
 pub fn stores_are_independent_across_owners_test() {
-  use local_store <- with_currency_store
+  let assert Ok(local_store) = currency_store.new()
 
   // Create the second table in an unlinked process so the test can stop its owner.
   let ready = process.new_subject()
@@ -50,7 +50,7 @@ pub fn stores_are_independent_across_owners_test() {
 // insert
 
 pub fn insert_inserts_currencies_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
 
   [
     Crypto(1, "Bitcoin", "BTC", Some(1)),
@@ -66,7 +66,7 @@ pub fn insert_inserts_currencies_test() {
 }
 
 pub fn insert_replaces_currency_when_id_already_exists_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
 
   let currency = Crypto(1, "Bitcoin", "BTC", Some(1))
   currency_store.insert(store, [currency])
@@ -78,7 +78,7 @@ pub fn insert_replaces_currency_when_id_already_exists_test() {
 }
 
 pub fn insert_replaces_symbol_without_affecting_other_currencies_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
 
   let currency = Crypto(1, "Token", "OLD", Some(1))
   let other_currency = Fiat(2781, "Other Currency", "OLD", "$")
@@ -95,7 +95,7 @@ pub fn insert_replaces_symbol_without_affecting_other_currencies_test() {
 // get_by_id
 
 pub fn get_by_id_returns_currency_when_found_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
 
   let btc = Crypto(1, "Bitcoin", "BTC", Some(1))
   let usd = Fiat(2781, "United States Dollar", "USD", "$")
@@ -107,7 +107,7 @@ pub fn get_by_id_returns_currency_when_found_test() {
 }
 
 pub fn get_by_id_returns_error_when_not_found_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
 
   let btc = Crypto(1, "Bitcoin", "BTC", Some(1))
   currency_store.insert(store, [btc])
@@ -116,7 +116,7 @@ pub fn get_by_id_returns_error_when_not_found_test() {
 }
 
 pub fn get_by_id_returns_error_on_empty_store_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
 
   assert currency_store.get_by_id(store, 1) == Error(Nil)
 }
@@ -124,7 +124,7 @@ pub fn get_by_id_returns_error_on_empty_store_test() {
 // get_by_symbol
 
 pub fn get_by_symbol_returns_empty_list_when_not_found_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
 
   let btc = Crypto(1, "Bitcoin", "BTC", Some(1))
   currency_store.insert(store, [btc])
@@ -134,7 +134,7 @@ pub fn get_by_symbol_returns_empty_list_when_not_found_test() {
 }
 
 pub fn get_by_symbol_is_case_sensitive_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
 
   let btc = Crypto(1, "Bitcoin", "BTC", Some(1))
   currency_store.insert(store, [btc])
@@ -144,7 +144,7 @@ pub fn get_by_symbol_is_case_sensitive_test() {
 }
 
 pub fn get_by_symbol_returns_multiple_currencies_with_same_symbol_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
 
   // Some tokens might share the same symbol
   let currency1 = Crypto(1, "Token One", "TKN", Some(1))
@@ -160,7 +160,7 @@ pub fn get_by_symbol_returns_multiple_currencies_with_same_symbol_test() {
 }
 
 pub fn get_by_symbol_returns_crypto_and_fiat_with_same_symbol_test() {
-  use store <- with_currency_store
+  let assert Ok(store) = currency_store.new()
 
   let crypto = Crypto(1, "Token", "USD", Some(1))
   let fiat = Fiat(2781, "United States Dollar", "USD", "$")
@@ -171,12 +171,4 @@ pub fn get_by_symbol_returns_crypto_and_fiat_with_same_symbol_test() {
   assert list.length(result) == 2
   assert list.contains(result, crypto)
   assert list.contains(result, fiat)
-}
-
-/// Runs a test callback with a fresh, unnamed `CurrencyStore` and drops the
-/// store when the callback returns or raises.
-fn with_currency_store(run: fn(CurrencyStore) -> a) -> a {
-  let assert Ok(store) = currency_store.new()
-  use <- exception.defer(fn() { currency_store.drop(store) })
-  run(store)
 }

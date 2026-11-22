@@ -92,16 +92,6 @@ pub fn get_by_symbol(store: CurrencyStore, symbol: String) -> List(Currency) {
   list.map(match_by_symbol(table, symbol), fn(row) { row.2 })
 }
 
-/// Deletes the underlying ETS table associated with the given `CurrencyStore`.
-///
-/// All references to the deleted table become invalid. The table is also destroyed
-/// automatically when its owner process exits.
-pub fn drop(store: CurrencyStore) -> Nil {
-  let CurrencyStore(table) = store
-  let _ = delete_table(table)
-  Nil
-}
-
 @external(erlang, "currency_store_ffi", "create_table")
 fn create_table() -> Result(TableId, String)
 
@@ -116,6 +106,3 @@ fn lookup(table: TableId, id: Int) -> List(CurrencyRow)
 
 @external(erlang, "currency_store_ffi", "match_by_symbol")
 fn match_by_symbol(table: TableId, symbol: String) -> List(CurrencyRow)
-
-@external(erlang, "ets", "delete")
-fn delete_table(table: TableId) -> Bool
