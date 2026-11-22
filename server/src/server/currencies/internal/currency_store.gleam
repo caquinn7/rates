@@ -45,6 +45,13 @@ pub fn new() -> Result(CurrencyStore, String) {
   result.map(create_table(), CurrencyStore)
 }
 
+/// Deletes the table. Call from the process that owns the store.
+pub fn delete(store: CurrencyStore) -> Nil {
+  let CurrencyStore(table) = store
+  let _ = delete_table(table)
+  Nil
+}
+
 /// Inserts or updates currencies in the store.
 ///
 /// Each currency is keyed by its `id` field. If a currency with the same `id`
@@ -94,6 +101,9 @@ pub fn get_by_symbol(store: CurrencyStore, symbol: String) -> List(Currency) {
 
 @external(erlang, "currency_store_ffi", "create_table")
 fn create_table() -> Result(TableId, String)
+
+@external(erlang, "ets", "delete")
+fn delete_table(table: TableId) -> Bool
 
 @external(erlang, "ets", "insert")
 fn insert_rows(table: TableId, rows: List(CurrencyRow)) -> Bool

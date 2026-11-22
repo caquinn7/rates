@@ -1,4 +1,5 @@
 import gleam/option.{type Option, Some}
+import gleam/otp/actor.{type StartError}
 import gleam/result
 import server/currencies/cmc_currency_handler.{type FetchError}
 import server/currencies/currency_repository.{type CurrencyRepository}
@@ -23,13 +24,13 @@ pub type RequestCmcCryptosBySymbol =
 /// being returned. The repository must support concurrent reads and make inserts
 /// visible to subsequent lookups.
 ///
-/// Fetch failures are passed to `on_fetch_failed` and returned to lookup callers
-/// as `Error(Nil)`. Panics if the cache actor cannot be started.
+/// Returns a startup error if the cache actor cannot be started. During lookups,
+/// fetch failures are passed to `on_fetch_failed` and returned as `Error(Nil)`.
 pub fn create(
   currency_repository: CurrencyRepository,
   request_cmc_cryptos: RequestCmcCryptosBySymbol,
   on_fetch_failed: fn(FetchError) -> Nil,
-) -> CurrencySymbolCache {
+) -> Result(CurrencySymbolCache, StartError) {
   let get_cached = currency_repository.get_by_symbol
 
   let fetch_and_cache = fn(symbol) {
@@ -44,8 +45,5 @@ pub fn create(
     |> result.map_error(on_fetch_failed)
   }
 
-  let assert Ok(currency_symbol_cache) =
-    currency_symbol_cache.new(get_cached, fetch_and_cache)
-
-  currency_symbol_cache
+  currency_symbol_cache.new(get_cached, fetch_and_cache)
 }

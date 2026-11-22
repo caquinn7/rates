@@ -5,6 +5,7 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, Some}
+import gleam/result
 import gleam/string
 import mist.{
   type WebsocketConnection, type WebsocketMessage, Binary, Closed, Custom,
@@ -86,24 +87,43 @@ fn handle_text(
 
   case json.parse(text, websocket_request.decoder()) {
     Ok(Subscribe(subscription_reqs)) -> {
-      let rate_subscribers =
+      let updated_subscribers =
         subscription_reqs
-        |> list.fold(rate_subscribers, fn(subscribers, request) {
+        |> list.try_fold(rate_subscribers, fn(subscribers, request) {
           let id = request.id
 
-          let #(subscriber, subscribers) = case dict.get(subscribers, id) {
-            Ok(subscriber) -> #(subscriber, subscribers)
-            Error(_) -> {
-              let subscriber = create_rate_subscriber(id, subject)
-              #(subscriber, dict.insert(subscribers, id, subscriber))
+          case dict.get(subscribers, id) {
+            Ok(subscriber) -> {
+              rate_subscriber.subscribe(subscriber, request.rate_request)
+              Ok(subscribers)
             }
+            Error(_) ->
+              create_rate_subscriber(id, subject)
+              |> result.map(fn(subscriber) {
+                rate_subscriber.subscribe(subscriber, request.rate_request)
+                dict.insert(subscribers, id, subscriber)
+              })
+              |> result.map_error(fn(err) { #(subscribers, id, err) })
           }
-
-          rate_subscriber.subscribe(subscriber, request.rate_request)
-          subscribers
         })
 
-      mist.continue(State(..state, rate_subscribers:))
+      case updated_subscribers {
+        Ok(subscribers) ->
+          mist.continue(State(..state, rate_subscribers: subscribers))
+        Error(#(subscribers, id, reason)) -> {
+          // Mist passes the state from before this frame to on_close.
+          subscribers
+          |> dict.filter(fn(id, _) { !dict.has_key(rate_subscribers, id) })
+          |> dict.each(fn(_, subscriber) { rate_subscriber.stop(subscriber) })
+
+          logger
+          |> logger.with("subscription_id", subscription_id.to_string(id))
+          |> logger.with("error", string.inspect(reason))
+          |> logger.error("Failed to start rate subscriber")
+
+          mist.stop()
+        }
+      }
     }
 
     Ok(Unsubscribe(subscription_id)) -> {
