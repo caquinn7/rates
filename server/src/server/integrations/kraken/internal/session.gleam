@@ -1,5 +1,5 @@
 //// Maintains a Kraken session across WebSocket connections. Only connection
-//// workers are replaced on failure; the session retains the protected ETS table
+//// workers are replaced on failure; the session retains its protected ETS tables
 //// and client reference counts.
 
 import gleam/bool
@@ -23,7 +23,7 @@ import server/integrations/kraken/internal/response.{
 import server/integrations/kraken/internal/subscription_counter.{
   type SubscriptionCounter,
 }
-import server/integrations/kraken/pairs
+import server/integrations/kraken/pair_store.{type PairStore}
 import server/integrations/kraken/price_store.{type PriceStore}
 import server/utils/logger.{type Logger}
 import server/utils/time
@@ -95,7 +95,6 @@ pub type Message {
   /// Confirms a monitored connection worker has exited so a retry can be
   /// scheduled. Only notifications matching the current worker's PID and
   /// monitor reference are handled.
-  ///
   WorkerDown(process.Down)
 
   /// Wraps a connection or timer event with its connection attempt number.
@@ -164,12 +163,23 @@ type Context {
   Context(logger: Logger, url: String, config: Config)
 }
 
+/// The command subject and read handles returned to a session's caller.
+pub type SessionHandle {
+  SessionHandle(
+    subject: Subject(Message),
+    price_store: PriceStore,
+    pair_store: PairStore,
+  )
+}
+
 type State {
   State(
     /// Receives client commands, connection notifications, and timer events.
     self: Subject(Message),
-    /// Handle to the session-owned ETS table, reused across reconnects.
+    /// Handle to the session-owned price table, reused across reconnects.
     price_store: PriceStore,
+    /// Handle to the session-owned pair table, reused across reconnects.
+    pair_store: PairStore,
     /// Current connection phase, including any worker and socket handles.
     phase: Phase,
     /// Zero-based connection attempt number used to discard stale events.
@@ -198,20 +208,21 @@ type State {
 /// Starts a Kraken session at `url` using the supplied timing and transport settings.
 ///
 /// Waits for the initial WebSocket handshake, returning a startup error on failure
-/// or timeout. After a successful handshake, calls `create_store` once inside the
-/// session process so the session owns the newly created price store.
+/// or timeout. After a successful handshake, the session calls `create_store`
+/// once and creates its pair store, so it owns both tables. Creation failures
+/// are returned as startup errors.
 ///
-/// The successful start result contains the session PID and message subject.
+/// The successful start result contains the PID, subject, and both store handles.
 /// Instrument discovery continues asynchronously; subscription interest received
 /// during discovery is retained until the session is ready. Later connection
 /// failures trigger automatic retries, preserving subscription interest and
 /// cached prices for pairs still listed, with their original timestamps.
 pub fn start(
   logger: Logger,
-  create_store: fn() -> PriceStore,
+  create_store: fn() -> Result(PriceStore, String),
   url: String,
   config: Config,
-) -> actor.StartResult(Subject(Message)) {
+) -> actor.StartResult(SessionHandle) {
   let context = Context(logger:, url:, config:)
 
   actor.new_with_initialiser(config.connect_timeout_ms + 1000, fn(self) {
@@ -224,11 +235,24 @@ pub fn start(
 
     // Preserve the constructor's handshake/error contract and ETS ownership.
     use socket <- result.try(await_initial_connection(selector, config))
+    use price_store <- result.try(
+      create_store()
+      |> result.map_error(fn(reason) {
+        "Could not create Kraken price store\n" <> reason
+      }),
+    )
+    use pair_store <- result.try(
+      pair_store.new()
+      |> result.map_error(fn(reason) {
+        "Could not create Kraken pair store\n" <> reason
+      }),
+    )
 
     let state =
       State(
         self:,
-        price_store: create_store(),
+        price_store:,
+        pair_store:,
         phase: Connecting(worker),
         generation: 0,
         supported_symbols: None,
@@ -244,7 +268,7 @@ pub fn start(
     |> begin_discovery(config, worker, socket)
     |> actor.initialised
     |> actor.selecting(selector)
-    |> actor.returning(self)
+    |> actor.returning(SessionHandle(self, price_store, pair_store))
     |> Ok
   })
   |> actor.on_message(fn(state, message) {
@@ -581,18 +605,19 @@ fn schedule_reconnect(context: Context, state: State) -> State {
 }
 
 /// Publishes the first pair registry and subsequent membership changes.
-/// Evicts cached prices for removed pairs before publishing the new set.
+/// Evicts cached prices for removed pairs before changing published membership.
 /// While ready, stops tickers for removed pairs and requests tickers for newly
 /// supported pairs with pending client interest. Interest survives pair removal.
 fn replace_pairs(state: State, symbols: Set(String)) -> State {
-  // Metadata-only updates need no persistent_term write.
+  // Metadata-only updates leave membership alone.
   use <- bool.guard(state.supported_symbols == Some(symbols), state)
 
   let previous = option.unwrap(state.supported_symbols, set.new())
+  let added = set.difference(symbols, previous)
   let removed = set.difference(previous, symbols)
   let state =
     set.fold(removed, state, fn(state, symbol) {
-      // Evict cached prices before publishing the new registry to readers.
+      // Readers can still see this symbol until membership is updated.
       price_store.delete_price(state.price_store, symbol)
 
       case state.phase {
@@ -610,12 +635,12 @@ fn replace_pairs(state: State, symbols: Set(String)) -> State {
       }
     })
 
-  pairs.set(symbols)
+  pair_store.apply_changes(state.pair_store, added:, removed:)
   let state = State(..state, supported_symbols: Some(symbols))
 
   case state.phase {
     Ready(_, socket) ->
-      set.fold(set.difference(symbols, previous), state, fn(state, symbol) {
+      set.fold(added, state, fn(state, symbol) {
         case
           subscription_counter.get_pending_count(state.subscriptions, symbol)
         {

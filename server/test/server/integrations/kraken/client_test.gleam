@@ -13,13 +13,7 @@ import server/utils/logger
 pub fn startup_waits_for_websocket_handshake_test() {
   let handler = fn(req) {
     process.sleep(250)
-
-    mist.websocket(
-      req,
-      on_init: fn(_) { #(Nil, None) },
-      handler: fn(state, _, _) { mist.continue(state) },
-      on_close: fn(_) { Nil },
-    )
+    accept_websocket(req)
   }
   use url <- with_server(handler)
 
@@ -32,9 +26,8 @@ pub fn startup_waits_for_websocket_handshake_test() {
   })
 
   let create_store = fn() {
-    let assert Ok(store) = price_store.new()
     process.send(owner, process.self())
-    store
+    price_store.new()
   }
 
   let assert Ok(_) = client.new_with_url(logger.new(), create_store, url)
@@ -55,6 +48,25 @@ pub fn startup_returns_websocket_handshake_failure_test() {
 
   let assert Error(actor.InitFailed(_)) =
     client.new_with_url(logger.new(), create_store, url)
+}
+
+pub fn startup_returns_the_price_store_creation_error_test() {
+  use url <- with_server(accept_websocket)
+  let diagnostic = "simulated ETS allocation error"
+  let create_store = fn() { Error(diagnostic) }
+
+  let assert Error(actor.InitFailed(reason)) =
+    client.new_with_url(logger.new(), create_store, url)
+  assert reason == "Could not create Kraken price store\n" <> diagnostic
+}
+
+fn accept_websocket(req) {
+  mist.websocket(
+    req,
+    on_init: fn(_) { #(Nil, None) },
+    handler: fn(state, _, _) { mist.continue(state) },
+    on_close: fn(_) { Nil },
+  )
 }
 
 fn with_server(handler, run) {

@@ -18,16 +18,19 @@ import gleam/list
 import gleam/result
 import shared/currency.{type Currency}
 
+/// Runtime identifier returned by `ets:new/2` for an unnamed ETS table.
 type TableId
 
+/// An ETS row containing the currency ID key, symbol, and full currency record.
 type CurrencyRow =
   #(Int, String, Currency)
 
+/// Handle to a public ETS table of currencies keyed by currency ID.
 pub opaque type CurrencyStore {
   CurrencyStore(TableId)
 }
 
-/// Creates a new `CurrencyStore` by initializing an ETS table.
+/// Creates an independent `CurrencyStore` backed by an unnamed ETS table.
 ///
 /// The calling process owns the table, which is destroyed when that process exits.
 ///
@@ -37,8 +40,8 @@ pub opaque type CurrencyStore {
 /// - **Auto write concurrency**: The runtime automatically decides whether to enable write concurrency
 ///   optimizations based on actual usage patterns.
 ///
-/// Returns `Error(Nil)` if a table with this name already exists.
-pub fn new() -> Result(CurrencyStore, Nil) {
+/// Returns an ETS diagnostic if table creation fails.
+pub fn new() -> Result(CurrencyStore, String) {
   result.map(create_table(), CurrencyStore)
 }
 
@@ -89,18 +92,8 @@ pub fn get_by_symbol(store: CurrencyStore, symbol: String) -> List(Currency) {
   list.map(match_by_symbol(table, symbol), fn(row) { row.2 })
 }
 
-/// Deletes the underlying ETS table associated with the given `CurrencyStore`.
-///
-/// All references to the deleted table become invalid. The table is also destroyed
-/// automatically when its owner process exits.
-pub fn drop(store: CurrencyStore) -> Nil {
-  let CurrencyStore(table) = store
-  let _ = delete_table(table)
-  Nil
-}
-
 @external(erlang, "currency_store_ffi", "create_table")
-fn create_table() -> Result(TableId, Nil)
+fn create_table() -> Result(TableId, String)
 
 @external(erlang, "ets", "insert")
 fn insert_rows(table: TableId, rows: List(CurrencyRow)) -> Bool
@@ -113,6 +106,3 @@ fn lookup(table: TableId, id: Int) -> List(CurrencyRow)
 
 @external(erlang, "currency_store_ffi", "match_by_symbol")
 fn match_by_symbol(table: TableId, symbol: String) -> List(CurrencyRow)
-
-@external(erlang, "ets", "delete")
-fn delete_table(table: TableId) -> Bool

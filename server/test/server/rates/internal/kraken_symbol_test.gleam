@@ -1,5 +1,5 @@
 import gleam/set
-import server/integrations/kraken/pairs
+import server/integrations/kraken/pair_store
 import server/rates/internal/kraken_symbol
 
 pub fn new_returns_direct_when_only_direct_symbol_exists_test() {
@@ -61,11 +61,15 @@ pub fn new_returns_error_when_neither_symbol_exists_test() {
   assert Error(Nil) == kraken_symbol.new(#(1, 2781), fn(_) { False })
 }
 
-pub fn new_integrates_with_pairs_exists_test() {
-  pairs.clear()
-  pairs.set(set.from_list(["BTC/USD", "ETH/EUR"]))
+pub fn new_integrates_with_pair_store_test() {
+  let assert Ok(store) = pair_store.new()
+  pair_store.apply_changes(
+    store,
+    added: set.from_list(["BTC/USD", "ETH/EUR"]),
+    removed: set.new(),
+  )
 
-  let result = kraken_symbol.new(#(1, 2781), pairs.exists)
+  let result = kraken_symbol.new(#(1, 2781), pair_store.exists(store, _))
 
   let assert Ok(kraken_symbol) = result
   assert "BTC/USD" == kraken_symbol.to_string(kraken_symbol)

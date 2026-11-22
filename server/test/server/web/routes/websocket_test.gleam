@@ -19,8 +19,8 @@ import server/integrations/coin_market_cap/cmc_conversion.{
 }
 import server/integrations/kraken/client_recovery_test as fixture
 import server/integrations/kraken/internal/session as kraken_session
-import server/integrations/kraken/pairs
-import server/integrations/kraken/price_store.{type PriceStore}
+import server/integrations/kraken/pair_store
+import server/integrations/kraken/price_store
 import server/rates/internal/cmc_rate_handler.{type RequestCmcConversion}
 import server/rates/internal/kraken_interface.{
   type KrakenInterface, KrakenInterface,
@@ -373,12 +373,11 @@ fn with_blocked_cmc_provider(
 }
 
 fn with_application(
-  kraken: Subject(kraken_session.Message),
+  kraken: kraken_session.SessionHandle,
   run: fn(String, Subject(Pid)) -> a,
 ) -> a {
   let subscribers = process.new_subject()
-  let assert Ok(store) = price_store.get_store()
-  let kraken_interface = create_kraken_interface(kraken, subscribers, store)
+  let kraken_interface = create_kraken_interface(kraken, subscribers)
   let factory = fn(id, reply_to) {
     create_rate_subscriber(id, reply_to, kraken_interface)
   }
@@ -421,28 +420,35 @@ fn with_application_factory(
 }
 
 fn create_kraken_interface(
-  kraken: Subject(kraken_session.Message),
+  kraken: kraken_session.SessionHandle,
   subscribers: Subject(Pid),
-  store: PriceStore,
 ) -> KrakenInterface {
   KrakenInterface(
-    get_kraken_symbol: kraken_symbol.new(_, pairs.exists),
+    get_kraken_symbol: kraken_symbol.new(_, pair_store.exists(
+      kraken.pair_store,
+      _,
+    )),
     subscribe: fn(symbol) {
       process.send(subscribers, process.self())
       process.send(
-        kraken,
+        kraken.subject,
         kraken_session.Subscribe(kraken_symbol.to_string(symbol)),
       )
     },
     unsubscribe: fn(symbol) {
       process.send(
-        kraken,
+        kraken.subject,
         kraken_session.Unsubscribe(kraken_symbol.to_string(symbol)),
       )
     },
     check_for_price: fn(symbol) {
       retry.attempt(
-        fn() { price_store.get_price(store, kraken_symbol.to_string(symbol)) },
+        fn() {
+          price_store.get_price(
+            kraken.price_store,
+            kraken_symbol.to_string(symbol),
+          )
+        },
         5,
         50,
       )

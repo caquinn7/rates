@@ -2,17 +2,25 @@ import exception
 import gleam/dynamic/decode
 import gleam/erlang/atom
 import gleam/erlang/process
-import gleeunit/should
 import server/integrations/kraken/price_store.{type PriceStore, PriceEntry}
 import shared/numbers/positive_float
 
-pub fn unable_to_create_twice_test() {
-  use _ <- with_price_store
-  assert Error(Nil) == price_store.new()
+pub fn stores_can_cache_different_quotes_for_the_same_symbol_test() {
+  let assert Ok(first) = price_store.new()
+  let assert Ok(second) = price_store.new()
+  let symbol = "BTC/USD"
+  let first_price = positive_float.from_float_unsafe(90_000.0)
+  let second_price = positive_float.from_float_unsafe(100_000.0)
+  price_store.insert(first, symbol, first_price, 1)
+  price_store.insert(second, symbol, second_price, 2)
+
+  assert price_store.get_price(first, symbol) == Ok(PriceEntry(first_price, 1))
+  assert price_store.get_price(second, symbol)
+    == Ok(PriceEntry(second_price, 2))
 }
 
 pub fn insert_symbol_that_does_not_exist_test() {
-  use store <- with_price_store
+  let assert Ok(store) = price_store.new()
 
   let symbol = "BTC/USD"
   let expected_price = positive_float.from_float_unsafe(90_000.0)
@@ -26,7 +34,7 @@ pub fn insert_symbol_that_does_not_exist_test() {
 }
 
 pub fn insert_symbol_that_exists_test() {
-  use store <- with_price_store
+  let assert Ok(store) = price_store.new()
 
   let symbol = "BTC/USD"
   let first_price = positive_float.from_float_unsafe(90_000.0)
@@ -42,66 +50,18 @@ pub fn insert_symbol_that_exists_test() {
 }
 
 pub fn get_price_for_symbol_that_does_not_exist_test() {
-  use store <- with_price_store
+  let assert Ok(store) = price_store.new()
   assert Error(Nil) == price_store.get_price(store, "BTC/USD")
 }
 
-pub fn get_store_test() {
-  use store <- with_price_store
-
-  let price = positive_float.from_float_unsafe(90_000.0)
-  price_store.insert(store, "BTC/USD", price, 1)
-
-  let assert Ok(retrieved_store) = price_store.get_store()
-  assert price_store.get_price(retrieved_store, "BTC/USD")
-    == Ok(PriceEntry(price, 1))
-}
-
-pub fn get_store_returns_error_when_not_initialized_test() {
-  price_store.get_store()
-  |> should.be_error
-  |> should.equal(Nil)
-}
-
-pub fn get_store_returns_error_after_table_is_dropped_test() {
+pub fn non_owner_can_read_price_through_handle_test() {
   let assert Ok(store) = price_store.new()
-  price_store.drop(store)
-
-  assert price_store.get_store() == Error(Nil)
-}
-
-pub fn retrieved_handle_expires_when_the_table_is_recreated_test() {
-  let old_store = {
-    use _ <- with_price_store
-    let assert Ok(store) = price_store.get_store()
-    store
-  }
-
-  use replacement <- with_price_store
-  let symbol = "BTC/USD"
-  let price = positive_float.from_float_unsafe(90_000.0)
-  price_store.insert(replacement, symbol, price, 1)
-
-  let assert Ok(current_store) = price_store.get_store()
-  assert price_store.get_price(current_store, symbol)
-    == Ok(PriceEntry(price, 1))
-
-  let assert Error(exception.Errored(reason)) =
-    exception.rescue(fn() { price_store.get_price(old_store, symbol) })
-  assert decode.run(reason, atom.decoder()) == Ok(atom.create("badarg"))
-}
-
-pub fn non_owner_can_get_store_and_read_price_test() {
-  use store <- with_price_store
 
   let price = positive_float.from_float_unsafe(90_000.0)
   price_store.insert(store, "BTC/USD", price, 1)
 
   let result =
-    in_other_process(fn() {
-      let assert Ok(retrieved_store) = price_store.get_store()
-      price_store.get_price(retrieved_store, "BTC/USD")
-    })
+    in_other_process(fn() { price_store.get_price(store, "BTC/USD") })
 
   assert result == Ok(PriceEntry(price, 1))
 }
@@ -123,11 +83,8 @@ pub fn non_owner_cannot_delete_price_test() {
   })
 }
 
-pub fn non_owner_cannot_drop_store_test() {
-  assert_non_owner_cannot_mutate(price_store.drop)
-}
-
-pub fn owner_exit_removes_table_and_allows_recreation_test() {
+pub fn owner_exit_invalidates_the_price_store_handle_test() {
+  let symbol = "BTC/USD"
   let ready = process.new_subject()
   let price = positive_float.from_float_unsafe(90_000.0)
 
@@ -135,8 +92,8 @@ pub fn owner_exit_removes_table_and_allows_recreation_test() {
     process.spawn(fn() {
       let stop = process.new_subject()
       let assert Ok(store) = price_store.new()
-      price_store.insert(store, "BTC/USD", price, 1)
-      process.send(ready, stop)
+      price_store.insert(store, symbol, price, 1)
+      process.send(ready, #(store, stop))
 
       let assert Ok(Nil) = process.receive(stop, 1000)
       Nil
@@ -144,9 +101,8 @@ pub fn owner_exit_removes_table_and_allows_recreation_test() {
   use <- exception.defer(fn() { stop_process(owner) })
 
   let monitor = process.monitor(owner)
-  let assert Ok(stop) = process.receive(ready, 1000)
-  let assert Ok(store) = price_store.get_store()
-  assert price_store.get_price(store, "BTC/USD") == Ok(PriceEntry(price, 1))
+  let assert Ok(#(original, stop)) = process.receive(ready, 1000)
+  assert price_store.get_price(original, symbol) == Ok(PriceEntry(price, 1))
 
   process.send(stop, Nil)
   let assert Ok(_) =
@@ -154,12 +110,19 @@ pub fn owner_exit_removes_table_and_allows_recreation_test() {
     |> process.select_specific_monitor(monitor, fn(_) { Nil })
     |> process.selector_receive(1000)
 
-  assert price_store.get_store() == Error(Nil)
-  with_price_store(fn(_) { Nil })
+  let assert Ok(replacement) = price_store.new()
+  let replacement_price = positive_float.from_float_unsafe(100_000.0)
+  price_store.insert(replacement, symbol, replacement_price, 2)
+  assert price_store.get_price(replacement, symbol)
+    == Ok(PriceEntry(replacement_price, 2))
+
+  let assert Error(exception.Errored(reason)) =
+    exception.rescue(fn() { price_store.get_price(original, symbol) })
+  assert decode.run(reason, atom.decoder()) == Ok(atom.create("badarg"))
 }
 
 pub fn delete_existing_symbol_test() {
-  use store <- with_price_store
+  let assert Ok(store) = price_store.new()
 
   let symbol = "BTC/USD"
   price_store.insert(
@@ -180,7 +143,7 @@ pub fn delete_existing_symbol_test() {
 }
 
 pub fn delete_non_existent_symbol_test() {
-  use store <- with_price_store
+  let assert Ok(store) = price_store.new()
 
   // Should not crash or cause errors
   price_store.delete_price(store, "NON_EXISTENT")
@@ -196,7 +159,7 @@ pub fn delete_non_existent_symbol_test() {
 }
 
 pub fn delete_one_symbol_preserves_others_test() {
-  use store <- with_price_store
+  let assert Ok(store) = price_store.new()
 
   let btc_price = positive_float.from_float_unsafe(50_000.0)
   let eth_price = positive_float.from_float_unsafe(3000.0)
@@ -213,29 +176,8 @@ pub fn delete_one_symbol_preserves_others_test() {
   assert Ok(PriceEntry(eth_price, 2)) == price_store.get_price(store, "ETH/USD")
 }
 
-/// Creates a new `PriceStore`, passes it to the given function, and ensures
-/// the store is dropped afterward to avoid lingering state between tests.
-///
-/// This utility is intended for use in tests that require a fresh, isolated
-/// `PriceStore` instance. It ensures proper cleanup regardless of what the
-/// provided function does.
-///
-/// ## Example
-/// ```gleam
-/// with_price_store(fn(store) {
-///   let assert Ok(price) = positive_float.new(50_000.0)
-///   price_store.insert(store, "BTC/USD", price)
-///   // ... perform assertions ...
-/// })
-/// ```
-fn with_price_store(fun: fn(PriceStore) -> a) {
-  let assert Ok(store) = price_store.new()
-  use <- exception.defer(fn() { price_store.drop(store) })
-  fun(store)
-}
-
 fn assert_non_owner_cannot_mutate(mutate: fn(PriceStore) -> Nil) {
-  use store <- with_price_store
+  let assert Ok(store) = price_store.new()
 
   let price = positive_float.from_float_unsafe(90_000.0)
   price_store.insert(store, "BTC/USD", price, 1)

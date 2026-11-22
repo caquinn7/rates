@@ -9,6 +9,7 @@
 import gleam/result
 import shared/numbers/positive_float.{type PositiveFloat}
 
+/// Runtime identifier returned by `ets:new/2` for an unnamed ETS table.
 type TableId
 
 type PriceRow =
@@ -16,7 +17,7 @@ type PriceRow =
 
 /// A handle to a protected ETS table of prices and provider timestamps, keyed by
 /// Kraken symbol. Any process may read from the store; only its owner may mutate it.
-/// The handle remains valid until the table is dropped or its owning process exits.
+/// The handle becomes invalid when its owning process exits.
 pub opaque type PriceStore {
   PriceStore(TableId)
 }
@@ -26,7 +27,7 @@ pub type PriceEntry {
   PriceEntry(price: PositiveFloat, timestamp: Int)
 }
 
-/// Creates a new `PriceStore` by initializing a protected ETS table.
+/// Creates an independent `PriceStore` backed by an unnamed, protected ETS table.
 ///
 /// The calling process owns the table, which is destroyed when that process exits.
 ///
@@ -36,11 +37,10 @@ pub type PriceEntry {
 /// - **Auto write concurrency**: The runtime automatically decides whether to enable write concurrency
 ///   optimizations based on actual usage patterns.
 ///
-/// This function is intended to be called once by the owner process during application startup.
-/// Other processes should use `get_store` to access the table.
+/// Pass the returned handle to processes that need to read from the table.
 ///
-/// Returns `Error(Nil)` if a table with this name already exists.
-pub fn new() -> Result(PriceStore, Nil) {
+/// Returns an ETS diagnostic if table creation fails.
+pub fn new() -> Result(PriceStore, String) {
   result.map(create_table(), PriceStore)
 }
 
@@ -113,32 +113,8 @@ pub fn delete_price(store: PriceStore, symbol: String) -> Nil {
   Nil
 }
 
-/// Returns a reference to an already-initialized `PriceStore`.
-///
-/// This is intended for use by processes that did not create the store themselves,
-/// but need to read from it.
-///
-/// Returns `Error(Nil)` if the table does not currently exist.
-/// The returned handle identifies that specific table instance.
-pub fn get_store() -> Result(PriceStore, Nil) {
-  result.map(find_table(), PriceStore)
-}
-
-/// Deletes the underlying ETS table associated with the given `PriceStore`.
-///
-/// Only the process that owns the store may call this. Existing references must
-/// not be used after deletion. The table is also destroyed when its owner exits.
-pub fn drop(store: PriceStore) -> Nil {
-  let PriceStore(table) = store
-  let _ = delete_table(table)
-  Nil
-}
-
 @external(erlang, "price_store_ffi", "create_table")
-fn create_table() -> Result(TableId, Nil)
-
-@external(erlang, "price_store_ffi", "find_table")
-fn find_table() -> Result(TableId, Nil)
+fn create_table() -> Result(TableId, String)
 
 @external(erlang, "ets", "insert")
 fn insert_row(table: TableId, row: PriceRow) -> Bool
@@ -148,6 +124,3 @@ fn lookup(table: TableId, symbol: String) -> List(PriceRow)
 
 @external(erlang, "ets", "delete")
 fn delete_row(table: TableId, symbol: String) -> Bool
-
-@external(erlang, "ets", "delete")
-fn delete_table(table: TableId) -> Bool
