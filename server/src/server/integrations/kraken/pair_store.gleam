@@ -55,7 +55,7 @@ pub fn count(store: PairStore) -> Int {
   size(table)
 }
 
-@external(erlang, "kraken_pairs_ffi", "create_table")
+@external(erlang, "pair_store_ffi", "create_table")
 fn create_table() -> Result(TableId, String)
 
 @external(erlang, "ets", "insert")
@@ -70,5 +70,5 @@ fn member(table: TableId, symbol: String) -> Bool
 
 /// Returns the number of rows in the table. The adapter raises `badarg` if the
 /// table ID has expired.
-@external(erlang, "kraken_pairs_ffi", "size")
+@external(erlang, "pair_store_ffi", "size")
 fn size(table: TableId) -> Int

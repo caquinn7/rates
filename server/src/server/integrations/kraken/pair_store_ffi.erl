@@ -1,4 +1,4 @@
--module(kraken_pairs_ffi).
+-module(pair_store_ffi).
 -export([create_table/0, size/1]).
 
 create_table() ->
